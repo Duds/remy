@@ -55,6 +55,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ..ai.input_validator import sanitize_memory_injection
+
 logger = logging.getLogger(__name__)
 
 # Filesystem access controls (mirrors handlers.py)
@@ -1032,9 +1034,12 @@ class ToolRegistry:
                     return "No unread emails."
                 lines = [f"Unread emails ({len(emails)}):"]
                 for m in emails:
-                    subj = m.get("subject", "(no subject)")
-                    sender = m.get("from", "unknown")
-                    snippet = (m.get("snippet") or "")[:100]
+                    # Sanitize all user-controlled email fields before feeding
+                    # them to Claude — a malicious sender could craft subject
+                    # or snippet content to attempt prompt injection.
+                    subj = sanitize_memory_injection(m.get("subject", "(no subject)"))
+                    sender = sanitize_memory_injection(m.get("from_addr", "unknown"))
+                    snippet = sanitize_memory_injection((m.get("snippet") or "")[:150])
                     lines.append(f"• From: {sender}\n  Subject: {subj}\n  {snippet}")
                 return "\n\n".join(lines)
         except Exception as e:
