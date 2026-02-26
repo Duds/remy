@@ -1,0 +1,38 @@
+title: drbot memory browser
+description: Inspect facts, goals, conversations and embeddings stored by drbot.
+license: private
+databases:
+  drbot:
+    tables:
+      users:
+        description: Telegram users who have interacted with drbot.
+        sort: last_seen_at
+        sort_desc: true
+      facts:
+        description: Personal facts extracted from user messages (name, location, preferences, etc).
+        sort: created_at
+        sort_desc: true
+        facets:
+          - category
+        searchmode: raw
+      goals:
+        description: Goals and intentions extracted from user messages.
+        sort: created_at
+        sort_desc: true
+        facets:
+          - status
+        searchmode: raw
+      conversations:
+        description: Conversation session metadata.
+        sort: started_at
+        sort_desc: true
+      embeddings:
+        description: Vector embeddings for facts and goals (used for semantic search).
+        sort: created_at
+        sort_desc: true
+        facets:
+          - content_type
+      photos:
+        description: Photo metadata stored from image messages.
+        sort: created_at
+        sort_desc: true

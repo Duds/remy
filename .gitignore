@@ -1,0 +1,37 @@
+# Secrets & credentials
+.env
+data/client_secrets.json
+data/google_token.json
+
+# Runtime data (personal / generated)
+data/drbot.db
+data/drbot.db-wal
+data/drbot.db-shm
+data/sessions/
+data/logs/
+data/primary_chat_id.txt
+data/grocery_list.txt
+data/*.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Editor / tooling (local only)
+.claude/
+.vscode/settings.local.json
+remy-system-prompt.md
