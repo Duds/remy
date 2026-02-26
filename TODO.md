@@ -276,6 +276,62 @@ This is a **cherry-pick from my-agent** (which had partial support) but implemen
 
 ---
 
+## 🤖 Phase 7: Background Agents (Non-Blocking Long Tasks)
+
+**Problem:** Slow tasks (Board of Directors ~45s, deep research, retrospective) currently hold the
+per-user session lock for their full duration. The user is blocked until they complete.
+
+**Key insight:** `ProactiveScheduler` already solves this — it runs async AI work and calls
+`_send()` directly without ever holding a session lock. Background agents follow the same model.
+
+### Step 1 — Fire-and-Forget with Telegram Callback (no new infrastructure)
+
+The minimal, idiomatic change. Fits entirely within the existing asyncio architecture.
+
+- [ ] Add `BackgroundTaskRunner` in `drbot/agents/background.py`
+  - Wraps `BoardOrchestrator`, `ConversationAnalyzer.generate_retrospective`, etc.
+  - Accepts a `chat_id` + `bot` reference; calls `bot.send_message()` on completion
+  - Catches and logs exceptions; never leaks into the main event loop
+- [ ] Modify `_process_text_input` in `handlers.py` to detect "detachable" requests
+  - Heuristic: user explicitly asks for `/board`, `/retrospective`, or sends a message whose
+    intent is classified as "deep analysis" (existing `classifier.py` already has intent detection)
+  - On match: acquire lock briefly → send "Started — I'll message you when done 🔄" → release
+    lock → `asyncio.create_task(_run_detached(...))`
+- [ ] The detached task reads `primary_chat_id` (same as proactive scheduler) for the callback send
+- **No new dependencies.** Uses `asyncio.create_task()` already used for fact/goal extraction.
+
+### Step 2 — Persistent Job Tracking (adds resilience across restarts)
+
+Builds on Step 1. Lets the user check status and re-read results after the fact.
+
+- [ ] Add `background_jobs` table to SQLite schema (`drbot/memory/database.py`):
+  ```
+  id, user_id, job_type (board/research/retrospective), status (queued/running/done/failed),
+  input_text, result_text, created_at, completed_at
+  ```
+- [ ] Add `BackgroundJobStore` in `drbot/memory/background_jobs.py` — CRUD + status updates
+- [ ] Add `/jobs` command → lists recent background jobs with status and truncated result
+- [ ] Add `list_background_jobs` tool → natural language: "is my board analysis done yet?"
+- [ ] On bot restart: jobs still marked `running` are flipped to `failed` with a note
+  (no automatic retry — keep it simple)
+
+### Step 3 — Claude Agent SDK Subagents (future, major refactor)
+
+Deferred until Steps 1 & 2 are proven insufficient. Requires replacing `ClaudeClient.stream_with_tools()`.
+
+- [ ] Evaluate `claude-agent-sdk` (`pip install claude-agent-sdk`) as a replacement for the
+  manual tool-use loop in `drbot/ai/claude_client.py`
+- [ ] Define named subagents for different capability profiles:
+  - `deep-researcher` — Opus 4.6, web search + file read, runs on background task
+  - `board-analyst` — Opus 4.6, read-only, orchestrates the 5 Board agents
+  - `quick-assistant` — Sonnet 4.6 (current default), all tools, interactive
+- [ ] Subagents can run on **different models** — cheap Haiku for classification,
+  Opus for deep analysis — without changing the main conversation model
+- **Constraint:** Subagents cannot spawn their own subagents (no `Task` tool in subagent's tools)
+- **Dependency:** `claude-agent-sdk` replaces the hand-rolled agentic loop; test thoroughly before merging
+
+---
+
 ## 🗑️ Features to Deliberately Avoid (Lessons from my-agent)
 
 These were in my-agent and caused bloat. **Do not implement.**
@@ -323,7 +379,10 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **C** | Gmail send | 3.2 | ⬜ Deferred (security) |
 | **C** | Price comparison | 4.2 | ✅ Done |
 | **C** | Digital fingerprint audit | 4.3 | ⬜ Phase 4 |
-| **C** | Goal tracking dashboard | 6 | ⬜ Phase 6 |
+| **C** | Goal tracking dashboard | 6 | ✅ Done |
+| **C** | Background agents (fire-and-forget) | 7.1 | ⬜ Phase 7 |
+| **C** | Persistent job tracking + /jobs | 7.2 | ⬜ Phase 7 |
+| **W** | Claude Agent SDK subagents | 7.3 | ⬜ Deferred (major refactor) |
 | **W** | Headless browser automation | — | ❌ Avoid |
 | **W** | Knowledge graph + vector store | — | ❌ Avoid |
 
@@ -331,7 +390,7 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 ## 📍 Next Steps (Immediate)
 
-1. **Phase 6 done.** No immediate next steps — monitor usage and revisit priority list.
+1. **Start Phase 7, Step 1** — `BackgroundTaskRunner` + fire-and-forget pattern for Board and retrospective
 
 ---
 
