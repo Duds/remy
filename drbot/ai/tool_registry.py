@@ -481,7 +481,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "read_file",
         "description": (
             "Read the contents of a text file. "
-            "Only files under ~/Projects, ~/Documents, or ~/Downloads are accessible. "
+            "Accessible directories: ~/Projects, ~/Documents, ~/Downloads. "
             "Use this when the user asks you to read, open, or look at a file."
         ),
         "input_schema": {
@@ -489,7 +489,13 @@ TOOL_SCHEMAS: list[dict] = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute or home-relative path to the file (e.g. ~/Projects/myapp/README.md).",
+                    "description": (
+                        "Path to the file. ALWAYS use the ~/... form "
+                        "(e.g. ~/Projects/ai-agents/drbot/TODO.md). "
+                        "Never use absolute paths such as /home/dalerogers/ or /Users/dalerogers/ — "
+                        "they will be rejected. The ~ here refers to the bot's runtime home, not the "
+                        "host user's home directory."
+                    ),
                 },
             },
             "required": ["path"],
@@ -499,7 +505,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "list_directory",
         "description": (
             "List files and subdirectories at a path. "
-            "Only paths under ~/Projects, ~/Documents, or ~/Downloads are accessible. "
+            "Accessible directories: ~/Projects, ~/Documents, ~/Downloads. "
             "Use this when the user asks what files are in a folder or wants to browse a directory."
         ),
         "input_schema": {
@@ -507,7 +513,11 @@ TOOL_SCHEMAS: list[dict] = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute or home-relative path to the directory.",
+                    "description": (
+                        "Path to the directory. ALWAYS use ~/... form "
+                        "(e.g. ~/Projects/ai-agents/drbot/). "
+                        "Never use absolute paths like /home/dalerogers/ or /Users/dalerogers/."
+                    ),
                 },
             },
             "required": ["path"],
@@ -1349,7 +1359,18 @@ class ToolRegistry:
         """Expand ~ and validate path is within allowed base dirs."""
         from ..ai.input_validator import sanitize_file_path
         expanded = str(Path(raw).expanduser())
-        return sanitize_file_path(expanded, _ALLOWED_BASE_DIRS)
+        path_obj, err = sanitize_file_path(expanded, _ALLOWED_BASE_DIRS)
+        if err:
+            # Return a self-correcting error: tell Claude the valid bases and
+            # that it must use ~/... notation, not host-absolute paths.
+            bases = ", ".join(_ALLOWED_BASE_DIRS)
+            return None, (
+                f"{err} "
+                f"Valid base directories inside this container are: {bases}. "
+                f"Always use ~/Projects/..., ~/Documents/..., or ~/Downloads/... "
+                f"(~ expands to {Path.home()} here, not to the host user's home)."
+            )
+        return path_obj, None
 
     async def _exec_read_file(self, inp: dict) -> str:
         raw = inp.get("path", "").strip()
