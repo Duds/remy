@@ -385,6 +385,37 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["message_ids"],
         },
     },
+    {
+        "name": "create_email_draft",
+        "description": (
+            "Compose an email and save it to Gmail Drafts (does NOT send it). "
+            "Use this when the user asks to draft, compose, or write an email. "
+            "The draft sits in Drafts until the user reviews and sends it manually. "
+            "Always confirm the recipient, subject, and body with the user before calling this."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Recipient email address(es), comma-separated if multiple.",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject line.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Plain-text email body.",
+                },
+                "cc": {
+                    "type": "string",
+                    "description": "CC recipients, comma-separated (optional).",
+                },
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
 
     # ------------------------------------------------------------------ #
     # Contacts                                                             #
@@ -896,6 +927,8 @@ class ToolRegistry:
                 return await self._exec_list_gmail_labels(tool_input)
             elif tool_name == "label_emails":
                 return await self._exec_label_emails(tool_input)
+            elif tool_name == "create_email_draft":
+                return await self._exec_create_email_draft(tool_input)
             # Contacts
             elif tool_name == "search_contacts":
                 return await self._exec_search_contacts(tool_input)
@@ -1266,6 +1299,27 @@ class ToolRegistry:
             return f"Updated {count} message(s): {', '.join(parts)}."
         except Exception as e:
             return f"Label update failed: {e}"
+
+    async def _exec_create_email_draft(self, inp: dict) -> str:
+        if self._gmail is None:
+            return "Gmail not configured. Run scripts/setup_google_auth.py to set it up."
+        to      = str(inp.get("to", "")).strip()
+        subject = str(inp.get("subject", "")).strip()
+        body    = str(inp.get("body", "")).strip()
+        cc      = str(inp.get("cc", "")).strip() or None
+        if not to or not subject or not body:
+            return "Draft requires 'to', 'subject', and 'body'."
+        try:
+            result = await self._gmail.create_draft(to=to, subject=subject, body=body, cc=cc)
+            return (
+                f"✅ Draft saved to Gmail Drafts.\n"
+                f"To: {to}\n"
+                f"Subject: {subject}\n"
+                f"Draft ID: {result['id']}\n"
+                f"Open Gmail to review and send."
+            )
+        except Exception as e:
+            return f"Could not create draft: {e}"
 
     # ------------------------------------------------------------------ #
     # Contacts executors                                                   #

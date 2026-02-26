@@ -237,6 +237,43 @@ class GmailClient:
         return await self.modify_labels(message_ids, add_label_ids=["UNREAD"])
 
     # ------------------------------------------------------------------
+    # Compose
+    # ------------------------------------------------------------------
+
+    async def create_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        cc: str | None = None,
+    ) -> dict:
+        """
+        Save a new draft to Gmail Drafts folder.
+        Returns {'id': draft_id, 'message_id': message_id}.
+        """
+        from email.mime.text import MIMEText
+
+        def _sync():
+            msg = MIMEText(body, "plain", "utf-8")
+            msg["To"] = to
+            msg["Subject"] = subject
+            if cc:
+                msg["Cc"] = cc
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+            svc = self._service()
+            draft = svc.users().drafts().create(
+                userId="me",
+                body={"message": {"raw": raw}},
+            ).execute()
+            return {
+                "id": draft["id"],
+                "message_id": draft.get("message", {}).get("id", ""),
+            }
+
+        return await asyncio.to_thread(_sync)
+
+    # ------------------------------------------------------------------
     # Classify / archive (existing)
     # ------------------------------------------------------------------
 

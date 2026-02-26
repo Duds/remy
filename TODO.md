@@ -150,6 +150,11 @@ This is a **cherry-pick from my-agent** (which had partial support) but implemen
   - User reply intercepted in message handler (same pattern as `/write`)
   - Note: `/email` send deferred — security risk for now
 
+- [x] **Gmail draft creation**
+  - `create_email_draft` tool — saves a composed email to Drafts (does not send)
+  - Natural language: "draft an email to Kathryn about the hockey schedule"
+  - User reviews and sends manually from Gmail — no send capability exposed to Remy
+
 - [ ] **Gmail label/folder support** *(feature request)*
   - Current search only queries the default inbox view; emails in Promotions, All Mail,
     or custom labels are invisible to Remy even when unread
