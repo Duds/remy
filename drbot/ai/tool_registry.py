@@ -573,6 +573,59 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
 
+    {
+        "name": "write_file",
+        "description": (
+            "Write (create or overwrite) a text file in ~/Projects, ~/Documents, or ~/Downloads. "
+            "Use to update TODO.md, save notes, or edit project files. "
+            "To check off a TODO item: call read_file first, replace '[ ]' with '[x]', then call "
+            "write_file with the full updated content. "
+            "IMPORTANT: Before calling this tool always tell the user what file you are about to "
+            "write and briefly summarise the changes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Path to the file. ALWAYS use ~/... form "
+                        "(e.g. ~/Projects/ai-agents/drbot/TODO.md). "
+                        "Never use absolute paths."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full content to write to the file (replaces existing content).",
+                },
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "append_file",
+        "description": (
+            "Append text to the end of an existing file in ~/Projects, ~/Documents, or ~/Downloads. "
+            "Ideal for adding new TODO items, log entries, or notes without overwriting the whole file. "
+            "A newline is automatically inserted between the existing content and the new text. "
+            "IMPORTANT: Before calling this tool always tell the user what you are appending and where."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file. ALWAYS use ~/... form.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text to append to the file.",
+                },
+            },
+            "required": ["path", "content"],
+        },
+    },
+
     # ------------------------------------------------------------------ #
     # Google Docs                                                          #
     # ------------------------------------------------------------------ #
@@ -965,6 +1018,10 @@ class ToolRegistry:
                 return await self._exec_read_file(tool_input)
             elif tool_name == "list_directory":
                 return await self._exec_list_directory(tool_input)
+            elif tool_name == "write_file":
+                return await self._exec_write_file(tool_input)
+            elif tool_name == "append_file":
+                return await self._exec_append_file(tool_input)
             # Docs
             elif tool_name == "read_gdoc":
                 return await self._exec_read_gdoc(tool_input)
@@ -1519,6 +1576,68 @@ class ToolRegistry:
         if lines is None:
             return suffix  # error message
         return f"Contents of {safe_path}/ ({len(lines)} items):\n" + "\n".join(lines) + (suffix or "")
+
+    # ------------------------------------------------------------------ #
+    # Write / append file executors                                        #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_write_file(self, inp: dict) -> str:
+        raw = inp.get("path", "").strip()
+        content = inp.get("content", "")
+        if not raw:
+            return "No path provided."
+
+        safe_path, err = self._sanitize_path(raw)
+        if err or safe_path is None:
+            return f"Cannot write file: {err}"
+
+        def _write():
+            p = Path(safe_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            return p.stat().st_size
+
+        try:
+            size = await asyncio.to_thread(_write)
+        except Exception as e:
+            return f"Could not write file: {e}"
+
+        return (
+            f"✅ Written {len(content):,} chars to {safe_path} "
+            f"({size:,} bytes on disk)."
+        )
+
+    async def _exec_append_file(self, inp: dict) -> str:
+        raw = inp.get("path", "").strip()
+        content = inp.get("content", "")
+        if not raw:
+            return "No path provided."
+
+        safe_path, err = self._sanitize_path(raw)
+        if err or safe_path is None:
+            return f"Cannot append to file: {err}"
+
+        def _append():
+            p = Path(safe_path)
+            # Ensure there's a newline separator between existing content and new text
+            if p.exists():
+                existing = p.read_text(encoding="utf-8")
+                sep = "" if (not existing or existing.endswith("\n")) else "\n"
+            else:
+                sep = ""
+            with open(safe_path, "a", encoding="utf-8") as f:
+                f.write(sep + content)
+            return p.stat().st_size
+
+        try:
+            size = await asyncio.to_thread(_append)
+        except Exception as e:
+            return f"Could not append to file: {e}"
+
+        return (
+            f"✅ Appended {len(content):,} chars to {safe_path} "
+            f"({size:,} bytes total on disk)."
+        )
 
     # ------------------------------------------------------------------ #
     # Google Docs executor                                                 #
