@@ -1,11 +1,21 @@
 """
-Gmail API client — lightweight read access with promotional email classification.
+Gmail API client — read, search, label, and organise emails.
+
+Security notes:
+- Email bodies are untrusted content and must be sanitised before being
+  shown to Claude or the user.
+- Body extraction is limited to _BODY_MAX_CHARS to avoid context stuffing.
+- Callers are responsible for applying sanitize_memory_injection() to any
+  content that will be passed back to an LLM.
 """
 
 import asyncio
+import base64
 import logging
 
 logger = logging.getLogger(__name__)
+
+_BODY_MAX_CHARS = 3000  # truncation limit for email bodies
 
 # Keywords that suggest a promotional / newsletter email
 _PROMO_KEYWORDS = frozenset({
@@ -25,6 +35,41 @@ def _is_promotional(email: dict) -> bool:
     return any(kw in text for kw in _PROMO_KEYWORDS)
 
 
+def _extract_body(msg: dict, max_chars: int = _BODY_MAX_CHARS) -> str:
+    """
+    Extract plain-text body from a Gmail full-format message.
+    Falls back to the snippet if no plain-text part is found.
+    """
+    def _get_plain(part: dict) -> str:
+        mime = part.get("mimeType", "")
+        if mime == "text/plain":
+            data = part.get("body", {}).get("data", "")
+            if data:
+                try:
+                    return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+        # Recurse into multipart
+        for subpart in part.get("parts", []):
+            result = _get_plain(subpart)
+            if result:
+                return result
+        return ""
+
+    text = _get_plain(msg.get("payload", {}))
+    if not text:
+        text = msg.get("snippet", "")
+    return text[:max_chars]
+
+
+def _parse_headers(msg: dict) -> dict:
+    """Return a dict of {header_name: value} from a Gmail message."""
+    return {
+        h["name"]: h["value"]
+        for h in msg.get("payload", {}).get("headers", [])
+    }
+
+
 class GmailClient:
     """Wraps Gmail API v1 calls."""
 
@@ -36,40 +81,16 @@ class GmailClient:
         from .auth import get_credentials
         return build("gmail", "v1", credentials=get_credentials(self._token_file))
 
+    # ------------------------------------------------------------------
+    # Read / search
+    # ------------------------------------------------------------------
+
     async def get_unread(self, limit: int = 5) -> list[dict]:
         """
-        Return up to `limit` unread inbox email summaries (metadata only — fast).
-        Each dict has: id, from_addr, subject, date, snippet.
+        Return up to `limit` unread inbox email summaries (metadata only).
+        Each dict has: id, from_addr, subject, date, snippet, labels.
         """
-        def _sync():
-            svc = self._service()
-            msgs = svc.users().messages().list(
-                userId="me",
-                q="is:unread in:inbox",
-                maxResults=limit,
-            ).execute()
-            items = msgs.get("messages", [])
-            results = []
-            for item in items:
-                msg = svc.users().messages().get(
-                    userId="me",
-                    id=item["id"],
-                    format="metadata",
-                    metadataHeaders=["From", "Subject", "Date"],
-                ).execute()
-                headers = {
-                    h["name"]: h["value"]
-                    for h in msg.get("payload", {}).get("headers", [])
-                }
-                results.append({
-                    "id": item["id"],
-                    "from_addr": headers.get("From", ""),
-                    "subject":   headers.get("Subject", "(no subject)"),
-                    "date":      headers.get("Date", ""),
-                    "snippet":   msg.get("snippet", ""),
-                })
-            return results
-        return await asyncio.to_thread(_sync)
+        return await self.search("is:unread in:inbox", max_results=limit)
 
     async def get_unread_count(self) -> int:
         """Return total unread count in inbox."""
@@ -89,6 +110,136 @@ class GmailClient:
         senders = list({e["from_addr"] for e in emails})[:10]
         return {"count": count, "senders": senders}
 
+    async def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        include_body: bool = False,
+    ) -> list[dict]:
+        """
+        Search Gmail using standard Gmail query syntax (e.g. "from:kate@example.com
+        subject:hockey"). Returns up to max_results message summaries.
+
+        If include_body=True, fetches the full plain-text body (truncated to
+        _BODY_MAX_CHARS). Use sparingly — one API call per message.
+        """
+        max_results = min(max_results, 20)
+
+        def _sync():
+            svc = self._service()
+            resp = svc.users().messages().list(
+                userId="me",
+                q=query,
+                maxResults=max_results,
+            ).execute()
+            items = resp.get("messages", [])
+            results = []
+            for item in items:
+                fmt = "full" if include_body else "metadata"
+                msg = svc.users().messages().get(
+                    userId="me",
+                    id=item["id"],
+                    format=fmt,
+                    **({"metadataHeaders": ["From", "To", "Subject", "Date"]}
+                       if not include_body else {}),
+                ).execute()
+                headers = _parse_headers(msg)
+                entry = {
+                    "id": item["id"],
+                    "from_addr": headers.get("From", ""),
+                    "to": headers.get("To", ""),
+                    "subject": headers.get("Subject", "(no subject)"),
+                    "date": headers.get("Date", ""),
+                    "snippet": msg.get("snippet", ""),
+                    "labels": msg.get("labelIds", []),
+                }
+                if include_body:
+                    entry["body"] = _extract_body(msg)
+                results.append(entry)
+            return results
+
+        return await asyncio.to_thread(_sync)
+
+    async def get_message(self, message_id: str, include_body: bool = True) -> dict:
+        """
+        Fetch a single email by ID.
+        Returns full metadata plus plain-text body (if include_body=True).
+        """
+        def _sync():
+            svc = self._service()
+            fmt = "full" if include_body else "metadata"
+            msg = svc.users().messages().get(
+                userId="me",
+                id=message_id,
+                format=fmt,
+            ).execute()
+            headers = _parse_headers(msg)
+            entry = {
+                "id": message_id,
+                "from_addr": headers.get("From", ""),
+                "to": headers.get("To", ""),
+                "subject": headers.get("Subject", "(no subject)"),
+                "date": headers.get("Date", ""),
+                "snippet": msg.get("snippet", ""),
+                "labels": msg.get("labelIds", []),
+            }
+            if include_body:
+                entry["body"] = _extract_body(msg)
+            return entry
+
+        return await asyncio.to_thread(_sync)
+
+    # ------------------------------------------------------------------
+    # Labels
+    # ------------------------------------------------------------------
+
+    async def list_labels(self) -> list[dict]:
+        """Return all Gmail labels (system + user-created)."""
+        def _sync():
+            result = self._service().users().labels().list(userId="me").execute()
+            return [
+                {"id": lbl["id"], "name": lbl["name"], "type": lbl.get("type", "user")}
+                for lbl in result.get("labels", [])
+            ]
+        return await asyncio.to_thread(_sync)
+
+    async def modify_labels(
+        self,
+        message_ids: list[str],
+        add_label_ids: list[str] | None = None,
+        remove_label_ids: list[str] | None = None,
+    ) -> int:
+        """Add/remove labels from messages. Returns count modified."""
+        body: dict = {}
+        if add_label_ids:
+            body["addLabelIds"] = add_label_ids
+        if remove_label_ids:
+            body["removeLabelIds"] = remove_label_ids
+        if not body:
+            return 0
+
+        def _sync():
+            svc = self._service()
+            for mid in message_ids:
+                svc.users().messages().modify(
+                    userId="me", id=mid, body=body
+                ).execute()
+            return len(message_ids)
+
+        return await asyncio.to_thread(_sync)
+
+    async def mark_read(self, message_ids: list[str]) -> int:
+        """Mark messages as read."""
+        return await self.modify_labels(message_ids, remove_label_ids=["UNREAD"])
+
+    async def mark_unread(self, message_ids: list[str]) -> int:
+        """Mark messages as unread."""
+        return await self.modify_labels(message_ids, add_label_ids=["UNREAD"])
+
+    # ------------------------------------------------------------------
+    # Classify / archive (existing)
+    # ------------------------------------------------------------------
+
     async def classify_promotional(self, limit: int = 20) -> list[dict]:
         """Return emails from unread inbox that look promotional."""
         emails = await self.get_unread(limit=limit)
@@ -96,13 +247,4 @@ class GmailClient:
 
     async def archive_messages(self, message_ids: list[str]) -> int:
         """Remove INBOX label from message_ids. Returns count archived."""
-        def _sync():
-            svc = self._service()
-            for mid in message_ids:
-                svc.users().messages().modify(
-                    userId="me",
-                    id=mid,
-                    body={"removeLabelIds": ["INBOX"]},
-                ).execute()
-            return len(message_ids)
-        return await asyncio.to_thread(_sync)
+        return await self.modify_labels(message_ids, remove_label_ids=["INBOX"])

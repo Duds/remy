@@ -165,6 +165,9 @@ def make_handlers(
             "  /gmail-unread [N] — show N unread emails (default 5)\n"
             "  /gmail-unread-summary — total count + top senders\n"
             "  /gmail-classify — find promotional/newsletter emails\n"
+            "  /gmail-search <query> — search all Gmail (supports from:, subject:, label:, etc.)\n"
+            "  /gmail-read <id> — read the full body of an email by ID\n"
+            "  /gmail-labels — list all Gmail labels and their IDs\n"
             "  /gdoc <url-or-id> — read a Google Doc\n"
             "  /gdoc-append <url-or-id> <text> — append text to a Google Doc\n"
             "  /contacts [query] — list or search Google Contacts\n"
@@ -885,6 +888,98 @@ def make_handlers(
             f"\nReply *yes* to archive all {len(promos)} emails, or anything else to cancel."
         )
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    async def gmail_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/gmail-search <query> — search all Gmail with Gmail query syntax."""
+        if await _reject_unauthorized(update):
+            return
+        if google_gmail is None:
+            await update.message.reply_text(_google_not_configured("Gmail"))
+            return
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: `/gmail-search <query>`\n"
+                "Examples:\n"
+                "  `/gmail-search from:kathryn hockey`\n"
+                "  `/gmail-search subject:invoice after:2025/1/1`\n"
+                "  `/gmail-search label:ALL_MAIL is:unread`",
+                parse_mode="Markdown",
+            )
+            return
+        query = " ".join(context.args)
+        await update.message.reply_text(f"🔍 Searching for `{query}`…", parse_mode="Markdown")
+        try:
+            emails = await google_gmail.search(query, max_results=10)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Gmail error: {e}")
+            return
+        if not emails:
+            await update.message.reply_text(f"No emails found for: {query}")
+            return
+        lines = [f"📬 *{len(emails)} result(s) for* `{query}`:\n"]
+        for e in emails:
+            mid = e["id"]
+            lines.append(
+                f"• `{mid}`\n"
+                f"  *{e['subject'][:80]}*\n"
+                f"  From: {e['from_addr'][:60]}\n"
+                f"  {e['date'][:30]}"
+            )
+        await update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
+
+    async def gmail_read_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/gmail-read <message-id> — read the full body of a specific email."""
+        if await _reject_unauthorized(update):
+            return
+        if google_gmail is None:
+            await update.message.reply_text(_google_not_configured("Gmail"))
+            return
+        if not context.args:
+            await update.message.reply_text("Usage: `/gmail-read <message-id>`", parse_mode="Markdown")
+            return
+        message_id = context.args[0]
+        await update.message.reply_text("📖 Fetching email…")
+        try:
+            from ..ai.input_validator import sanitize_memory_injection
+            m = await google_gmail.get_message(message_id, include_body=True)
+            subj   = sanitize_memory_injection(m.get("subject", "(no subject)"))
+            sender = sanitize_memory_injection(m.get("from_addr", ""))
+            date   = m.get("date", "")
+            body   = sanitize_memory_injection(m.get("body") or m.get("snippet", ""))
+            text = (
+                f"*{subj}*\n"
+                f"From: {sender}\n"
+                f"Date: {date}\n\n"
+                f"{body}"
+            )
+            if len(text) > 4000:
+                text = text[:3990] + "\n\n…_(truncated)_"
+            await update.message.reply_text(text, parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Gmail error: {e}")
+
+    async def gmail_labels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/gmail-labels — list all Gmail labels and their IDs."""
+        if await _reject_unauthorized(update):
+            return
+        if google_gmail is None:
+            await update.message.reply_text(_google_not_configured("Gmail"))
+            return
+        try:
+            labels = await google_gmail.list_labels()
+            user_labels = [l for l in labels if l["type"] != "system"]
+            sys_labels  = [l for l in labels if l["type"] == "system"]
+            lines = ["*Gmail Labels*\n"]
+            if user_labels:
+                lines.append("*Custom:*")
+                for l in sorted(user_labels, key=lambda x: x["name"]):
+                    lines.append(f"  `{l['id']}` — {l['name']}")
+            lines.append("\n*System:*")
+            for l in sorted(sys_labels, key=lambda x: x["name"]):
+                lines.append(f"  `{l['id']}` — {l['name']}")
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Gmail error: {e}")
 
     # ------------------------------------------------------------------ #
     # Google Docs commands                                                 #
@@ -2225,6 +2320,9 @@ def make_handlers(
         "gmail-unread": gmail_unread_command,
         "gmail-unread-summary": gmail_unread_summary_command,
         "gmail-classify": gmail_classify_command,
+        "gmail-search": gmail_search_command,
+        "gmail-read": gmail_read_command,
+        "gmail-labels": gmail_labels_command,
         "gdoc": gdoc_command,
         "gdoc-append": gdoc_append_command,
         "contacts": contacts_command,
