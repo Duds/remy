@@ -464,7 +464,7 @@ Low — cosmetic only, nothing is broken
 
 ## 🐛 Bug: Tool Status Text Leaking into Telegram Messages
 
-- [ ] **Suppress inter-tool TextChunks from being streamed to user**
+- [x] **Suppress inter-tool TextChunks from being streamed to user**
   - **Symptom:** Messages like "using list_directory" or "using get_logs" appear in Remy's
     Telegram replies mid-response, as if they are part of the answer.
   - **Root cause:** In `bot/handlers.py`, the tool-aware processing loop passes `TextChunk`
