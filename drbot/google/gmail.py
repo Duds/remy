@@ -203,6 +203,31 @@ class GmailClient:
             ]
         return await asyncio.to_thread(_sync)
 
+    async def create_label(
+        self,
+        name: str,
+        label_list_visibility: str = "labelShow",
+        message_list_visibility: str = "show",
+    ) -> dict:
+        """
+        Create a new Gmail label.
+        Returns {'id': label_id, 'name': label_name}.
+
+        Use slash notation for nesting, e.g. 'Personal/Hockey' creates a
+        'Hockey' label nested under an existing 'Personal' parent label.
+        """
+        def _sync():
+            svc = self._service()
+            body = {
+                "name": name,
+                "labelListVisibility": label_list_visibility,
+                "messageListVisibility": message_list_visibility,
+            }
+            result = svc.users().labels().create(userId="me", body=body).execute()
+            return {"id": result["id"], "name": result["name"]}
+
+        return await asyncio.to_thread(_sync)
+
     async def modify_labels(
         self,
         message_ids: list[str],

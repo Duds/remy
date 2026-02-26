@@ -404,6 +404,30 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "create_gmail_label",
+        "description": (
+            "Create a new Gmail label. Use to organise emails on the fly. "
+            "Supports nested labels using slash notation: e.g. 'Personal/Hockey' creates "
+            "a 'Hockey' label nested under 'Personal'. "
+            "After creating, use label_emails to apply the new label to messages. "
+            "Use list_gmail_labels first to confirm the label doesn't already exist."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Label name. Use slash notation for nesting, "
+                        "e.g. '4-Personal & Family/Hockey'. "
+                        "Must not duplicate an existing label name."
+                    ),
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
         "name": "create_email_draft",
         "description": (
             "Compose an email and save it to Gmail Drafts (does NOT send it). "
@@ -1001,6 +1025,8 @@ class ToolRegistry:
                 return await self._exec_list_gmail_labels(tool_input)
             elif tool_name == "label_emails":
                 return await self._exec_label_emails(tool_input)
+            elif tool_name == "create_gmail_label":
+                return await self._exec_create_gmail_label(tool_input)
             elif tool_name == "create_email_draft":
                 return await self._exec_create_email_draft(tool_input)
             # Contacts
@@ -1393,6 +1419,21 @@ class ToolRegistry:
             return f"Updated {count} message(s): {', '.join(parts)}."
         except Exception as e:
             return f"Label update failed: {e}"
+
+    async def _exec_create_gmail_label(self, inp: dict) -> str:
+        if self._gmail is None:
+            return "Gmail not configured. Run scripts/setup_google_auth.py to set it up."
+        name = inp.get("name", "").strip()
+        if not name:
+            return "Please provide a label name."
+        try:
+            result = await self._gmail.create_label(name)
+            return (
+                f"✅ Label created: **{result['name']}** (ID: `{result['id']}`)\n"
+                f"Use label_emails with this ID to apply it to messages."
+            )
+        except Exception as e:
+            return f"Could not create label: {e}"
 
     async def _exec_create_email_draft(self, inp: dict) -> str:
         if self._gmail is None:

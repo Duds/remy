@@ -437,31 +437,6 @@ Phase 2.1 gave Dale a `/write` command to write files via a two-step flow. What 
 
 ---
 
-## 🐛 Bug: Intermediate "Thinking" Text Leaking into Telegram Chat
-
-### Problem
-When Remy makes multiple tool calls in sequence, any prose written between tool call blocks is rendered as a Telegram message. This causes the intermediate "thinking out loud" text to appear in chat, followed by the final response repeating the same summary — looks like a loop or a glitch.
-
-### User Story
-**As Dale, I want Remy's internal reasoning between tool calls to be suppressed in Telegram, so that only the final response is displayed and the chat doesn't look unhinged.**
-
-### Acceptance Criteria
-- [ ] Intermediate text produced between tool call blocks is NOT sent to Telegram
-- [ ] Intermediate text IS logged (for debugging purposes)
-- [ ] Only the final response after all tool calls complete is sent to Telegram
-- [ ] No change to behaviour for single-tool-call responses
-
-### Proposed Fix (Option 2)
-- Add a `thinking` state to the Telegram message formatter/streamer
-- Text produced while tool calls are in-flight is captured to log only
-- Final response (after all tool results are processed) is sent as normal
-- Likely change is in `bot/handlers.py` or wherever streaming output is assembled before `send_message()`
-
-### Priority
-Low — cosmetic only, nothing is broken
-
----
-
 ## 🐛 Bug: Tool Status Text Leaking into Telegram Messages
 
 - [x] **Suppress inter-tool TextChunks from being streamed to user**
@@ -482,7 +457,7 @@ Low — cosmetic only, nothing is broken
 
 ## 🏷️ Pending: Gmail Label Creation
 
-- [ ] **Add `create_gmail_label` tool**
+- [x] **Add `create_gmail_label` tool**
   - Gap identified: Remy can list and apply labels but cannot create new ones
   - Implement via Gmail API: `POST /gmail/v1/users/me/labels`
   - Support nested labels (e.g. `4-Personal & Family/Hockey`) by setting `name` to the full path string
