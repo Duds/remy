@@ -142,6 +142,10 @@ _MIGRATIONS = [
     "ALTER TABLE automations ADD COLUMN fire_at TEXT;",
     # 002: confidence score on knowledge items (added in model-orchestration-refactor)
     "ALTER TABLE knowledge ADD COLUMN confidence REAL DEFAULT 1.0;",
+    # 003: backfill legacy facts rows — default 1.0 means "unreviewed", not "certain"
+    "UPDATE facts SET confidence = 0.8 WHERE confidence = 1.0;",
+    # 004: backfill legacy knowledge rows for the same reason
+    "UPDATE knowledge SET confidence = 0.8 WHERE confidence = 1.0;",
 ]
 
 # Triggers to keep FTS indices in sync with source tables

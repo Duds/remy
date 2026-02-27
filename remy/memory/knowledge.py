@@ -22,7 +22,7 @@ from .embeddings import EmbeddingStore
 logger = logging.getLogger(__name__)
 
 _EXTRACTION_SYSTEM = """You extract structured knowledge items from user messages.
-Return ONLY a JSON array of objects, each with "entity_type", "content", and "metadata".
+Return ONLY a JSON array of objects, each with "entity_type", "content", "metadata", and "confidence".
 
 Entity Types:
 - shopping_item: Items to buy, groceries, supermarket lists. (Phrases: "buy", "need some", "get from shops")
@@ -34,8 +34,14 @@ Extraction Rules:
 2. "goal": Metadata can include {"status": "active"}. Content is the goal title.
 3. "fact": Metadata must include {"category": "..."} using one of the legal categories.
 
+Confidence Scoring (you MUST include "confidence" on every item):
+- 0.9–1.0: Explicit, unambiguous statement. e.g. "My name is Alice", "I live in Sydney".
+- 0.7–0.8: Reasonably clear but slightly indirect. e.g. "I'm based in Sydney these days".
+- 0.5–0.6: Inferred or contextual — stated implicitly or hedged. e.g. "I think I prefer Python".
+- below 0.5: Speculation or very uncertain — do not extract unless clearly relevant.
+
 Return [] if no knowledge items are found.
-Example: [{"entity_type": "shopping_item", "content": "milk", "metadata": {}}, {"entity_type": "goal", "content": "Build a robot", "metadata": {"status": "active"}}]"""
+Example: [{"entity_type": "fact", "content": "Lives in Sydney", "metadata": {"category": "location"}, "confidence": 0.95}, {"entity_type": "goal", "content": "Build a robot", "metadata": {"status": "active"}, "confidence": 0.8}]"""
 
 _EXTRACTION_PROMPT = 'Extract knowledge items from this message:\n\n"""{message}"""'
 
@@ -139,16 +145,18 @@ class KnowledgeStore:
         
         return item_id
 
-    async def get_by_type(self, user_id: int, entity_type: str, limit: int = 50) -> list[KnowledgeItem]:
-        """Fetch items of a specific type for the user."""
+    async def get_by_type(
+        self, user_id: int, entity_type: str, limit: int = 50, min_confidence: float = 0.5
+    ) -> list[KnowledgeItem]:
+        """Fetch items of a specific type for the user, filtered by minimum confidence."""
         async with self._db.get_connection() as conn:
             rows = await conn.execute_fetchall(
                 """
                 SELECT id, entity_type, content, metadata, confidence, created_at
-                FROM knowledge WHERE user_id=? AND entity_type=?
+                FROM knowledge WHERE user_id=? AND entity_type=? AND confidence >= ?
                 ORDER BY created_at DESC LIMIT ?
                 """,
-                (user_id, entity_type, limit),
+                (user_id, entity_type, min_confidence, limit),
             )
             return [
                 KnowledgeItem(

@@ -4,10 +4,14 @@ Decides whether to route to a simple/cheap model or a complex/capable one.
 
 Fast-path heuristics run first (no network).
 Ambiguous messages fall back to a single Haiku call for 2-token classification.
+Results are cached (TTL=5 min, max 256 entries) on a normalised key so minor
+rephrasing and repeated questions skip the Haiku round-trip entirely.
 """
 
+import hashlib
 import logging
 import re
+import time
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -35,14 +39,63 @@ _SIMPLE_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Summarisation signals
+_SUMMARIZE_PATTERNS = re.compile(
+    r"\b(?:summarize|summarise|tldr|tl;dr|recap|sum\s+up|brief(?:ly)?|overview|digest)\b"
+    r"|\bwhat(?:'s|\s+is)\s+(?:in|the\s+gist\s+of)\b",
+    re.IGNORECASE,
+)
+
+# Reasoning / planning signals
+_REASONING_PATTERNS = re.compile(
+    r"\b(?:plan|strategy|analyse|analyze|think\s+through|walk\s+me\s+through"
+    r"|pros?\s+and\s+cons?|trade-?offs?|compare|evaluate|should\s+I|help\s+me\s+decide)\b",
+    re.IGNORECASE,
+)
+
 ClassificationResult = Literal[
     "routine",         # Short interactive messages, greetings
     "summarization",   # Email summaries, doc summaries
-    "reasoning",       # Planning, multi-step tasks, board analysis
+    "reasoning",       # Planning, multi-step tasks, deep analysis
     "safety",          # File writes, financial actions (if any)
     "coding",          # Scripting, code generation
     "persona",         # Roleplay
 ]
+
+# ---------------------------------------------------------------------------
+# In-process classification cache
+# ---------------------------------------------------------------------------
+_CACHE_TTL = 300        # seconds
+_CACHE_MAX = 256        # entries; simple FIFO eviction when full
+
+_cache: dict[str, tuple[ClassificationResult, float]] = {}  # key -> (result, ts)
+
+
+def _normalise(text: str) -> str:
+    """Lowercase, collapse whitespace, strip punctuation for a stable cache key."""
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s]", "", text)
+    return re.sub(r"\s+", " ", text)
+
+
+def _cache_key(text: str) -> str:
+    return hashlib.md5(_normalise(text).encode(), usedforsecurity=False).hexdigest()
+
+
+def _cache_get(key: str) -> ClassificationResult | None:
+    entry = _cache.get(key)
+    if entry and (time.monotonic() - entry[1]) < _CACHE_TTL:
+        return entry[0]
+    _cache.pop(key, None)
+    return None
+
+
+def _cache_set(key: str, result: ClassificationResult) -> None:
+    if len(_cache) >= _CACHE_MAX:
+        # Evict oldest entry
+        oldest = min(_cache, key=lambda k: _cache[k][1])
+        _cache.pop(oldest, None)
+    _cache[key] = (result, time.monotonic())
 
 
 class MessageClassifier:
@@ -55,7 +108,18 @@ class MessageClassifier:
     async def classify(self, text: str) -> ClassificationResult:
         """Return a task category for the given message text."""
         stripped = text.strip()
+        key = _cache_key(stripped)
 
+        cached = _cache_get(key)
+        if cached is not None:
+            logger.debug("Classifier: %s (cache hit)", cached)
+            return cached
+
+        result = await self._classify_uncached(stripped)
+        _cache_set(key, result)
+        return result
+
+    async def _classify_uncached(self, stripped: str) -> ClassificationResult:
         # Fast-path: obvious routine cases
         if len(stripped) < 80 and _SIMPLE_PATTERNS.match(stripped):
             logger.debug("Classifier: routine (greeting fast-path)")
@@ -66,9 +130,19 @@ class MessageClassifier:
             logger.debug("Classifier: coding (keyword match)")
             return "coding"
 
-        # Fast-path: short messages defaults to routine
+        # Fast-path: summarisation
+        if _SUMMARIZE_PATTERNS.search(stripped):
+            logger.debug("Classifier: summarization (keyword match)")
+            return "summarization"
+
+        # Fast-path: reasoning / planning
+        if _REASONING_PATTERNS.search(stripped):
+            logger.debug("Classifier: reasoning (keyword match)")
+            return "reasoning"
+
+        # Fast-path: short messages default to routine
         if len(stripped) < 100:
-            logger.debug("Classifier: routine (short, no specific complex keywords)")
+            logger.debug("Classifier: routine (short, no specific keywords)")
             return "routine"
 
         # Ambiguous: ask Haiku for a granular decision
@@ -106,7 +180,7 @@ class MessageClassifier:
                     return "coding"
                 if "PERSONA" in classification:
                     return "persona"
-                
+
                 return "routine"
             except Exception as e:
                 logger.warning("Classifier granular call failed: %s", e)

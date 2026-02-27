@@ -37,15 +37,21 @@ class MemoryInjector:
         self._knowledge = knowledge_store
         self._fts = fts
 
-    async def build_context(self, user_id: int, current_message: str) -> str:
+    async def build_context(
+        self, user_id: int, current_message: str, min_confidence: float = 0.5
+    ) -> str:
         """
         Return a memory XML block to append to the system prompt.
         Returns empty string if no memory is available.
+
+        Args:
+            min_confidence: Only include knowledge items at or above this threshold.
+                            Defaults to 0.5 to exclude speculative extractions.
         """
         # Fetch relevant items from the unified store
-        facts = await self._get_relevant_knowledge(user_id, current_message, "fact", limit=5)
-        goals = await self._get_relevant_knowledge(user_id, current_message, "goal", limit=3)
-        shopping = await self._get_relevant_knowledge(user_id, current_message, "shopping_item", limit=5)
+        facts = await self._get_relevant_knowledge(user_id, current_message, "fact", limit=5, min_confidence=min_confidence)
+        goals = await self._get_relevant_knowledge(user_id, current_message, "goal", limit=3, min_confidence=min_confidence)
+        shopping = await self._get_relevant_knowledge(user_id, current_message, "shopping_item", limit=5, min_confidence=min_confidence)
         
         project_ctx = await self._get_project_context(user_id)
 
@@ -85,7 +91,7 @@ class MemoryInjector:
         return "\n".join(parts)
 
     async def _get_relevant_knowledge(
-        self, user_id: int, query: str, entity_type: str, limit: int = 5
+        self, user_id: int, query: str, entity_type: str, limit: int = 5, min_confidence: float = 0.5
     ) -> list:
         """Unified search across ANN, FTS, and recent history for a specific type."""
         # Note: types in types in Knowledge are: fact, goal, shopping_item
@@ -96,19 +102,19 @@ class MemoryInjector:
         if ann_results:
             ids = [r["source_id"] for r in ann_results if r.get("source_id")]
             if ids:
-                return await self._get_by_ids(user_id, ids)
-        
+                return await self._get_by_ids(user_id, ids, min_confidence=min_confidence)
+
         # 2. Fall back to FTS (to be updated to unified search)
         # For now, we'll just fall back to recent items
-        return await self._knowledge.get_by_type(user_id, entity_type, limit=limit)
+        return await self._knowledge.get_by_type(user_id, entity_type, limit=limit, min_confidence=min_confidence)
 
-    async def _get_by_ids(self, user_id: int, ids: list[int]) -> list[KnowledgeItem]:
+    async def _get_by_ids(self, user_id: int, ids: list[int], min_confidence: float = 0.5) -> list[KnowledgeItem]:
         placeholders = ",".join("?" * len(ids))
         async with self._db.get_connection() as conn:
             rows = await conn.execute_fetchall(
                 f"SELECT id, entity_type, content, metadata, confidence FROM knowledge "
-                f"WHERE user_id=? AND id IN ({placeholders})",
-                (user_id, *ids),
+                f"WHERE user_id=? AND id IN ({placeholders}) AND confidence >= ?",
+                (user_id, *ids, min_confidence),
             )
             return [
                 KnowledgeItem(
@@ -156,10 +162,10 @@ class MemoryInjector:
         return results
 
     async def build_system_prompt(
-        self, user_id: int, current_message: str, soul_md: str
+        self, user_id: int, current_message: str, soul_md: str, min_confidence: float = 0.5
     ) -> str:
         """Return the full system prompt: SOUL.md + memory block."""
-        memory_block = await self.build_context(user_id, current_message)
+        memory_block = await self.build_context(user_id, current_message, min_confidence=min_confidence)
         if memory_block:
             return f"{soul_md}\n\n{memory_block}"
         return soul_md
