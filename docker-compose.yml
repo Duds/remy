@@ -27,6 +27,20 @@ services:
       start_period: 20s
       retries: 3
 
+  relay:
+    build: ./relay_mcp
+    ports:
+      - "127.0.0.1:8765:8765"   # local only — Claude Code agents connect here
+    volumes:
+      - ./data:/app/data         # relay.db lives alongside other drbot data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/mcp')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
   ollama:
     image: ollama/ollama:latest
     ports:

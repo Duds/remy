@@ -93,6 +93,28 @@ def _build_message_from_turn(turn: ConversationTurn) -> dict:
     return {"role": turn.role, "content": turn.content}
 
 
+# Rough character budget for conversation history passed to Claude.
+# Each tool-result turn from a Gmail search can be very large; keeping this
+# low prevents TPM rate-limit errors (30k input tokens/min limit).
+# Estimate: 4 chars ≈ 1 token → 60k chars ≈ 15k tokens for history.
+_HISTORY_CHAR_BUDGET = 60_000
+
+
+def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
+    """
+    Drop the oldest message pairs from history if the serialised size exceeds
+    _HISTORY_CHAR_BUDGET.  Always preserves at least the last 4 messages so
+    that the immediate prior exchange stays intact.
+    """
+    while len(messages) > 4:
+        serialised = json.dumps(messages, ensure_ascii=False)
+        if len(serialised) <= _HISTORY_CHAR_BUDGET:
+            break
+        # Drop the first two messages (one user + one assistant pair)
+        messages = messages[2:]
+    return messages
+
+
 def make_handlers(
     session_manager: SessionManager,
     router: ModelRouter,
@@ -2138,6 +2160,9 @@ def make_handlers(
                 if first["role"] == "user" and isinstance(first["content"], str):
                     break
                 messages.pop(0)
+            # Trim history to stay within TPM budget (large tool results from
+            # Gmail / calendar ops can push input tokens well over the limit).
+            messages = _trim_messages_to_budget(messages)
             messages.append({"role": "user", "content": text})
 
             # Save the user turn immediately
@@ -2346,6 +2371,7 @@ def make_handlers(
                 if first["role"] == "user" and isinstance(first["content"], str):
                     break
                 messages.pop(0)
+            messages = _trim_messages_to_budget(messages)
 
             # Append the image message as a multi-block content list
             messages.append({

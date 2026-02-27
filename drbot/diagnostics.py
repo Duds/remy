@@ -3,6 +3,7 @@ Diagnostic utilities for analyzing bot logs and reporting issues.
 """
 
 import re
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -99,44 +100,33 @@ def get_recent_logs(
     since: Optional[datetime] = None,
     since_line: Optional[int] = None,
 ) -> str:
-    """
-    Read recent logs from drbot.log file.
-
-    Args:
-        data_dir: Directory containing drbot.log (or logs/ subdir)
-        lines: Number of recent lines to return
-        level: Filter by log level (e.g., "ERROR", "WARNING")
-        since: Only include lines with a timestamp >= this datetime (for relative time filters)
-        since_line: Only include lines at or after this file line index (for startup filter)
-
-    Returns:
-        Recent log entries as formatted string, or error message if unavailable
-    """
+    """Read recent logs from drbot.log file efficiently using a deque."""
     log_file = _log_file(data_dir)
 
     if not log_file.exists():
         return "No logs available yet (drbot.log not created)"
 
     try:
+        buffer: deque[str] = deque(maxlen=lines)
         with open(log_file, "r", encoding="utf-8") as f:
-            all_lines = f.readlines()
+            for i, line in enumerate(f):
+                # Filter by file position (startup session filter)
+                if since_line is not None and i < since_line:
+                    continue
 
-        # Filter by file position (startup session filter)
-        if since_line is not None:
-            all_lines = all_lines[since_line:]
+                # Filter by timestamp (relative time filter: 1h/6h/24h)
+                if since is not None:
+                    ts = _parse_ts(line)
+                    if ts is not None and ts < since:
+                        continue
 
-        # Filter by timestamp (relative time filter: 1h/6h/24h)
-        if since is not None:
-            all_lines = [l for l in all_lines if (_parse_ts(l) or datetime.min) >= since]
+                # Filter by level if specified
+                if level and f"[{level}]" not in line:
+                    continue
 
-        # Filter by level if specified
-        if level:
-            all_lines = [l for l in all_lines if f"[{level}]" in l]
+                buffer.append(line)
 
-        # Get the last N lines
-        recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
-
-        formatted = "".join(recent)
+        formatted = "".join(buffer)
         return formatted or f"No {level or 'recent'} logs found"
 
     except Exception as e:
@@ -149,51 +139,46 @@ def get_error_summary(
     since: Optional[datetime] = None,
     since_line: Optional[int] = None,
 ) -> str:
-    """
-    Analyze logs and return a summary of recent errors.
-
-    Args:
-        data_dir: Directory containing drbot.log (or logs/ subdir)
-        max_items: Maximum error summaries to return
-        since: Only include lines with timestamp >= this datetime (relative time filters)
-        since_line: Only include lines at or after this file line index (startup filter)
-
-    Returns:
-        Summary of recent errors and warnings
-    """
+    """Analyze logs efficiently and return a summary of recent errors."""
     log_file = _log_file(data_dir)
 
     if not log_file.exists():
         return "No logs available"
 
     try:
+        errors: deque[str] = deque(maxlen=max_items)
+        warnings: deque[str] = deque(maxlen=max_items)
+        error_count = 0
+        warning_count = 0
+
         with open(log_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+            for i, line in enumerate(f):
+                if since_line is not None and i < since_line:
+                    continue
 
-        # Filter by file position (startup session filter)
-        if since_line is not None:
-            lines = lines[since_line:]
+                if since is not None:
+                    ts = _parse_ts(line)
+                    if ts is not None and ts < since:
+                        continue
 
-        # Filter by timestamp (relative time filters)
-        if since is not None:
-            lines = [l for l in lines if (_parse_ts(l) or datetime.min) >= since]
-
-        # Find errors and warnings
-        errors = [l for l in lines if " [ERROR] " in l]
-        warnings = [l for l in lines if " [WARNING] " in l]
+                if " [ERROR] " in line:
+                    errors.append(line)
+                    error_count += 1
+                elif " [WARNING] " in line:
+                    warnings.append(line)
+                    warning_count += 1
 
         summary = []
-
         if errors:
-            summary.append(f"🚨 **Recent Errors ({len(errors)} total)**")
-            for line in errors[-max_items:]:
+            summary.append(f"🚨 **Recent Errors ({error_count} total)**")
+            for line in errors:
                 if ":" in line:
                     msg = line.split(":", 2)[-1].strip()
                     summary.append(f"  • {msg}")
 
         if warnings:
-            summary.append(f"\n⚠️  **Recent Warnings ({len(warnings)} total)**")
-            for line in warnings[-max_items:]:
+            summary.append(f"\n⚠️  **Recent Warnings ({warning_count} total)**")
+            for line in warnings:
                 if ":" in line:
                     msg = line.split(":", 2)[-1].strip()
                     summary.append(f"  • {msg}")

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gmail Audit — Dale Rogers</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+  .header { background: #1a73e8; color: white; padding: 28px 36px; }
+  .header h1 { font-size: 22px; font-weight: 600; }
+  .header p { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+  .container { max-width: 900px; margin: 0 auto; padding: 28px 24px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+  .stat { background: white; border-radius: 10px; padding: 16px 20px; border-left: 4px solid #1a73e8; }
+  .stat .number { font-size: 28px; font-weight: 700; color: #1a73e8; }
+  .stat .label { font-size: 12px; color: #666; margin-top: 2px; }
+  .section { background: white; border-radius: 10px; padding: 22px 24px; margin-bottom: 18px; }
+  .section h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-red { background: #fce8e6; color: #c5221f; }
+  .badge-orange { background: #fef3e2; color: #b06000; }
+  .badge-green { background: #e6f4ea; color: #137333; }
+  .badge-blue { background: #e8f0fe; color: #1a73e8; }
+  .badge-purple { background: #f3e8fd; color: #7b1fa2; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 10px; background: #f8f9fa; font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.4px; }
+  td { padding: 9px 10px; border-top: 1px solid #f0f0f0; vertical-align: top; }
+  tr:hover td { background: #fafafa; }
+  .search-box { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-family: 'Courier New', monospace; font-size: 12px; color: #333; word-break: break-all; cursor: pointer; user-select: all; margin: 4px 0; }
+  .search-box:hover { background: #e8f0fe; border-color: #1a73e8; }
+  .action-label { font-size: 11px; color: #666; margin-bottom: 3px; }
+  .label-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #f0f0f0; color: #333; }
+  .issue-row td:first-child { font-weight: 500; }
+  .note { font-size: 12px; color: #888; font-style: italic; margin-top: 6px; }
+  .divider { border: none; border-top: 1px solid #f0f0f0; margin: 14px 0; }
+  .label-map { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .label-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #e8e8e8; border-radius: 8px; }
+  .label-id { font-family: monospace; font-size: 11px; color: #888; min-width: 70px; }
+  .label-name { font-weight: 600; font-size: 13px; }
+  .label-confidence { font-size: 10px; color: #999; }
+  .vol-bar { display: inline-block; height: 8px; border-radius: 4px; background: #1a73e8; vertical-align: middle; margin-left: 6px; opacity: 0.6; }
+  .tip { background: #fffde7; border-left: 3px solid #f9a825; padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 13px; margin-top: 12px; }
+  a.gmail-link { color: #1a73e8; text-decoration: none; font-size: 12px; }
+  a.gmail-link:hover { text-decoration: underline; }
+  h3 { font-size: 13px; font-weight: 700; color: #444; margin: 16px 0 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📬 Gmail Audit Report</h1>
+  <p>hello@dalerogers.com.au &nbsp;·&nbsp; Generated 27 Feb 2026 &nbsp;·&nbsp; Scope: last 12 months &nbsp;·&nbsp; 31,853 total messages</p>
+</div>
+
+<div class="container">
+
+  <!-- Summary stats -->
+  <div class="summary-grid">
+    <div class="stat">
+      <div class="number">200+</div>
+      <div class="label">LinkedIn emails — mostly unlabelled</div>
+    </div>
+    <div class="stat">
+      <div class="number">45+</div>
+      <div class="label">AusTender notifications — partly unlabelled</div>
+    </div>
+    <div class="stat">
+      <div class="number">200+</div>
+      <div class="label">Promotional emails — all unlabelled</div>
+    </div>
+  </div>
+
+  <!-- Label ID Map -->
+  <div class="section">
+    <h2>🏷️ Label ID Mapping (confirmed from email content)</h2>
+    <p style="font-size:12px; color:#888; margin-bottom:12px;">The Gmail API exposes internal IDs. These are what your labels actually map to.</p>
+    <div class="label-map">
+      <div class="label-item">
+        <span class="label-id">Label_161</span>
+        <div>
+          <div class="label-name">1-Work & Career</div>
+          <div class="label-confidence">Confirmed — AusTender tenders, ACT Gov accounts</div>
+        </div>
+      </div>
+      <div class="label-item">
+        <span class="label-id">Label_163</span>
+        <div>
+          <div class="label-name">4-Personal & Family</div>
+          <div class="label-confidence">Confirmed — Radford Nexus, hockey club, Kathryn</div>
+        </div>
+      </div>
+      <div class="label-item">
+        <span class="label-id">Label_182</span>
+        <div>
+          <div class="label-name">8-Subscriptions & Serv...</div>
+          <div class="label-confidence">Confirmed — LinkedIn (some), Amazon, Microsoft</div>
+        </div>
+      </div>
+      <div class="label-item">
+        <span class="label-id">Label_159</span>
+        <div>
+          <div class="label-name">3-Finance & Admin (likely)</div>
+          <div class="label-confidence">Qantas FF, Ubank — financial/subscription mix</div>
+        </div>
+      </div>
+      <div class="label-item">
+        <span class="label-id">Label_160</span>
+        <div>
+          <div class="label-name">3-Finance & Admin (likely)</div>
+          <div class="label-confidence">Zip Money statement</div>
+        </div>
+      </div>
+      <div class="label-item">
+        <span class="label-id">Label_177</span>
+        <div>
+          <div class="label-name">5-Hobbies & Interests (likely)</div>
+          <div class="label-confidence">Pinterest, Hatch job board</div>
+        </div>
+      </div>
+      <div class="label-item">
+        <span class="label-id">Label_153</span>
+        <div>
+          <div class="label-name">1-Work or 2-Projects (likely)</div>
+          <div class="label-confidence">Google Workspace admin emails</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Labelling Issues -->
+  <div class="section">
+    <h2>⚠️ Labelling Issues Found</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Sender / Type</th>
+          <th>Volume</th>
+          <th>Current State</th>
+          <th>Should Be</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="issue-row">
+          <td>LinkedIn Job Alerts<br><span class="note">from: jobalerts-noreply@linkedin.com</span></td>
+          <td>~100+ <span class="vol-bar" style="width:60px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">1-Work & Career</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>LinkedIn Notifications & Digests<br><span class="note">"5 new updates", weekly performance, "add X" suggestions</span></td>
+          <td>~80+ <span class="vol-bar" style="width:48px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag" style="background:#fce8e6;color:#c5221f">9-For-Deletion</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>AusTender Notifications (recent)<br><span class="note">Feb 2026 — older ones correctly have Label_161</span></td>
+          <td>~9 recent <span class="vol-bar" style="width:16px"></span></td>
+          <td><span class="badge badge-orange">Partially labelled</span></td>
+          <td><span class="label-tag">1-Work & Career</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Radford Nexus Digest (school emails)<br><span class="note">Daily digests from nexus@radford.act.edu.au</span></td>
+          <td>~30+ <span class="vol-bar" style="width:30px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">4-Personal & Family</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Financial Receipts & Transactions<br><span class="note">Kmart, Amazon, Plenti, Crazy Domains, hockey club, Stan, Disney+, AliExpress, Wokitup, NAB, Australian Unity</span></td>
+          <td>~25+ <span class="vol-bar" style="width:25px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">3-Finance & Admin</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Strata / Linq Apartments<br><span class="note">AGM notices, body corporate, lift fault emails</span></td>
+          <td>~5 <span class="vol-bar" style="width:10px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">4-Personal & Family</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Hobbies Newsletters<br><span class="note">Chesapeake Light Craft (boats), HobbyKing (RC), Paint on Plastic, Seed Collection</span></td>
+          <td>~20+ <span class="vol-bar" style="width:20px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">5-Hobbies & Interests</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>ACT Digital Account Notification<br><span class="note">Profile change alert — sitting under Label_161 (1-Work & Career)</span></td>
+          <td>1 <span class="vol-bar" style="width:4px"></span></td>
+          <td><span class="badge badge-orange">Mislabelled</span></td>
+          <td><span class="label-tag">3-Finance & Admin</span> or <span class="label-tag">4-Personal & Family</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>CBRIN (Canberra Innovation Network)<br><span class="note">Networking events, grant programs, SME breakfast</span></td>
+          <td>~5 <span class="vol-bar" style="width:10px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">7-Community & Events</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Hatch job recommendations<br><span class="note">Targeted job emails from fam@email.hatch.team</span></td>
+          <td>~6 <span class="vol-bar" style="width:10px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">1-Work & Career</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Cursor AI updates<br><span class="note">Product updates from team@mail.cursor.com</span></td>
+          <td>~2 <span class="vol-bar" style="width:6px"></span></td>
+          <td><span class="badge badge-red">Unlabelled</span></td>
+          <td><span class="label-tag">2-Projects & Code</span></td>
+        </tr>
+        <tr class="issue-row">
+          <td>Pinterest legal/compliance<br><span class="note">from: pinbot@legal.pinterest.com — inconsistent</span></td>
+          <td>5 <span class="vol-bar" style="width:8px"></span></td>
+          <td><span class="badge badge-orange">Partially labelled</span></td>
+          <td><span class="label-tag" style="background:#fce8e6;color:#c5221f">9-For-Deletion</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Deletion Candidates -->
+  <div class="section">
+    <h2>🗑️ Deletion Candidates — Gmail Search Queries</h2>
+    <p style="font-size:12px; color:#888; margin-bottom:16px;">Copy each query into Gmail search, then select all → label with <strong>9-For-Deletion</strong>. Click the search query to copy it.</p>
+
+    <h3>🔴 High Confidence — Safe to Delete</h3>
+
+    <div class="action-label">LinkedIn notification noise (NOT job alerts) — ~80 emails</div>
+    <div class="search-box">from:(notifications-noreply@linkedin.com OR messages-noreply@linkedin.com) after:2025/02/27</div>
+    <div class="note">Covers "X new updates", "add Y", weekly performance stats, event reminders. Review before bulk-deleting — a small number may be genuine invites.</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Microsoft Store promotional emails</div>
+    <div class="search-box">from:Microsoftstore@microsoftstore.microsoft.com after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">DocHub marketing (repetitive — 3+ copies of same email)</div>
+    <div class="search-box">from:noreply@dochub.com after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">cloudHQ marketing</div>
+    <div class="search-box">from:marketing.emails@cloudhq.net after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">YouTube comment reply notifications</div>
+    <div class="search-box">from:noreply@youtube.com after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">OpenTable restaurant promos</div>
+    <div class="search-box">from:OpenTable@mgs.opentable.com after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Swarm / Foursquare</div>
+    <div class="search-box">from:noreply@foursquare.com after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Pinterest legal/compliance notices</div>
+    <div class="search-box">from:pinbot@legal.pinterest.com after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">AusTender (already-read notifications) — ~45 emails</div>
+    <div class="search-box">from:No-Reply@tenders.gov.au is:read after:2025/02/27</div>
+    <div class="note">Only deletes already-read ones. Keep unread if there are active tenders you're tracking.</div>
+
+    <hr class="divider">
+
+    <div class="action-label">LinkedIn newsletters via email (not job alerts)</div>
+    <div class="search-box">from:newsletters-noreply@linkedin.com after:2025/02/27</div>
+
+    <h3>🟠 Review Then Delete — Check Before Bulk-Acting</h3>
+
+    <div class="action-label">LinkedIn Job Alerts (read ones can go once actioned)</div>
+    <div class="search-box">from:jobalerts-noreply@linkedin.com is:read after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Kmart order/refund emails (transactional, already resolved)</div>
+    <div class="search-box">from:DonotReply.OnlineShop@orders.kmart.com.au after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Old food delivery receipts (Wokitup, Mills & Grills)</div>
+    <div class="search-box">from:(info@wokitup.com.au OR no-reply@localserves.com.au) after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">AliExpress order notifications</div>
+    <div class="search-box">from:transaction@notice.aliexpress.com after:2025/02/27</div>
+  </div>
+
+  <!-- Labelling Actions -->
+  <div class="section">
+    <h2>✅ Labelling Actions — Gmail Search Queries</h2>
+    <p style="font-size:12px; color:#888; margin-bottom:16px;">For each group: search → select all → apply the label shown. These currently have <strong>no user label</strong>.</p>
+
+    <h3>1-Work & Career</h3>
+    <div class="action-label">LinkedIn Job Alerts (unread, recent)</div>
+    <div class="search-box">from:jobalerts-noreply@linkedin.com is:unread after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">AusTender notifications (recent unlabelled ones)</div>
+    <div class="search-box">from:No-Reply@tenders.gov.au -has:userlabels after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Hatch job recommendations</div>
+    <div class="search-box">from:fam@email.hatch.team OR from:jenna@email.hatch.team after:2025/02/27</div>
+
+    <h3>2-Projects & Code</h3>
+    <div class="action-label">Cursor AI product updates</div>
+    <div class="search-box">from:team@mail.cursor.com after:2025/02/27</div>
+
+    <h3>3-Finance & Admin</h3>
+    <div class="action-label">NAB, Ubank, Plenti, Zip, Australian Unity, Crazy Domains</div>
+    <div class="search-box">from:(nab@updates.nab.com.au OR noreply@ubank.com.au OR contact@plenti.com.au OR no-reply@account.zip.co OR customerservice@email.australianunity.com.au OR noreply@crazydomains.com.au) -has:userlabels after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Amazon AU dispatch / order emails</div>
+    <div class="search-box">from:(shipment-tracking@amazon.com.au OR amazon.co.uk) -has:userlabels after:2025/02/27</div>
+
+    <h3>4-Personal & Family</h3>
+    <div class="action-label">Radford Nexus Digest (school) — unlabelled ones</div>
+    <div class="search-box">from:nexus@radford.act.edu.au -has:userlabels after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Radford Accounts (school fees, direct debits)</div>
+    <div class="search-box">from:accounts@radford.act.edu.au after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Strata / Linq Apartments</div>
+    <div class="search-box">from:(info@stratamanager.net.au OR linqapartments.ec@outlook.com.au) after:2025/02/27</div>
+
+    <hr class="divider">
+
+    <div class="action-label">Hockey club receipts (Central Hockey Club / revolutionise)</div>
+    <div class="search-box">from:no-reply@revolutionise.com.au -has:userlabels after:2025/02/27</div>
+
+    <h3>5-Hobbies & Interests</h3>
+    <div class="action-label">Boating / woodworking / craft newsletters</div>
+    <div class="search-box">from:(info@clcboats.com OR news@notify.hobbyking.com OR lincoln@paintonplastic.com OR admin@theseedcollection.com.au) after:2025/02/27</div>
+
+    <h3>7-Community & Events</h3>
+    <div class="action-label">Canberra Innovation Network (CBRIN)</div>
+    <div class="search-box">from:enquiries@cbrin.com.au after:2025/02/27</div>
+
+    <h3>8-Subscriptions & Serv...</h3>
+    <div class="action-label">Linkt (tolls), Qantas FF, Stan, Disney+, Airbnb</div>
+    <div class="search-box">from:(noreply@digital.linkt.com.au OR qantasff@e.qantas.com OR accounts-noreply@mailer.stan.com.au OR disneyplus@trx.mail2.disneyplus.com OR discover@airbnb.com) -has:userlabels after:2025/02/27</div>
+  </div>
+
+  <!-- Spot-check findings -->
+  <div class="section">
+    <h2>🔍 Labelling Spot-Check Findings</h2>
+    <table>
+      <thead>
+        <tr><th>Label</th><th>Verdict</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1-Work & Career</strong> (Label_161)</td>
+          <td><span class="badge badge-orange">Mostly correct, gap</span></td>
+          <td>AusTender labelled correctly historically. Recent Feb 2026 AusTender emails missing the label. ACT Digital Account notification here is a minor mismatch — could move to 3-Finance.</td>
+        </tr>
+        <tr>
+          <td><strong>4-Personal & Family</strong> (Label_163)</td>
+          <td><span class="badge badge-orange">Partial — large gap</span></td>
+          <td>Hockey club, Kathryn Jorgensen, and some Radford emails correctly labelled. But the bulk of daily Radford Nexus Digests are unlabelled. Large volume to catch up on.</td>
+        </tr>
+        <tr>
+          <td><strong>8-Subscriptions & Serv</strong> (Label_182)</td>
+          <td><span class="badge badge-orange">Inconsistent</span></td>
+          <td>Some LinkedIn and retail emails labelled here, but most are not. The labelling criteria isn't being applied consistently — LinkedIn notifications, Amazon, Microsoft are a mix of labelled and unlabelled.</td>
+        </tr>
+        <tr>
+          <td><strong>3-Finance & Admin</strong> (Label_159/160)</td>
+          <td><span class="badge badge-orange">Partial</span></td>
+          <td>Some financial emails (Ubank, Zip) are labelled. But many financial receipts and transaction emails from the past year are sitting unlabelled in the inbox.</td>
+        </tr>
+        <tr>
+          <td><strong>2-Projects & Code</strong></td>
+          <td><span class="badge badge-red">Not spotted in use</span></td>
+          <td>No emails seen with this label. Tech-related emails (Cursor, Google Workspace, GitHub-adjacent) are unlabelled. Either the label is empty or not being applied.</td>
+        </tr>
+        <tr>
+          <td><strong>5-Hobbies & Interests</strong></td>
+          <td><span class="badge badge-red">Not spotted in use</span></td>
+          <td>Hobby newsletters (boats, RC planes, seeds, model paint) are all sitting unlabelled in Promotions.</td>
+        </tr>
+        <tr>
+          <td><strong>6-Health & Wellness</strong></td>
+          <td><span class="badge badge-blue">Not assessed</span></td>
+          <td>Australian Unity health insurance emails found unlabelled — should go here or 3-Finance. Would need deeper search to assess this label fully.</td>
+        </tr>
+        <tr>
+          <td><strong>7-Community & Events</strong></td>
+          <td><span class="badge badge-red">Not spotted in use</span></td>
+          <td>CBRIN networking events, Belconnen Men's Shed newsletter, and similar community emails are unlabelled.</td>
+        </tr>
+        <tr>
+          <td><strong>9-For-Deletion</strong></td>
+          <td><span class="badge badge-red">Empty</span></td>
+          <td>No emails found with this label — has not been used yet.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="tip">
+      💡 <strong>Biggest quick win:</strong> Bulk-label all Radford Nexus emails (Label_163 / 4-Personal & Family) and bulk-delete LinkedIn notifications. Together these would clear ~150+ unlabelled emails.
+    </div>
+  </div>
+
+  <!-- Footer note -->
+  <div style="font-size:11px; color:#aaa; text-align:center; padding: 12px 0 24px;">
+    Note: Gmail's API doesn't support applying labels via search — use Gmail web or mobile to action these queries. Click any search box to copy the query.
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.search-box').forEach(box => {
+    box.addEventListener('click', () => {
+      const range = document.createRange();
+      range.selectNode(box);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      document.execCommand('copy');
+      const orig = box.style.background;
+      box.style.background = '#d2e3fc';
+      setTimeout(() => { box.style.background = orig; }, 600);
+    });
+    box.title = 'Click to copy';
+  });
+</script>
+</body>
+</html>

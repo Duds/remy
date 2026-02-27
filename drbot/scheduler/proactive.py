@@ -250,13 +250,12 @@ class ProactiveScheduler:
             logger.debug("Automation %d skipped — no primary chat ID set", automation_id)
             return
 
-        await self._send(chat_id, f"⏰ *Reminder:* {label}")
-
+        # Perform DB cleanup BEFORE sending to avoid double-firing on crashes
         if self._automation_store is not None:
             if one_time:
                 try:
                     await self._automation_store.delete(automation_id)
-                    logger.debug("Deleted one-time automation %d after firing", automation_id)
+                    logger.debug("Deleted one-time automation %d before firing", automation_id)
                 except Exception as e:
                     logger.warning(
                         "Could not delete one-time automation %d: %s", automation_id, e,
@@ -268,6 +267,8 @@ class ProactiveScheduler:
                     logger.warning(
                         "Could not update last_run for automation %d: %s", automation_id, e,
                     )
+
+        await self._send(chat_id, f"⏰ *Reminder:* {label}")
 
     async def _send(self, chat_id: int, text: str) -> None:
         """Send a message, swallowing errors so a bad send never kills the scheduler."""

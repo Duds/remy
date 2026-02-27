@@ -7,6 +7,7 @@ Retrieves:
   - Formats as XML block appended after SOUL.md
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -130,7 +131,11 @@ class MemoryInjector:
             readme = Path(project_path) / "README.md"
             if readme.exists():
                 try:
-                    content = readme.read_text(encoding="utf-8")[:1500]
+                    # Wrap blocking IO in a thread
+                    content = await asyncio.to_thread(
+                        lambda p: p.read_text(encoding="utf-8"), readme
+                    )
+                    content = content[:1500]
                     results.append({
                         "category": "project_context",
                         "content": f"[{project_path}] {content}",

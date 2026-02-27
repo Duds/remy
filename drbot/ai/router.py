@@ -70,10 +70,5 @@ class ModelRouter:
                 )
             # Notify the user that we've fallen back to the local model
             yield "\n⚠️ _Claude unavailable — responding via local Ollama model_\n\n"
-            # Build a simple prompt from the last user message
-            last_user_msg = next(
-                (m["content"] for m in reversed(messages) if m["role"] == "user"),
-                "",
-            )
-            async for chunk in self._ollama.stream_generate(last_user_msg):
+            async for chunk in self._ollama.stream_chat(messages):
                 yield chunk

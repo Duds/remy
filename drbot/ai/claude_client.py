@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 # Maximum retry attempts on transient errors
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 2.0  # seconds
+# Rate-limit retries use longer delays since the window resets every 60s
+_RATE_LIMIT_RETRY_DELAYS = [30.0, 60.0]  # seconds between attempts 1→2 and 2→3
 # Maximum tool-call iterations before breaking the agentic loop
 _MAX_TOOL_ITERATIONS = 5
 
@@ -156,62 +158,100 @@ class ClaudeClient:
             # Collect text and tool_use blocks from this iteration
             text_buffer: list[str] = []
             tool_use_blocks: list[dict] = []  # raw dicts for history reconstruction
+            assistant_content_blocks: list[dict] = []
+            stop_reason: str | None = None
 
-            async with self._client.messages.stream(
-                model=model,
-                max_tokens=settings.anthropic_max_tokens,
-                system=system_prompt,
-                messages=working_messages,
-                tools=tools,
-            ) as stream:
-                # Iterate raw events so we don't exhaust the generator before
-                # calling stream.get_final_message() below
-                async for event in stream:
-                    event_type = type(event).__name__
-
-                    # Text delta
-                    if event_type == "RawContentBlockDeltaEvent":
-                        delta = getattr(event, "delta", None)
-                        if delta and getattr(delta, "type", None) == "text_delta":
-                            chunk = delta.text
-                            text_buffer.append(chunk)
-                            yield TextChunk(text=chunk)
-
-                    # Tool use block starting
-                    elif event_type == "RawContentBlockStartEvent":
-                        block = getattr(event, "content_block", None)
-                        if block and getattr(block, "type", None) == "tool_use":
-                            yield ToolStatusChunk(
-                                tool_name=block.name,
-                                tool_use_id=block.id,
-                                tool_input={},
-                            )
-
-                # After streaming, get the final message snapshot for tool_use blocks
-                final_msg = await stream.get_final_message()
-                stop_reason = final_msg.stop_reason
-
-                # Extract all content blocks for history
+            # Retry loop: 429s are raised when initiating the stream (before any
+            # events are yielded), so we can safely retry the whole API call.
+            # Per-minute TPM limits need ~30-60s to reset, not the 2-8s used
+            # for server errors.
+            for attempt in range(_MAX_RETRIES):
+                text_buffer = []
+                tool_use_blocks = []
                 assistant_content_blocks = []
-                for block in final_msg.content:
-                    if block.type == "text":
-                        assistant_content_blocks.append({
-                            "type": "text",
-                            "text": block.text,
-                        })
-                    elif block.type == "tool_use":
-                        tool_use_blocks.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": block.input,
-                        })
-                        assistant_content_blocks.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": block.input,
-                        })
+                try:
+                    async with self._client.messages.stream(
+                        model=model,
+                        max_tokens=settings.anthropic_max_tokens,
+                        system=system_prompt,
+                        messages=working_messages,
+                        tools=tools,
+                    ) as stream:
+                        # Iterate raw events so we don't exhaust the generator before
+                        # calling stream.get_final_message() below
+                        async for event in stream:
+                            event_type = type(event).__name__
+
+                            # Text delta
+                            if event_type == "RawContentBlockDeltaEvent":
+                                delta = getattr(event, "delta", None)
+                                if delta and getattr(delta, "type", None) == "text_delta":
+                                    chunk = delta.text
+                                    text_buffer.append(chunk)
+                                    yield TextChunk(text=chunk)
+
+                            # Tool use block starting
+                            elif event_type == "RawContentBlockStartEvent":
+                                block = getattr(event, "content_block", None)
+                                if block and getattr(block, "type", None) == "tool_use":
+                                    yield ToolStatusChunk(
+                                        tool_name=block.name,
+                                        tool_use_id=block.id,
+                                        tool_input={},
+                                    )
+
+                        # After streaming, get the final message snapshot for tool_use blocks
+                        final_msg = await stream.get_final_message()
+                        stop_reason = final_msg.stop_reason
+
+                        # Extract all content blocks for history
+                        for block in final_msg.content:
+                            if block.type == "text":
+                                assistant_content_blocks.append({
+                                    "type": "text",
+                                    "text": block.text,
+                                })
+                            elif block.type == "tool_use":
+                                tool_use_blocks.append({
+                                    "type": "tool_use",
+                                    "id": block.id,
+                                    "name": block.name,
+                                    "input": block.input,
+                                })
+                                assistant_content_blocks.append({
+                                    "type": "tool_use",
+                                    "id": block.id,
+                                    "name": block.name,
+                                    "input": block.input,
+                                })
+                    break  # stream completed successfully — exit retry loop
+
+                except anthropic.RateLimitError as e:
+                    delay = _RATE_LIMIT_RETRY_DELAYS[attempt] if attempt < len(_RATE_LIMIT_RETRY_DELAYS) else 60.0
+                    logger.warning(
+                        "Rate limited in stream_with_tools (attempt %d/%d). "
+                        "Retrying in %.0fs",
+                        attempt + 1, _MAX_RETRIES, delay,
+                    )
+                    if attempt < _MAX_RETRIES - 1:
+                        await asyncio.sleep(delay)
+                    else:
+                        raise
+
+                except anthropic.APIStatusError as e:
+                    if e.status_code >= 500:
+                        delay = _RETRY_BASE_DELAY * (2**attempt)
+                        logger.warning(
+                            "Anthropic overload %d in stream_with_tools (attempt %d/%d). "
+                            "Retrying in %.1fs",
+                            e.status_code, attempt + 1, _MAX_RETRIES, delay,
+                        )
+                        if attempt < _MAX_RETRIES - 1:
+                            await asyncio.sleep(delay)
+                        else:
+                            raise
+                    else:
+                        raise
 
             # If no tool calls, we're done
             if stop_reason != "tool_use" or not tool_use_blocks:

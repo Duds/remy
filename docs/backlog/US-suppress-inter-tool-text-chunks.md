@@ -1,5 +1,7 @@
 # User Story: Suppress Inter-Tool Text Chunks from Telegram Stream
 
+✅ **Done** — implemented and resolved per commit d050159 (`docs: mark tool-status text leak bug as resolved`)
+
 ## Summary
 As a user, I do not want to see internal status fragments like "using list_directory"
 or "using get_logs" appear in Remy's Telegram replies. Those are Claude's internal

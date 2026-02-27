@@ -1,5 +1,7 @@
 # User Story: Background Task Runner (Fire-and-Forget)
 
+✅ **Done** — implemented in commit b563015 (`feat: one-time reminders + BackgroundTaskRunner`)
+
 ## Summary
 As a user, I do not want to wait blocked in Telegram for slow tasks like Board of Directors
 analysis or retrospectives to finish. When I kick off a long-running request, Remy should

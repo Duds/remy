@@ -33,10 +33,15 @@ class OllamaClient:
         except Exception:
             return False
 
-    async def stream_generate(self, prompt: str) -> AsyncIterator[str]:
-        """Stream tokens from Ollama for the configured model."""
-        url = f"{self.base_url}/api/generate"
-        payload = {"model": self.model, "prompt": prompt, "stream": True}
+    async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
+        """Stream tokens from Ollama for the configured model using structured chat history."""
+        url = f"{self.base_url}/api/chat"
+        # Map Anthropic 'assistant' role to Ollama 'assistant' role
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -52,9 +57,10 @@ class OllamaClient:
                                 continue
                             try:
                                 data = json.loads(line)
-                                content = data.get("response", "")
-                                if content:
-                                    yield content
+                                if "message" in data:
+                                    content = data["message"].get("content", "")
+                                    if content:
+                                        yield content
                                 if data.get("done"):
                                     return
                             except json.JSONDecodeError:
