@@ -1,6 +1,6 @@
 # DrBot Roadmap & Development Plan
 
-**Last Updated:** February 26, 2026 (Phase 6 complete — analytics, goal dashboard, monthly retrospective)
+**Last Updated:** February 27, 2026 (Phase 7 Step 1 + image support complete)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -217,11 +217,11 @@ This is a **cherry-pick from my-agent** (which had partial support) but implemen
   - `/grocery-list done <item>` — remove completed item
   - `/grocery-list clear` — empty the list
 
-### 4.3 Digital Fingerprint Audit
-- [ ] **Privacy audit** — conversation-based via Claude + Board; deferred (no new code needed, just prompting)
+~~### 4.3 Digital Fingerprint Audit~~
+~~- [ ] **Privacy audit** — conversation-based via Claude + Board; deferred (no new code needed, just prompting)~~
 
-### 4.4 Platform Avoidance
-- [ ] **`/research-alternative <platform>`** — covered by `/research` already; deferred as named command
+~~### 4.4 Platform Avoidance~~
+~~- [ ] **`/research-alternative <platform>`** — covered by `/research` already; deferred as named command~~
 
 ---
 
@@ -297,36 +297,32 @@ per-user session lock for their full duration. The user is blocked until they co
 **Key insight:** `ProactiveScheduler` already solves this — it runs async AI work and calls
 `_send()` directly without ever holding a session lock. Background agents follow the same model.
 
-### Step 1 — Fire-and-Forget with Telegram Callback (no new infrastructure)
+### Step 1 — Fire-and-Forget with Telegram Callback ✅ Complete
 
 The minimal, idiomatic change. Fits entirely within the existing asyncio architecture.
 
-- [ ] Add `BackgroundTaskRunner` in `drbot/agents/background.py`
+- [x] Add `BackgroundTaskRunner` in `drbot/agents/background.py`
   - Wraps `BoardOrchestrator`, `ConversationAnalyzer.generate_retrospective`, etc.
   - Accepts a `chat_id` + `bot` reference; calls `bot.send_message()` on completion
   - Catches and logs exceptions; never leaks into the main event loop
-- [ ] Modify `_process_text_input` in `handlers.py` to detect "detachable" requests
+- [x] Modify `_process_text_input` in `handlers.py` to detect "detachable" requests
   - Heuristic: user explicitly asks for `/board`, `/retrospective`, or sends a message whose
     intent is classified as "deep analysis" (existing `classifier.py` already has intent detection)
   - On match: acquire lock briefly → send "Started — I'll message you when done 🔄" → release
     lock → `asyncio.create_task(_run_detached(...))`
-- [ ] The detached task reads `primary_chat_id` (same as proactive scheduler) for the callback send
+- [x] The detached task reads `primary_chat_id` (same as proactive scheduler) for the callback send
 - **No new dependencies.** Uses `asyncio.create_task()` already used for fact/goal extraction.
 
-### Step 2 — Persistent Job Tracking (adds resilience across restarts)
+### Step 2 — Persistent Job Tracking ⬜ Next Up
 
 Builds on Step 1. Lets the user check status and re-read results after the fact.
+See `docs/backlog/US-persistent-job-tracking.md` for full spec.
 
-- [ ] Add `background_jobs` table to SQLite schema (`drbot/memory/database.py`):
-  ```
-  id, user_id, job_type (board/research/retrospective), status (queued/running/done/failed),
-  input_text, result_text, created_at, completed_at
-  ```
+- [ ] Add `background_jobs` table to SQLite schema (`drbot/memory/database.py`)
 - [ ] Add `BackgroundJobStore` in `drbot/memory/background_jobs.py` — CRUD + status updates
 - [ ] Add `/jobs` command → lists recent background jobs with status and truncated result
 - [ ] Add `list_background_jobs` tool → natural language: "is my board analysis done yet?"
 - [ ] On bot restart: jobs still marked `running` are flipped to `failed` with a note
-  (no automatic retry — keep it simple)
 
 ### Step 3 — Claude Agent SDK Subagents (future, major refactor)
 
@@ -377,33 +373,114 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 **M = Must Have | S = Should Have | C = Could Have | W = Won't Have**
 
-| Priority | Feature | Phase | Status |
-|----------|---------|-------|--------|
-| **M** | Safe file read/write | 2.1 | ✅ Done |
-| **M** | Input validation & injection protection | 1.2 | ✅ Done |
-| **M** | Google Calendar read | 3.1 | ✅ Done |
-| **M** | Gmail unread summary | 3.2 | ✅ Done |
-| **S** | Downloads folder watchdog | 2.3 | ✅ Done (briefing) |
-| **S** | Google Docs read | 3.3 | ✅ Done |
-| **S** | Google Contacts management | 3.4 | ✅ Done |
-| **S** | Web search & research | 4.1 | ✅ Done |
-| **S** | Grocery shopping helper | 4.2 | ✅ Done |
-| **S** | Scheduled task automation | 5.1 | ✅ Done |
-| **C** | Gmail send | 3.2 | ⬜ Deferred (security) |
-| **C** | Price comparison | 4.2 | ✅ Done |
-| **C** | Digital fingerprint audit | 4.3 | ⬜ Phase 4 |
-| **C** | Goal tracking dashboard | 6 | ✅ Done |
-| **C** | Background agents (fire-and-forget) | 7.1 | ⬜ Phase 7 |
-| **C** | Persistent job tracking + /jobs | 7.2 | ⬜ Phase 7 |
-| **W** | Claude Agent SDK subagents | 7.3 | ⬜ Deferred (major refactor) |
+| Priority | Feature | Backlog | Status |
+|----------|---------|---------|--------|
+| **M** | Safe file read/write | — | ✅ Done |
+| **M** | Input validation & injection protection | — | ✅ Done |
+| **M** | Google Calendar read/write | — | ✅ Done |
+| **M** | Gmail integration (unread, classify, draft) | — | ✅ Done |
+| **M** | Google Docs & Contacts | — | ✅ Done |
+| **M** | Web search & research | — | ✅ Done |
+| **M** | Scheduled automation (cron reminders) | — | ✅ Done |
+| **M** | Analytics, goal dashboard, retrospective | — | ✅ Done |
+| **M** | Image/vision support (photos) | — | ✅ Done |
+| **M** | BackgroundTaskRunner (fire-and-forget) | US-background-task-runner | ✅ Done |
+| **S** | Fix tool dispatch exception → corrupts history (bug) | US-tool-dispatch-exception-recovery | ✅ Done |
+| **S** | Fix final reply duplication (bug) | US-final-reply-duplication | ⬜ P1 |
+| **S** | Gmail label/folder search | US-gmail-label-search | ⬜ P1 |
+| **S** | Persistent job tracking + `/jobs` | US-persistent-job-tracking | ⬜ P1 |
+| **S** | Document image support (PNG/WebP as files) | US-document-image-support | ⬜ P2 |
+| **S** | Plan tracking (multi-step, with attempts) | US-plan-tracking | ⬜ P2 |
+| **C** | Privacy audit (`/privacy-audit`) | US-digital-fingerprint-audit | ⬜ P2 (prompt-only) |
+| **C** | Improved persistent memory (semantic dedup, staleness, categories) | US-improved-persistent-memory | ⬜ P2 |
+| **C** | Home directory RAG index (~/Projects + ~/Documents) | US-home-directory-rag | ⬜ P3 |
+| **C** | Context-aware reminders (snooze, dedup) | US-context-aware-reminders | ⬜ P3 (deferred) |
+| **C** | SMS ingestion via Android webhook | US-sms-ingestion | ⬜ P3 (new infra) |
+| **C** | Google Wallet transaction alerts | US-google-wallet-monitoring | ⬜ P3 (needs SMS first) |
+| **W** | Claude Agent SDK subagents | US-claude-agent-sdk-subagents | ⬜ Deferred (major refactor) |
+| **W** | Gmail send | — | ⬜ Deferred (security) |
 | **W** | Headless browser automation | — | ❌ Avoid |
 | **W** | Knowledge graph + vector store | — | ❌ Avoid |
 
 ---
 
-## 📍 Next Steps (Immediate)
+## 📍 Next Steps — Prioritised Backlog
 
-1. **Start Phase 7, Step 1** — `BackgroundTaskRunner` + fire-and-forget pattern for Board and retrospective
+### P1 — Immediate (small–medium, clear value)
+
+1. **Fix tool dispatch exception recovery** (`US-tool-dispatch-exception-recovery`) ← **start here**
+   - Bug: if any tool call raises (network error, validation), the exception propagates up and
+     conversation history is left inconsistent for the next turn
+   - Fix: wrap `tool_registry.dispatch()` in per-tool try/except; inject error as tool_result so
+     Claude can respond gracefully; `ToolTurnComplete` still fires normally
+   - File: `ai/claude_client.py` — ~10 lines; isolated change, no new dependencies
+
+2. **Fix final reply duplication** (`US-final-reply-duplication`)
+   - Bug: after multi-tool flows the final message sometimes appears twice or out of order
+   - Files: `bot/handlers.py`, `bot/streaming.py` — gate on `in_tool_turn` flag (same infrastructure as suppress story)
+   - Implement after #1 (both touch the same event loop)
+
+3. **Gmail label/folder search** (`US-gmail-label-search`)
+   - Gap: emails in Promotions, All Mail, and custom labels are invisible to Remy
+   - Files: `google/gmail_client.py`, `ai/tool_registry.py`
+   - No new dependencies; extends existing Gmail client
+
+4. **Persistent job tracking + `/jobs`** (`US-persistent-job-tracking`)
+   - Adds SQLite-backed job registry so background task results survive restarts
+   - Files: `memory/database.py` (schema), new `memory/background_jobs.py`, `agents/background.py`, `tool_registry.py`, `bot/handlers.py`
+   - Depends on BackgroundTaskRunner ✅ (complete)
+
+### P2 — Next quarter (moderate, high value)
+
+5. **Document image support** (`US-document-image-support`)
+   - Gap: images sent as Telegram documents (uncompressed PNG/WebP) are silently ignored
+   - Files: `bot/handlers.py` + register in `telegram_bot.py` — mirrors existing `handle_photo`
+   - No new dependencies; small targeted change
+
+6. **Plan tracking** (`US-plan-tracking`)
+   - New capability: multi-step plans with attempt history, stale-step briefing alerts
+   - Files: new `memory/plans.py`, `memory/database.py`, `tool_registry.py`, `scheduler/proactive.py`
+   - No new dependencies; well-specced with full schema and tool definitions
+
+7. **Improved persistent memory** (`US-improved-persistent-memory`)
+   - Semantic fact deduplication (near-duplicate merging via ANN distance), expanded category
+     taxonomy (adds medical, finance, hobby, deadline), `last_referenced_at` staleness tracking,
+     `source_session` tracing, and a `get_memory_summary` tool
+   - Files: `memory/facts.py`, `memory/database.py`, `memory/embeddings.py`, `memory/injector.py`,
+     `ai/tool_registry.py`
+   - No new dependencies; builds entirely on existing EmbeddingStore infrastructure
+
+8. **Privacy audit** (`US-digital-fingerprint-audit`)
+   - `/privacy-audit` slash command; prompt-only, no new code beyond a handler + system prompt addendum
+   - Files: `bot/handlers.py` only — ~20 lines
+   - Very low effort for real user value
+
+### P3 — Future (new infrastructure or deferred)
+
+9. **Home directory RAG index** (`US-home-directory-rag`)
+   - Background nightly indexer for ~/Projects + ~/Documents; character-chunked embeddings
+     stored in new `file_chunks` table; `search_files` + `index_status` tools; `/reindex` command
+   - Files: new `memory/file_index.py`, `memory/database.py`, `tool_registry.py`,
+     `scheduler/proactive.py`, `bot/handlers.py`, `config.py`
+   - No new dependencies; uses existing EmbeddingStore + sqlite-vec/FTS5 fallback
+   - Schedule after P2 memory improvements (shares the same embedding infrastructure)
+
+10. **Context-aware reminders** (`US-context-aware-reminders`)
+    - Dedup evening check-in against today's conversation; snooze support
+    - Only implement if the current evening check-in proves insufficient in practice
+
+11. **SMS ingestion** (`US-sms-ingestion`)
+    - Android SMS via SMS Gateway app + Tailscale tunnel + `/webhook/sms` endpoint
+    - Prerequisite: Tailscale installed on phone and Mac
+
+12. **Google Wallet alerts** (`US-google-wallet-monitoring`)
+    - Tasker profile → `/webhook/notification`; depends on SMS infrastructure
+
+### Deferred (explicit non-starters for now)
+
+9. **Claude Agent SDK subagents** (`US-claude-agent-sdk-subagents`) — major refactor; only revisit if BackgroundTaskRunner + persistent jobs prove insufficient
+10. **Gmail send** — security risk; draft creation is sufficient
+11. **Research alternative** (`US-research-alternative`) — no code needed; tune `web_research` tool description if quality is poor in practice
 
 ---
 
@@ -464,3 +541,58 @@ Phase 2.1 gave Dale a `/write` command to write files via a two-step flow. What 
   - Add tool schema to `TOOL_SCHEMAS` in `tool_registry.py`
   - Natural language: "create a label called Hockey under Personal & Family"
   - Use case: on-the-fly label creation during email triage sessions
+
+---
+
+## 🖼️ Phase 7: Image Consumption ⚠️ Partial
+
+**Solves: "Send Remy a photo and ask questions about it"**
+
+**Status:** Photo messages ✅ (commit 9ef79f7). Document images (sent as files) ⬜ pending.
+
+### Background
+
+Dale can currently send voice messages (transcribed via Whisper) and text. Images sent via Telegram are silently ignored. Claude supports vision natively via the Anthropic messages API (base64-encoded image blocks). This phase wires the two together.
+
+---
+
+### 7.1 Telegram Image Ingestion
+
+- [x] **Handle `photo` messages** — Telegram-compressed JPEG; MIME hardcoded correctly
+- [ ] **Handle `document` messages** — uncompressed PNG/WebP/GIF sent as files; currently silently ignored
+  → `docs/backlog/US-document-image-support.md`
+- [x] **Base64-encode and pass to Claude** (Anthropic image content block)
+- [x] **Conversation history** — placeholder stored; images not replayed
+
+---
+
+### 7.2 Natural Language Image Queries ✅
+
+No slash command — just send an image with or without a caption. Works with whiteboard photos,
+receipts, screenshots, food photos, etc.
+
+### 7.3–7.4 Security & Implementation ✅
+
+All constraints from the spec implemented: in-memory only, 5MB cap, MIME allowlist, no URL fetching.
+
+---
+
+## 🐛 Minor Bugs (no full US needed)
+
+These are tracked here inline; fix alongside related work rather than as standalone stories.
+
+### One-time automation double-fire on restart (`scheduler/proactive.py:257`)
+- **Symptom:** If the bot restarts within the 5-minute APScheduler `misfire_grace_time` window
+  after a one-time automation fired, `load_user_automations()` re-registers the job with a
+  past `DateTrigger` and APScheduler fires it again immediately.
+- **Root cause:** `_run_automation()` deletes the DB row *after* firing. If the bot restarts
+  between fire and delete, the row still exists and the job is re-registered.
+- **Fix:** Mark the automation row as `status='fired'` (or delete it) *before* sending the
+  reminder. Then `load_user_automations()` should skip rows with `status='fired'`.
+  Requires adding a `status` column to the `automations` table or using `fire_at` comparison.
+
+### Streaming reply overflow split safety (`bot/streaming.py:84`)
+- **Symptom:** Very long messages (>4000 chars, no space before limit) fall back to splitting
+  at exactly 4000 chars. The `" …"` suffix can push the display string to 4003 chars, still
+  within Telegram's 4096 limit but worth monitoring.
+- **Fix:** Low priority — add a `len(display) <= 4096` assertion in debug mode.

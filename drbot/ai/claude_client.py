@@ -229,7 +229,14 @@ class ClaudeClient:
                     tool_name, tool_use_id, user_id,
                 )
 
-                result = await tool_registry.dispatch(tool_name, tool_input, user_id)
+                try:
+                    result = await tool_registry.dispatch(tool_name, tool_input, user_id)
+                except Exception as exc:
+                    logger.error(
+                        "Tool dispatch failed for %s (id=%s): %s",
+                        tool_name, tool_use_id, exc, exc_info=True,
+                    )
+                    result = f"Tool '{tool_name}' encountered an error: {exc}"
 
                 yield ToolResultChunk(
                     tool_name=tool_name,
