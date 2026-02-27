@@ -1914,7 +1914,6 @@ def make_handlers(
         stored as the assistant turn. Tool turns are stored separately with the
         _TOOL_TURN_PREFIX sentinel.
         """
-        accumulated_text: list[str] = []   # all text (for conversation storage)
         current_display: list[str] = []    # text currently shown in Telegram message
         tool_turns: list[tuple[list[dict], list[dict]]] = []  # (assistant_blocks, result_blocks)
 
@@ -1965,7 +1964,6 @@ def make_handlers(
                     return
 
                 if isinstance(event, TextChunk):
-                    accumulated_text.append(event.text)
                     if in_tool_turn:
                         # Suppress internal monologue emitted while a tool is
                         # executing (between ToolStatusChunk and ToolTurnComplete).
@@ -2031,7 +2029,10 @@ def make_handlers(
             )
 
         # 2. Save final assistant text turn (if any)
-        final_text = "".join(accumulated_text).strip()
+        # current_display is reset on every ToolTurnComplete, so it contains only
+        # the final iteration's text — pre-tool preambles from intermediate iterations
+        # are already stored inside each tool_turn's assistant_blocks.
+        final_text = "".join(current_display).strip()
         if final_text:
             await conv_store.append_turn(
                 user_id, session_key,

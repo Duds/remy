@@ -386,7 +386,7 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **M** | Image/vision support (photos) | — | ✅ Done |
 | **M** | BackgroundTaskRunner (fire-and-forget) | US-background-task-runner | ✅ Done |
 | **S** | Fix tool dispatch exception → corrupts history (bug) | US-tool-dispatch-exception-recovery | ✅ Done |
-| **S** | Fix final reply duplication (bug) | US-final-reply-duplication | ⬜ P1 |
+| **S** | Fix final reply duplication (bug) | US-final-reply-duplication | ✅ Done |
 | **S** | Gmail label/folder search | US-gmail-label-search | ⬜ P1 |
 | **S** | Persistent job tracking + `/jobs` | US-persistent-job-tracking | ⬜ P1 |
 | **S** | Document image support (PNG/WebP as files) | US-document-image-support | ⬜ P2 |
