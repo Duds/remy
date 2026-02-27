@@ -53,7 +53,7 @@ def test_web_search_returns_results():
 
 def test_web_search_error_returns_empty():
     """If DuckDuckGo raises an error, web_search returns [] gracefully."""
-    with patch("remy.web.search.DDGS") as MockDDGS:
+    with patch("remy.web.search.DDGS", create=True) as MockDDGS:
         MockDDGS.return_value.__enter__.return_value.text.side_effect = RuntimeError("rate limited")
         from remy.web.search import web_search
         results = asyncio.run(web_search("test"))
