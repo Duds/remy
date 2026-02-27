@@ -186,9 +186,9 @@ def make_handlers(
             "  /briefing  — get your morning briefing now\n"
             "  /setmychat — set this chat for proactive messages\n"
             "  /board <topic> — convene the Board of Directors\n"
-            "  /schedule-daily [HH:MM] <task>        — remind me daily\n"
-            "  /schedule-weekly [day] [HH:MM] <task> — remind me weekly\n"
-            "  /list-automations — show scheduled reminders\n"
+            "  /schedule_daily [HH:MM] <task>        — remind me daily\n"
+            "  /schedule_weekly [day] [HH:MM] <task> — remind me weekly\n"
+            "  /list_automations — show scheduled reminders\n"
             "  /unschedule <id>  — remove a scheduled reminder\n"
             "  /breakdown <task> — break a task into actionable steps\n"
             "  /stats [period]   — usage stats (7d, 30d, 90d, all)\n"
@@ -1640,8 +1640,8 @@ def make_handlers(
         cron, label = _parse_schedule_args(context.args or [])
         if not label:
             await update.message.reply_text(
-                "Usage: /schedule-daily [HH:MM] <task>\n"
-                "Example: /schedule-daily 08:30 review my goals"
+                "Usage: /schedule_daily [HH:MM] <task>\n"
+                "Example: /schedule_daily 08:30 review my goals"
             )
             return
 
@@ -1682,8 +1682,8 @@ def make_handlers(
         cron, label = _parse_schedule_args(context.args or [], default_dow="1")
         if not label:
             await update.message.reply_text(
-                "Usage: /schedule-weekly [day] [HH:MM] <task>\n"
-                "Example: /schedule-weekly fri 09:00 weekly review"
+                "Usage: /schedule_weekly [day] [HH:MM] <task>\n"
+                "Example: /schedule_weekly fri 09:00 weekly review"
             )
             return
 
@@ -1722,7 +1722,7 @@ def make_handlers(
         if not rows:
             await update.message.reply_text(
                 "No automations scheduled.\n"
-                "Use /schedule-daily or /schedule-weekly to create one."
+                "Use /schedule_daily or /schedule_weekly to create one."
             )
             return
 
@@ -1736,7 +1736,7 @@ def make_handlers(
             last = row["last_run_at"] or "never"
             lines.append(f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last}")
 
-        lines.append("\nUse /unschedule <id> to remove one.")
+        lines.append("\nUse /unschedule <id> to remove one.")  # unschedule has no dash
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def unschedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1754,7 +1754,7 @@ def make_handlers(
         args = context.args or []
         if not args or not args[0].isdigit():
             await update.message.reply_text(
-                "Usage: /unschedule <id>\nUse /list-automations to see IDs."
+                "Usage: /unschedule <id>\nUse /list_automations to see IDs."
             )
             return
 
