@@ -46,7 +46,7 @@ async def _handle_ready(request) -> "aiohttp.web.Response":
 
 async def _handle_root(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
-    return web.json_response({"service": "drbot", "version": "1.0"})
+    return web.json_response({"service": "remy", "version": "1.0"})
 
 
 async def run_health_server(port: int | None = None) -> None:

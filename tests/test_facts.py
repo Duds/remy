@@ -1,5 +1,5 @@
 """
-Tests for drbot/memory/facts.py — FactExtractor (mocked Claude) and FactStore.
+Tests for remy/memory/facts.py — FactExtractor (mocked Claude) and FactStore.
 No real API calls; ClaudeClient is mocked.
 """
 
@@ -7,10 +7,10 @@ import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from drbot.memory.database import DatabaseManager
-from drbot.memory.embeddings import EmbeddingStore
-from drbot.memory.facts import FactExtractor, FactStore, extract_and_store_facts
-from drbot.models import Fact
+from remy.memory.database import DatabaseManager
+from remy.memory.embeddings import EmbeddingStore
+from remy.memory.facts import FactExtractor, FactStore, extract_and_store_facts
+from remy.models import Fact
 
 
 # --------------------------------------------------------------------------- #

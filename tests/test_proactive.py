@@ -2,7 +2,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from drbot.scheduler.proactive import ProactiveScheduler
+from remy.scheduler.proactive import ProactiveScheduler
 
 
 class DummyBot:

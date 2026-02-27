@@ -1,11 +1,11 @@
-title: drbot memory browser
-description: Inspect facts, goals, conversations and embeddings stored by drbot.
+title: remy memory browser
+description: Inspect facts, goals, conversations and embeddings stored by remy.
 license: private
 databases:
-  drbot:
+  remy:
     tables:
       users:
-        description: Telegram users who have interacted with drbot.
+        description: Telegram users who have interacted with remy.
         sort: last_seen_at
         sort_desc: true
       facts:

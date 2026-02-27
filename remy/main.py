@@ -1,5 +1,5 @@
 """
-drbot entry point.
+remy entry point.
 Initialises all components and starts the Telegram bot.
 """
 
@@ -52,7 +52,7 @@ async def health_monitor(claude_client: ClaudeClient, bot) -> None:
                 try:
                     await bot.send_message(
                         chat_id=settings.telegram_allowed_users[0],
-                        text="drbot: Claude API is unavailable. Falling back to Ollama.",
+                        text="remy: Claude API is unavailable. Falling back to Ollama.",
                     )
                 except Exception as e:
                     logger.error("Could not send health alert: %s", e)
@@ -70,7 +70,7 @@ def main() -> None:
     setup_logging(settings.log_level, settings.logs_dir, settings.azure_environment)
 
     logger.info(
-        "Starting drbot (env=%s, data_dir=%s)",
+        "Starting remy (env=%s, data_dir=%s)",
         "azure" if settings.azure_environment else "local",
         settings.data_dir,
     )
@@ -106,7 +106,7 @@ def main() -> None:
 
     # Google Workspace clients (Phase 3).
     # Auth: ADC (gcloud auth application-default login) takes priority over token file.
-    # Setup: see scripts/setup_google_auth.py or GCLOUD_ADC_COMMAND in drbot/google/auth.py.
+    # Setup: see scripts/setup_google_auth.py or GCLOUD_ADC_COMMAND in remy/google/auth.py.
     google_calendar = None
     google_gmail = None
     google_docs = None
@@ -251,7 +251,7 @@ def main() -> None:
 
     bot.application.post_init = _on_post_init
 
-    logger.info("drbot ready")
+    logger.info("remy ready")
     bot.run()
 
 

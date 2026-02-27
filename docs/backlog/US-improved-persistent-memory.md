@@ -12,7 +12,7 @@ rather than accumulating noise.
 
 ## Background
 
-The current memory system works as follows (see `drbot/memory/facts.py`, `embeddings.py`,
+The current memory system works as follows (see `remy/memory/facts.py`, `embeddings.py`,
 `injector.py`):
 
 - `FactExtractor` uses Claude Haiku to extract facts from each user message; facts are stored
@@ -86,7 +86,7 @@ Update `_EXTRACTION_SYSTEM` in `facts.py` to recognise:
 | `relationship` | "Wife Kathryn", "kids in primary school" |
 | `preference` | "Prefers dark mode", "favourite coffee is long black" |
 | `deadline` | "Tax deadline 31 Oct", "dental appointment next Thursday" |
-| `project` | "Working on drbot", "drbot project path: ~/Projects/ai-agents/drbot" |
+| `project` | "Working on remy", "remy project path: ~/Projects/ai-agents/remy" |
 | `other` | Catch-all |
 
 ### 4. Source tracking (`source_session` column)
@@ -119,11 +119,11 @@ Uses existing `EmbeddingStore`, `aiosqlite`, and `FactStore` infrastructure. No 
 ## Implementation
 
 **Modified files:**
-- `drbot/memory/database.py` — add migrations 002 + 003; update `facts` DDL comment
-- `drbot/memory/facts.py` — semantic dedup in `upsert()`; expanded categories in extractor
-- `drbot/memory/embeddings.py` — optional `recency_boost` in `search_similar_for_type()`
-- `drbot/memory/injector.py` — update `last_referenced_at` when a fact appears in results
-- `drbot/ai/tool_registry.py` — add `get_memory_summary` tool + executor
+- `remy/memory/database.py` — add migrations 002 + 003; update `facts` DDL comment
+- `remy/memory/facts.py` — semantic dedup in `upsert()`; expanded categories in extractor
+- `remy/memory/embeddings.py` — optional `recency_boost` in `search_similar_for_type()`
+- `remy/memory/injector.py` — update `last_referenced_at` when a fact appears in results
+- `remy/ai/tool_registry.py` — add `get_memory_summary` tool + executor
 
 ### Schema migrations
 

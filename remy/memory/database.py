@@ -1,5 +1,5 @@
 """
-SQLite database manager for drbot.
+SQLite database manager for remy.
 
 Initialises schema (users, facts, goals, embeddings, photos, FTS5 virtual tables).
 Loads the sqlite-vec extension for ANN vector search with graceful fallback.
@@ -156,7 +156,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS embeddings_vec USING vec0(
 
 
 class DatabaseManager:
-    """Manages the SQLite connection and schema for drbot."""
+    """Manages the SQLite connection and schema for remy."""
 
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or settings.db_path

@@ -1,5 +1,5 @@
 """
-Tests for drbot/scheduler/proactive.py.
+Tests for remy/scheduler/proactive.py.
 
 APScheduler is NOT triggered in tests — we call the job coroutines directly.
 The Telegram bot.send_message is mocked.
@@ -10,11 +10,11 @@ import pytest_asyncio
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from drbot.memory.database import DatabaseManager
-from drbot.memory.embeddings import EmbeddingStore
-from drbot.memory.goals import GoalStore
-from drbot.models import Goal
-from drbot.scheduler.proactive import (
+from remy.memory.database import DatabaseManager
+from remy.memory.embeddings import EmbeddingStore
+from remy.memory.goals import GoalStore
+from remy.models import Goal
+from remy.scheduler.proactive import (
     ProactiveScheduler,
     _parse_cron,
     _read_primary_chat_id,
@@ -71,7 +71,7 @@ def test_parse_cron_invalid_raises():
 # --------------------------------------------------------------------------- #
 
 def test_read_primary_chat_id_returns_none_when_missing(tmp_path):
-    with patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.primary_chat_file = str(tmp_path / "nonexistent.txt")
         result = _read_primary_chat_id()
     assert result is None
@@ -80,7 +80,7 @@ def test_read_primary_chat_id_returns_none_when_missing(tmp_path):
 def test_read_primary_chat_id_returns_id(tmp_path):
     chat_file = tmp_path / "primary_chat_id.txt"
     chat_file.write_text("987654321")
-    with patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.primary_chat_file = str(chat_file)
         result = _read_primary_chat_id()
     assert result == 987654321
@@ -89,7 +89,7 @@ def test_read_primary_chat_id_returns_id(tmp_path):
 def test_read_primary_chat_id_returns_none_for_empty_file(tmp_path):
     chat_file = tmp_path / "primary_chat_id.txt"
     chat_file.write_text("")
-    with patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.primary_chat_file = str(chat_file)
         result = _read_primary_chat_id()
     assert result is None
@@ -98,7 +98,7 @@ def test_read_primary_chat_id_returns_none_for_empty_file(tmp_path):
 def test_read_primary_chat_id_returns_none_for_invalid_content(tmp_path):
     chat_file = tmp_path / "primary_chat_id.txt"
     chat_file.write_text("not-a-number")
-    with patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.primary_chat_file = str(chat_file)
         result = _read_primary_chat_id()
     assert result is None
@@ -113,7 +113,7 @@ async def test_morning_briefing_skipped_when_no_chat_id(db, goal_store, tmp_path
     """No send if primary_chat_id not set."""
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=None):
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=None):
         await sched._morning_briefing()
     bot.send_message.assert_not_called()
 
@@ -123,8 +123,8 @@ async def test_morning_briefing_skipped_when_no_allowed_users(db, goal_store):
     """No send if allowed users list is empty."""
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
+         patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.telegram_allowed_users = []
         mock_settings.briefing_cron = "0 7 * * *"
         mock_settings.checkin_cron = "0 19 * * *"
@@ -136,12 +136,12 @@ async def test_morning_briefing_skipped_when_no_allowed_users(db, goal_store):
 @pytest.mark.asyncio
 async def test_morning_briefing_sends_with_goals(db, goal_store):
     """Briefing should include active goal titles."""
-    await goal_store.upsert(1, [Goal(title="Launch drbot", description="My AI agent")])
+    await goal_store.upsert(1, [Goal(title="Launch remy", description="My AI agent")])
 
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
+         patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [1]
         mock_settings.scheduler_timezone = "Australia/Sydney"
         await sched._morning_briefing()
@@ -151,7 +151,7 @@ async def test_morning_briefing_sends_with_goals(db, goal_store):
     text = call_kwargs.kwargs.get("text") or call_kwargs.args[1] if call_kwargs.args else ""
     if not text:
         text = call_kwargs.kwargs.get("text", "")
-    assert "Launch drbot" in text
+    assert "Launch remy" in text
     assert call_kwargs.kwargs.get("chat_id") == 12345 or (
         call_kwargs.args and call_kwargs.args[0] == 12345
     )
@@ -162,8 +162,8 @@ async def test_morning_briefing_no_goals_message(db, goal_store):
     """With no goals, briefing should mention 'no active goals'."""
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=99), \
-         patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=99), \
+         patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [1]
         mock_settings.scheduler_timezone = "Australia/Sydney"
         await sched._morning_briefing()
@@ -179,8 +179,8 @@ async def test_morning_briefing_swallows_send_error(db, goal_store):
     bot = make_bot()
     bot.send_message = AsyncMock(side_effect=RuntimeError("Telegram API down"))
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=99), \
-         patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=99), \
+         patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [1]
         mock_settings.scheduler_timezone = "Australia/Sydney"
         # Should not raise
@@ -195,7 +195,7 @@ async def test_morning_briefing_swallows_send_error(db, goal_store):
 async def test_evening_checkin_skipped_when_no_chat_id(db, goal_store):
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=None):
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=None):
         await sched._evening_checkin()
     bot.send_message.assert_not_called()
 
@@ -207,8 +207,8 @@ async def test_evening_checkin_skipped_when_no_stale_goals(db, goal_store):
 
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
+         patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [1]
         # Don't patch stale detection — goal was just inserted, so not stale
         await sched._evening_checkin()
@@ -234,8 +234,8 @@ async def test_evening_checkin_sends_for_stale_goals(db, goal_store):
 
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
+         patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [1]
         await sched._evening_checkin()
 
@@ -265,7 +265,7 @@ async def test_scheduler_start_with_bad_cron_does_not_crash(db, goal_store):
     """Invalid cron should log an error and not start the scheduler."""
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("drbot.scheduler.proactive.settings") as mock_settings:
+    with patch("remy.scheduler.proactive.settings") as mock_settings:
         mock_settings.briefing_cron = "bad cron string"
         mock_settings.checkin_cron = "0 19 * * *"
         mock_settings.scheduler_timezone = "Australia/Sydney"

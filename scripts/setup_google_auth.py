@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Google authentication setup for drbot.
+Google authentication setup for remy.
 
 PREREQUISITE (both options need this):
   1. https://console.cloud.google.com/ → select/create a project
@@ -10,7 +10,7 @@ PREREQUISITE (both options need this):
        • Google Docs API
   3. APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID
        Application type: Desktop app
-       Name: drbot (or anything)
+       Name: remy (or anything)
   4. Download the JSON file → save as  data/client_secrets.json
 
 ─────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ load_dotenv(_ROOT / ".env")
 CLIENT_SECRETS = _ROOT / "data" / "client_secrets.json"
 TOKEN_FILE = _ROOT / "data" / "google_token.json"
 
-from drbot.google.auth import SCOPES, _GCLOUD_SCOPES, GCLOUD_ADC_COMMAND
+from remy.google.auth import SCOPES, _GCLOUD_SCOPES, GCLOUD_ADC_COMMAND
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ from drbot.google.auth import SCOPES, _GCLOUD_SCOPES, GCLOUD_ADC_COMMAND
 
 def _check_adc() -> bool:
     try:
-        from drbot.google.auth import _try_adc
+        from remy.google.auth import _try_adc
         _try_adc()
         return True
     except Exception:
@@ -136,7 +136,7 @@ def run_python_oauth(client_id: str, client_secret: str) -> None:
 
 
 def main() -> None:
-    print("\n🔑 drbot Google authentication setup\n")
+    print("\n🔑 remy Google authentication setup\n")
 
     # Already authenticated?
     if _check_adc():
@@ -147,7 +147,7 @@ def main() -> None:
 
     if TOKEN_FILE.exists():
         try:
-            from drbot.google.auth import get_credentials
+            from remy.google.auth import get_credentials
             get_credentials(str(TOKEN_FILE))
             print(f"✅ Already authenticated via token file: {TOKEN_FILE}")
             print("Run: python scripts/test_google_integration.py  to verify all APIs.")

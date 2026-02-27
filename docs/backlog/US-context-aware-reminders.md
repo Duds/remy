@@ -36,7 +36,7 @@ whether the user has already interacted about a topic that day.
 
 ## Implementation
 
-**Modified file:** `drbot/scheduler/proactive.py`
+**Modified file:** `remy/scheduler/proactive.py`
 
 ### Dedup logic
 

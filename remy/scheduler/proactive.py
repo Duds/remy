@@ -86,11 +86,11 @@ class ProactiveScheduler:
         bot: "Bot",
         goal_store: GoalStore,
         fact_store: FactStore | None = None,
-        calendar_client=None,   # drbot.google.calendar.CalendarClient | None
-        contacts_client=None,   # drbot.google.contacts.ContactsClient | None
+        calendar_client=None,   # remy.google.calendar.CalendarClient | None
+        contacts_client=None,   # remy.google.contacts.ContactsClient | None
         automation_store: "AutomationStore | None" = None,
         claude_client=None,             # for monthly retrospective
-        conversation_analyzer=None,     # drbot.analytics.analyzer.ConversationAnalyzer | None
+        conversation_analyzer=None,     # remy.analytics.analyzer.ConversationAnalyzer | None
     ) -> None:
         self._bot = bot
         self._goal_store = goal_store

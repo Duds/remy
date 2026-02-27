@@ -1,5 +1,5 @@
 """
-Tests for drbot/memory/injector.py — MemoryInjector XML block builder.
+Tests for remy/memory/injector.py — MemoryInjector XML block builder.
 Uses real DB (tmp) with mocked embedding search to avoid sentence-transformers dependency.
 """
 
@@ -7,13 +7,13 @@ import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, patch
 
-from drbot.memory.database import DatabaseManager
-from drbot.memory.embeddings import EmbeddingStore
-from drbot.memory.facts import FactStore
-from drbot.memory.fts import FTSSearch
-from drbot.memory.goals import GoalStore
-from drbot.memory.injector import MemoryInjector
-from drbot.models import Fact, Goal
+from remy.memory.database import DatabaseManager
+from remy.memory.embeddings import EmbeddingStore
+from remy.memory.facts import FactStore
+from remy.memory.fts import FTSSearch
+from remy.memory.goals import GoalStore
+from remy.memory.injector import MemoryInjector
+from remy.models import Fact, Goal
 
 
 # --------------------------------------------------------------------------- #
@@ -165,16 +165,16 @@ async def test_build_system_prompt_appends_memory(db, components):
 
     await fact_store.upsert(1, [Fact(category="name", content="Alice")])
 
-    result = await injector.build_system_prompt(1, "Hello", "You are drbot.")
-    assert result.startswith("You are drbot.")
+    result = await injector.build_system_prompt(1, "Hello", "You are remy.")
+    assert result.startswith("You are remy.")
     assert "<memory>" in result
 
 
 @pytest.mark.asyncio
 async def test_build_system_prompt_returns_soul_only_when_no_memory(db, components):
     injector = components["injector"]
-    result = await injector.build_system_prompt(1, "Hello", "You are drbot.")
-    assert result == "You are drbot."
+    result = await injector.build_system_prompt(1, "Hello", "You are remy.")
+    assert result == "You are remy."
 
 
 @pytest.mark.asyncio
@@ -185,7 +185,7 @@ async def test_build_system_prompt_separator(db, components):
 
     await fact_store.upsert(1, [Fact(category="preference", content="Prefers dark mode")])
 
-    result = await injector.build_system_prompt(1, "Hello", "You are drbot.")
+    result = await injector.build_system_prompt(1, "Hello", "You are remy.")
     assert "\n\n<memory>" in result
 
 

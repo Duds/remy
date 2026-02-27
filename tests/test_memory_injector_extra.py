@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from drbot.memory.injector import MemoryInjector
+from remy.memory.injector import MemoryInjector
 
 @pytest.fixture
 def mock_components():

@@ -63,7 +63,7 @@ Event: Notification → Application = Google Wallet
 
 Task: HTTP Request
   Method:  POST
-  URL:     http://<drbot-tailscale-ip>:8080/webhook/notification
+  URL:     http://<remy-tailscale-ip>:8080/webhook/notification
   Headers: X-Secret: <SMS_WEBHOOK_SECRET>
            Content-Type: application/json
   Body:    {
@@ -77,7 +77,7 @@ Task: HTTP Request
 
 `%antitle`, `%antext`, `%ansubtext` are Tasker's built-in notification variables.
 
-### drbot changes
+### remy changes
 
 **New endpoint:** `POST /webhook/notification` (alongside `/webhook/sms`)
 
@@ -101,7 +101,7 @@ async def handle_notification(request: web.Request) -> web.Response:
     return web.Response(status=204)
 ```
 
-**`drbot/integrations/wallet.py`:**
+**`remy/integrations/wallet.py`:**
 
 ```python
 # Wallet notifications look like:
@@ -132,7 +132,7 @@ class WalletHandler:
         await bot.send_message(PRIMARY_CHAT_ID, alert)
 ```
 
-**Schema (`drbot/memory/database.py`):**
+**Schema (`remy/memory/database.py`):**
 
 ```sql
 CREATE TABLE IF NOT EXISTS wallet_transactions (
@@ -183,4 +183,4 @@ The handler should store and alert on **all** of these, not just successful purc
 - Email receipt parsing (not reliable — see story background)
 - Spending budgets or alerts when over a threshold (future story, builds on this)
 - Non-Wallet financial notifications (other bank apps need separate Tasker profiles)
-- Replying to or disputing transactions via drbot
+- Replying to or disputing transactions via remy

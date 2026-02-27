@@ -1,5 +1,5 @@
 services:
-  drbot:
+  remy:
     build: .
     env_file: .env
     environment:
@@ -12,10 +12,10 @@ services:
     volumes:
       - ./data:/app/data
       - ./config:/app/config
-      - ${HOME}/.config/gcloud:/home/drbot/.config/gcloud:ro
-      - ${HOME}/Projects:/home/drbot/Projects
-      - ${HOME}/Documents:/home/drbot/Documents:ro
-      - ${HOME}/Downloads:/home/drbot/Downloads
+      - ${HOME}/.config/gcloud:/home/remy/.config/gcloud:ro
+      - ${HOME}/Projects:/home/remy/Projects
+      - ${HOME}/Documents:/home/remy/Documents:ro
+      - ${HOME}/Downloads:/home/remy/Downloads
     depends_on:
       ollama:
         condition: service_started
@@ -32,7 +32,7 @@ services:
     ports:
       - "127.0.0.1:8765:8765"   # local only — Claude Code agents connect here
     volumes:
-      - ./data:/app/data         # relay.db lives alongside other drbot data
+      - ./data:/app/data         # relay.db lives alongside other remy data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/mcp')"]

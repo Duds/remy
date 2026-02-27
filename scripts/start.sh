@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# drbot startup script — sourced by launchd LaunchAgent
-# Ensures Docker Desktop is running then starts drbot via docker compose.
+# remy startup script — sourced by launchd LaunchAgent
+# Ensures Docker Desktop is running then starts remy via docker compose.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -22,5 +22,5 @@ until docker info >/dev/null 2>&1; do
     fi
 done
 
-# Start (or resume) the drbot stack
+# Start (or resume) the remy stack
 exec docker compose --project-directory "$PROJECT_DIR" up

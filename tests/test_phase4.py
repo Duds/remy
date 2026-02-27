@@ -14,13 +14,13 @@ import pytest
 
 
 def test_format_results_empty():
-    from drbot.web.search import format_results
+    from remy.web.search import format_results
 
     assert "_No results found._" in format_results([])
 
 
 def test_format_results_basic():
-    from drbot.web.search import format_results
+    from remy.web.search import format_results
 
     results = [
         {"title": "Python Docs", "href": "https://python.org", "body": "The Python programming language."},
@@ -31,7 +31,7 @@ def test_format_results_basic():
 
 
 def test_format_results_truncates_body():
-    from drbot.web.search import format_results
+    from remy.web.search import format_results
 
     long_body = "x" * 500
     results = [{"title": "T", "href": "https://example.com", "body": long_body}]
@@ -45,17 +45,17 @@ def test_format_results_truncates_body():
 
 def test_web_search_returns_results():
     fake = [{"title": "Python", "href": "https://python.org", "body": "Python lang."}]
-    with patch("drbot.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake)):
-        from drbot.web.search import web_search
+    with patch("remy.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake)):
+        from remy.web.search import web_search
         results = asyncio.run(web_search("python"))
     assert results == fake
 
 
 def test_web_search_error_returns_empty():
     """If DuckDuckGo raises an error, web_search returns [] gracefully."""
-    with patch("ddgs.DDGS") as MockDDGS:
+    with patch("remy.web.search.DDGS") as MockDDGS:
         MockDDGS.return_value.__enter__.return_value.text.side_effect = RuntimeError("rate limited")
-        from drbot.web.search import web_search
+        from remy.web.search import web_search
         results = asyncio.run(web_search("test"))
     assert results == []
 
@@ -95,7 +95,7 @@ def make_context(args=None):
 
 
 def test_search_no_args():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     handlers = make_handlers(session_manager=None, router=None, conv_store=None)
     update = make_update()
@@ -104,7 +104,7 @@ def test_search_no_args():
 
 
 def test_research_no_args():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     handlers = make_handlers(session_manager=None, router=None, conv_store=None)
     update = make_update()
@@ -113,12 +113,12 @@ def test_research_no_args():
 
 
 def test_search_with_results():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     fake_results = [
         {"title": "Python", "href": "https://python.org", "body": "The Python language."}
     ]
-    with patch("drbot.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake_results)):
+    with patch("remy.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake_results)):
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
         update = make_update()
         asyncio.run(handlers["search"](update, make_context(["python", "programming"])))
@@ -126,7 +126,7 @@ def test_search_with_results():
 
 
 def test_save_url_no_fact_store():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     handlers = make_handlers(session_manager=None, router=None, conv_store=None, fact_store=None)
     update = make_update()
@@ -135,7 +135,7 @@ def test_save_url_no_fact_store():
 
 
 def test_save_url_with_fact_store():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     mock_fs = MagicMock()
     mock_fs.add = AsyncMock()
@@ -150,7 +150,7 @@ def test_save_url_with_fact_store():
 
 
 def test_bookmarks_empty():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     mock_fs = MagicMock()
     mock_fs.get_by_category = AsyncMock(return_value=[])
@@ -163,7 +163,7 @@ def test_bookmarks_empty():
 
 
 def test_bookmarks_list():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     mock_fs = MagicMock()
     mock_fs.get_by_category = AsyncMock(return_value=[
@@ -180,9 +180,9 @@ def test_bookmarks_list():
 
 
 def test_grocery_list_show_empty(tmp_path):
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
-    with patch("drbot.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = str(tmp_path / "grocery.txt")
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
@@ -192,10 +192,10 @@ def test_grocery_list_show_empty(tmp_path):
 
 
 def test_grocery_list_add_and_show(tmp_path):
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     grocery_file = str(tmp_path / "grocery.txt")
-    with patch("drbot.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = grocery_file
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
@@ -211,12 +211,12 @@ def test_grocery_list_add_and_show(tmp_path):
 
 
 def test_grocery_list_done(tmp_path):
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     grocery_file = str(tmp_path / "grocery.txt")
     Path(grocery_file).write_text("milk\neggs\nbread\n")
 
-    with patch("drbot.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = grocery_file
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
@@ -230,12 +230,12 @@ def test_grocery_list_done(tmp_path):
 
 
 def test_grocery_list_clear(tmp_path):
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     grocery_file = str(tmp_path / "grocery.txt")
     Path(grocery_file).write_text("milk\neggs\n")
 
-    with patch("drbot.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.settings") as mock_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = grocery_file
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
@@ -247,7 +247,7 @@ def test_grocery_list_clear(tmp_path):
 
 
 def test_price_check_no_args():
-    from drbot.bot.handlers import make_handlers
+    from remy.bot.handlers import make_handlers
 
     handlers = make_handlers(session_manager=None, router=None, conv_store=None)
     update = make_update()

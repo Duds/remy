@@ -1,9 +1,9 @@
-"""Tests for drbot/memory/database.py — schema init, WAL mode, user upsert."""
+"""Tests for remy/memory/database.py — schema init, WAL mode, user upsert."""
 
 import pytest
 import pytest_asyncio
 
-from drbot.memory.database import DatabaseManager
+from remy.memory.database import DatabaseManager
 
 
 @pytest_asyncio.fixture

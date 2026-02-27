@@ -9,7 +9,7 @@ or custom labels without having to switch to Gmail manually.
 
 ## Background
 
-`GmailClient.search_emails()` in `drbot/google/gmail_client.py` currently uses the Gmail
+`GmailClient.search_emails()` in `remy/google/gmail_client.py` currently uses the Gmail
 API without specifying a `labelIds` filter, which defaults to `INBOX` only. Emails in
 Promotions, Updates, Forums, or custom labels are invisible to Remy even when they are
 technically unread or match the search query.
@@ -40,7 +40,7 @@ The Gmail API supports filtering by label via the `labelIds` parameter on the
 
 ## Implementation
 
-**Files:** `drbot/google/gmail_client.py`, `drbot/ai/tool_registry.py`
+**Files:** `remy/google/gmail_client.py`, `remy/ai/tool_registry.py`
 
 ### 1. `GmailClient` changes
 

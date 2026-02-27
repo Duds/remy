@@ -1,5 +1,5 @@
 """
-Logging configuration for drbot.
+Logging configuration for remy.
 JSON structured logging for Azure Monitor; human-readable text for local dev.
 Includes rotating file handler to manage log file size.
 """
@@ -51,11 +51,11 @@ def setup_logging(log_level: str, logs_dir: str, azure_environment: bool) -> Non
 
     # Rotating file handler (best practice: prevents unbounded log growth)
     # 10MB per file, keep 5 backups = ~50MB total
-    log_file = os.path.join(logs_dir, "drbot.log")
+    log_file = os.path.join(logs_dir, "remy.log")
     file_handler = logging.handlers.RotatingFileHandler(
         log_file,
         maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,  # Keep drbot.log.1 through drbot.log.5
+        backupCount=5,  # Keep remy.log.1 through remy.log.5
         encoding="utf-8"
     )
     file_handler.setLevel(level)

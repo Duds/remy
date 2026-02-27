@@ -6,7 +6,7 @@ Verifies that one-time reminders are deleted from DB before being sent to preven
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from drbot.scheduler.proactive import ProactiveScheduler
+from remy.scheduler.proactive import ProactiveScheduler
 
 @pytest.mark.asyncio
 async def test_run_automation_deletes_onetime_before_sending():
@@ -39,7 +39,7 @@ async def test_run_automation_deletes_onetime_before_sending():
     # Apply side effects
     automation_store.delete.side_effect = mock_delete
     
-    with patch("drbot.scheduler.proactive._read_primary_chat_id", return_value=12345):
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345):
         with patch.object(scheduler, "_send", side_effect=mock_send):
             automation = {
                 "id": 123,

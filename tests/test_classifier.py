@@ -1,7 +1,7 @@
-"""Tests for drbot/ai/classifier.py — no network required."""
+"""Tests for remy/ai/classifier.py — no network required."""
 
 import pytest
-from drbot.ai.classifier import MessageClassifier
+from remy.ai.classifier import MessageClassifier
 
 
 @pytest.fixture

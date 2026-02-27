@@ -24,7 +24,7 @@ OPTION A: gcloud + client_secrets.json  (recommended — one command)
                https://www.googleapis.com/auth/contacts
 
   Creates ~/.config/gcloud/application_default_credentials.json.
-  drbot picks this up automatically via google.auth.default().
+  remy picks this up automatically via google.auth.default().
 
 ──────────────────────────────────────────────────────────────────────────
 OPTION B: Python OAuth flow  (fallback / alternative)

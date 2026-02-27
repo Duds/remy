@@ -107,7 +107,7 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "name": "get_logs",
         "description": (
-            "Read drbot's own log file to diagnose errors, warnings, or recent activity. "
+            "Read remy's own log file to diagnose errors, warnings, or recent activity. "
             "Use this when the user asks about errors, what went wrong, or wants a status check."
         ),
         "input_schema": {
@@ -164,7 +164,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "get_facts",
         "description": (
             "Retrieve facts stored about the user in memory. "
-            "Use this when the user asks what drbot knows about them, or to verify stored information."
+            "Use this when the user asks what remy knows about them, or to verify stored information."
         ),
         "input_schema": {
             "type": "object",
@@ -566,7 +566,7 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Path to the file. ALWAYS use the ~/... form "
-                        "(e.g. ~/Projects/ai-agents/drbot/TODO.md). "
+                        "(e.g. ~/Projects/ai-agents/remy/TODO.md). "
                         "Never use absolute paths such as /home/dalerogers/ or /Users/dalerogers/ — "
                         "they will be rejected. The ~ here refers to the bot's runtime home, not the "
                         "host user's home directory."
@@ -590,7 +590,7 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Path to the directory. ALWAYS use ~/... form "
-                        "(e.g. ~/Projects/ai-agents/drbot/). "
+                        "(e.g. ~/Projects/ai-agents/remy/). "
                         "Never use absolute paths like /home/dalerogers/ or /Users/dalerogers/."
                     ),
                 },
@@ -616,7 +616,7 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Path to the file. ALWAYS use ~/... form "
-                        "(e.g. ~/Projects/ai-agents/drbot/TODO.md). "
+                        "(e.g. ~/Projects/ai-agents/remy/TODO.md). "
                         "Never use absolute paths."
                     ),
                 },
@@ -822,7 +822,7 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "manage_memory",
         "description": (
             "Add, update, or delete a stored memory fact. "
-            "Use this when the user wants to correct something drbot knows about them "
+            "Use this when the user wants to correct something remy knows about them "
             "(e.g. 'change my favourite colour to green'), add a new fact "
             "('remember that I prefer dark mode'), or forget something "
             "('forget that I live in Sydney'). "
@@ -907,7 +907,7 @@ TOOL_SCHEMAS: list[dict] = [
         "description": (
             "Show conversation usage statistics for a time period: "
             "message counts, active days, and model breakdown. "
-            "Use when the user asks how much they've used drbot, their usage stats, "
+            "Use when the user asks how much they've used remy, their usage stats, "
             "or wants a usage overview."
         ),
         "input_schema": {

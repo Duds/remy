@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from drbot.bot.handlers import make_handlers
-from drbot.bot.session import SessionManager
-from drbot.memory.conversations import ConversationStore
-from drbot.memory.database import DatabaseManager
-from drbot.memory.facts import FactStore
+from remy.bot.handlers import make_handlers
+from remy.bot.session import SessionManager
+from remy.memory.conversations import ConversationStore
+from remy.memory.database import DatabaseManager
+from remy.memory.facts import FactStore
 
 
 class DummyMessage:
@@ -49,7 +49,7 @@ def test_set_and_status_project(tmp_path):
     # All async ops must share one event loop — aiosqlite connections are loop-bound
     # and hang if used across multiple asyncio.run() calls (Python 3.14+).
     async def _run():
-        db_path = str(tmp_path / "drbot.db")
+        db_path = str(tmp_path / "remy.db")
         db = DatabaseManager(db_path)
         await db.init()
 
@@ -66,7 +66,7 @@ def test_set_and_status_project(tmp_path):
         )
         await db.upsert_user(12345)
 
-        import drbot.bot.handlers as handlers_module
+        import remy.bot.handlers as handlers_module
         handlers_module._ALLOWED_BASE_DIRS = [str(tmp_path)]
         set_project_cmd = handlers["set_project"]
         project_status_cmd = handlers["project_status"]
@@ -94,7 +94,7 @@ def test_read_write_ls(tmp_path):
         conv_store=conv_store,
     )
     # allow tmp_path for read/write tests
-    import drbot.bot.handlers as handlers_module
+    import remy.bot.handlers as handlers_module
     handlers_module._ALLOWED_BASE_DIRS = [str(tmp_path)]
     read_cmd = handlers["read"]
     write_cmd = handlers["write"]

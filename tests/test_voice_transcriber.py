@@ -1,5 +1,5 @@
 """
-Tests for drbot/voice/transcriber.py.
+Tests for remy/voice/transcriber.py.
 
 faster-whisper is NOT installed in the test environment, so all tests mock
 the model load and transcription. We test the integration logic:
@@ -14,7 +14,7 @@ import tempfile
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from drbot.voice.transcriber import VoiceTranscriber, _transcribe_sync
+from remy.voice.transcriber import VoiceTranscriber, _transcribe_sync
 
 
 # --------------------------------------------------------------------------- #
@@ -85,7 +85,7 @@ async def test_transcribe_returns_text(tmp_path):
     tg_file = make_fake_telegram_file(tmp_path)
 
     transcriber = VoiceTranscriber()
-    with patch("drbot.voice.transcriber._model", fake_model):
+    with patch("remy.voice.transcriber._model", fake_model):
         result = await transcriber.transcribe(tg_file)
 
     assert result == "This is a test"
@@ -101,7 +101,7 @@ async def test_transcribe_cleans_up_temp_file(tmp_path):
     tg_file = make_fake_telegram_file(tmp_path)
 
     transcriber = VoiceTranscriber()
-    with patch("drbot.voice.transcriber._model", fake_model):
+    with patch("remy.voice.transcriber._model", fake_model):
         result = await transcriber.transcribe(tg_file)
 
     assert result == "cleanup test"
@@ -118,7 +118,7 @@ async def test_transcribe_returns_empty_on_download_error(tmp_path):
 
     fake_model = make_fake_model()
     transcriber = VoiceTranscriber()
-    with patch("drbot.voice.transcriber._model", fake_model):
+    with patch("remy.voice.transcriber._model", fake_model):
         result = await transcriber.transcribe(tg_file)
 
     assert result == ""
@@ -138,7 +138,7 @@ async def test_transcribe_returns_empty_on_model_error(tmp_path):
     bad_model.transcribe.side_effect = RuntimeError("CUDA OOM")
 
     transcriber = VoiceTranscriber()
-    with patch("drbot.voice.transcriber._model", bad_model):
+    with patch("remy.voice.transcriber._model", bad_model):
         result = await transcriber.transcribe(tg_file)
 
     assert result == ""
@@ -150,7 +150,7 @@ async def test_transcribe_path_returns_text():
     fake_model = make_fake_model("local file test")
     transcriber = VoiceTranscriber()
 
-    with patch("drbot.voice.transcriber._model", fake_model):
+    with patch("remy.voice.transcriber._model", fake_model):
         result = await transcriber.transcribe_path("/some/audio.mp3")
 
     assert result == "local file test"
@@ -163,7 +163,7 @@ async def test_transcribe_path_returns_empty_on_error():
     bad_model.transcribe.side_effect = RuntimeError("File not found")
 
     transcriber = VoiceTranscriber()
-    with patch("drbot.voice.transcriber._model", bad_model):
+    with patch("remy.voice.transcriber._model", bad_model):
         result = await transcriber.transcribe_path("/nonexistent/file.ogg")
 
     assert result == ""

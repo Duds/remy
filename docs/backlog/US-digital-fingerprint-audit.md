@@ -1,8 +1,9 @@
 # User Story: Digital Fingerprint Privacy Audit
 
 ## Summary
+
 As a user, I want Remy to help me audit my digital footprint — data broker presence,
-account exposure, and privacy hygiene — through a guided conversation, without DrBot
+account exposure, and privacy hygiene — through a guided conversation, without Remy
 needing to access or scrape any external services directly.
 
 ---
@@ -53,12 +54,12 @@ Do not store the user's personal identifiers as memory facts unless they ask.
 
 ## Test Cases
 
-| Scenario | Expected |
-|---|---|
-| User sends `/privacy-audit` | Remy prompts for names/emails to check |
-| User provides email address | Remy searches for breaches and broker listings |
-| No results found | Remy reports "no known exposure" with caveats |
-| User asks to save results | Remy offers to append to a file, not store as facts |
+| Scenario                    | Expected                                            |
+| --------------------------- | --------------------------------------------------- |
+| User sends `/privacy-audit` | Remy prompts for names/emails to check              |
+| User provides email address | Remy searches for breaches and broker listings      |
+| No results found            | Remy reports "no known exposure" with caveats       |
+| User asks to save results   | Remy offers to append to a file, not store as facts |
 
 ---
 

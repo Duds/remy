@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import pytest
 
-from drbot.ai.input_validator import (
+from remy.ai.input_validator import (
     sanitize_file_path,
     validate_message_input,
     RateLimiter,

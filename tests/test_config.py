@@ -1,7 +1,7 @@
-"""Tests for drbot/config.py — construct Settings directly, bypassing module singleton."""
+"""Tests for remy/config.py — construct Settings directly, bypassing module singleton."""
 
 import pytest
-from drbot.config import Settings
+from remy.config import Settings
 
 
 def make_settings(monkeypatch, **overrides):
@@ -30,7 +30,7 @@ def test_local_data_dir(monkeypatch):
     # Explicitly set DATA_DIR to test default logic
     s = make_settings(monkeypatch, AZURE_ENVIRONMENT="false", DATA_DIR="./data")
     assert s.data_dir == "./data"
-    assert "drbot.db" in s.db_path
+    assert "remy.db" in s.db_path
     assert "sessions" in s.sessions_dir
 
 
@@ -39,13 +39,13 @@ def test_azure_data_dir(monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
     s = make_settings(monkeypatch, AZURE_ENVIRONMENT="true")
     assert s.data_dir == "/data"
-    assert s.db_path == "/data/drbot.db"
+    assert s.db_path == "/data/remy.db"
 
 
 def test_soul_md_fallback(monkeypatch, tmp_path):
     s = make_settings(monkeypatch, SOUL_MD_PATH=str(tmp_path / "nonexistent.md"))
     soul = s.soul_md
-    assert "drbot" in soul.lower() or "assistant" in soul.lower()
+    assert "remy" in soul.lower() or "assistant" in soul.lower()
 
 
 def test_soul_md_loads_file(monkeypatch, tmp_path):

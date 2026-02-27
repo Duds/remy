@@ -11,7 +11,7 @@ remain valid so I can continue the session normally.
 
 ## Background
 
-`stream_with_tools()` in `drbot/ai/claude_client.py` (line 232) calls
+`stream_with_tools()` in `remy/ai/claude_client.py` (line 232) calls
 `tool_registry.dispatch()` with no exception handling:
 
 ```python
@@ -58,7 +58,7 @@ The real fix is to catch the exception inside the tool execution loop, synthesis
 
 ## Implementation
 
-**File:** `drbot/ai/claude_client.py`
+**File:** `remy/ai/claude_client.py`
 **Location:** The tool execution loop (lines 222–244)
 
 ### Change

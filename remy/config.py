@@ -1,5 +1,5 @@
 """
-Central configuration for drbot.
+Central configuration for remy.
 Uses Pydantic BaseSettings for type-safe configuration from environment variables.
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolve .env relative to this file (drbot/config.py → project root)
+# Resolve .env relative to this file (remy/config.py → project root)
 _ENV_FILE = Path(__file__).parent.parent / ".env"
 
 
@@ -100,7 +100,7 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> str:
-        return os.path.join(self.data_dir, "drbot.db")
+        return os.path.join(self.data_dir, "remy.db")
 
     @property
     def sessions_dir(self) -> str:
@@ -136,7 +136,7 @@ _settings: Settings | None = None
 
 
 class _SettingsProxy:
-    """Lazy proxy so `from drbot.config import settings` works without eager init."""
+    """Lazy proxy so `from remy.config import settings` works without eager init."""
     def __getattr__(self, name):
         return getattr(get_settings(), name)
 

@@ -31,8 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user for security
-RUN groupadd --gid 1001 drbot && \
-    useradd --uid 1001 --gid drbot --shell /bin/bash --create-home drbot
+RUN groupadd --gid 1001 remy && \
+    useradd --uid 1001 --gid remy --shell /bin/bash --create-home remy
 
 WORKDIR /app
 
@@ -41,13 +41,13 @@ COPY --from=builder /install /usr/local
 COPY --from=builder /root/.cache /root/.cache
 RUN chmod -R a+rX /root/.cache
 
-# Copy application source and config (owned by drbot user)
-COPY --chown=drbot:drbot drbot/ drbot/
-COPY --chown=drbot:drbot config/ config/
+# Copy application source and config (owned by remy user)
+COPY --chown=remy:remy remy/ remy/
+COPY --chown=remy:remy config/ config/
 
 # /data is mounted from Azure Files — persistent across container restarts
 # Pre-create it so the volume mount doesn't need root
-RUN mkdir -p /data && chown drbot:drbot /data
+RUN mkdir -p /data && chown remy:remy /data
 VOLUME /data
 
 # Health check endpoint port (lightweight HTTP server in main.py)
@@ -65,6 +65,6 @@ ENV PYTHONUNBUFFERED=1 \
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:${HEALTH_PORT}/health || exit 1
 
-USER drbot
+USER remy
 
-CMD ["python3", "-m", "drbot.main"]
+CMD ["python3", "-m", "remy.main"]

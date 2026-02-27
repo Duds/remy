@@ -2,7 +2,7 @@
 Researcher sub-agent — synthesises prior analyses into evidence-based questions
 and identifies knowledge gaps the user should investigate further.
 
-Note: drbot does not have live web search. The Researcher works with the context
+Note: remy does not have live web search. The Researcher works with the context
 provided by earlier agents and the user's own memory, surfacing what's unknown
 and framing the right research questions rather than fetching live data.
 """

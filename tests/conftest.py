@@ -1,4 +1,4 @@
-"""Shared fixtures for drbot tests."""
+"""Shared fixtures for remy tests."""
 
 import os
 import tempfile

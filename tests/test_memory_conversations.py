@@ -1,8 +1,8 @@
-"""Tests for drbot/memory/conversations.py"""
+"""Tests for remy/memory/conversations.py"""
 
 import pytest
-from drbot.memory.conversations import ConversationStore
-from drbot.models import ConversationTurn
+from remy.memory.conversations import ConversationStore
+from remy.models import ConversationTurn
 
 
 @pytest.fixture

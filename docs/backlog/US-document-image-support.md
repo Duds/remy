@@ -46,7 +46,7 @@ matters for screenshots, whiteboards, and receipts where text legibility is impo
 
 ## Implementation
 
-**File:** `drbot/bot/handlers.py`
+**File:** `remy/bot/handlers.py`
 
 ### 1. Add `handle_document`
 
@@ -85,7 +85,7 @@ In the `return {}` dict at the end of `make_handlers()`:
 "document": handle_document,
 ```
 
-And in `drbot/bot/telegram_bot.py`, register with `MessageHandler`:
+And in `remy/bot/telegram_bot.py`, register with `MessageHandler`:
 
 ```python
 app.add_handler(MessageHandler(filters.Document.ALL, handlers["document"]))

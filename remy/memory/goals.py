@@ -23,7 +23,7 @@ A goal is something the user wants to achieve, is working on, or explicitly stat
 Phrases like "I want to", "I'm trying to", "my goal is", "I need to", "I'm working on", "I'd like to" signal goals.
 If there are no goals, return [].
 Keep titles short (under 10 words). Descriptions can be one sentence.
-Example: [{"title": "Launch personal AI agent", "description": "User is building drbot as a personal second brain"}]"""
+Example: [{"title": "Launch personal AI agent", "description": "User is building remy as a personal second brain"}]"""
 
 _EXTRACTION_PROMPT = 'Extract goals/intentions from this message:\n\n"""{message}"""'
 

@@ -1,5 +1,5 @@
 """
-Pydantic v2 data models for drbot.
+Pydantic v2 data models for remy.
 """
 
 from datetime import datetime, timezone

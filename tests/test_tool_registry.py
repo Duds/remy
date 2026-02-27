@@ -1,5 +1,5 @@
 """
-Tests for drbot/ai/tool_registry.py and the tool-use streaming path.
+Tests for remy/ai/tool_registry.py and the tool-use streaming path.
 
 All external calls (Claude API, Ollama, diagnostics, memory stores) are mocked.
 No real API calls or file I/O.
@@ -11,8 +11,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
-from drbot.ai.tool_registry import ToolRegistry, TOOL_SCHEMAS
-from drbot.ai.claude_client import (
+from remy.ai.tool_registry import ToolRegistry, TOOL_SCHEMAS
+from remy.ai.claude_client import (
     ClaudeClient,
     TextChunk,
     ToolStatusChunk,
@@ -20,8 +20,8 @@ from drbot.ai.claude_client import (
     ToolTurnComplete,
     StreamEvent,
 )
-from drbot.bot.handlers import _build_message_from_turn, _TOOL_TURN_PREFIX
-from drbot.models import ConversationTurn
+from remy.bot.handlers import _build_message_from_turn, _TOOL_TURN_PREFIX
+from remy.models import ConversationTurn
 
 
 # --------------------------------------------------------------------------- #
@@ -176,7 +176,7 @@ async def test_dispatch_get_logs_summary():
         get_session_start_line, get_session_start, get_error_summary, get_recent_logs
     """
     reg = make_registry(logs_dir="/tmp")
-    with patch("drbot.ai.tool_registry.asyncio.to_thread") as mock_thread:
+    with patch("remy.ai.tool_registry.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [
             0,              # get_session_start_line → int
             None,           # get_session_start → None (no timestamp found)
@@ -190,7 +190,7 @@ async def test_dispatch_get_logs_summary():
 @pytest.mark.asyncio
 async def test_dispatch_get_logs_tail():
     reg = make_registry(logs_dir="/tmp")
-    with patch("drbot.ai.tool_registry.asyncio.to_thread", return_value="log lines") as mock_thread:
+    with patch("remy.ai.tool_registry.asyncio.to_thread", return_value="log lines") as mock_thread:
         result = await reg.dispatch("get_logs", {"mode": "tail", "lines": 10}, USER_ID)
     assert "log lines" in result
 
@@ -201,7 +201,7 @@ async def test_dispatch_get_logs_errors():
         get_session_start_line, get_session_start, get_error_summary
     """
     reg = make_registry(logs_dir="/tmp")
-    with patch("drbot.ai.tool_registry.asyncio.to_thread") as mock_thread:
+    with patch("remy.ai.tool_registry.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [
             0,             # get_session_start_line → int
             None,          # get_session_start → None
@@ -223,12 +223,12 @@ async def test_dispatch_get_goals_no_store():
 async def test_dispatch_get_goals_returns_list():
     goal_store = MagicMock()
     goal_store.get_active = AsyncMock(return_value=[
-        {"title": "Launch drbot", "description": "Go live"},
+        {"title": "Launch remy", "description": "Go live"},
         {"title": "Write tests"},
     ])
     reg = make_registry(goal_store=goal_store)
     result = await reg.dispatch("get_goals", {"limit": 5}, USER_ID)
-    assert "Launch drbot" in result
+    assert "Launch remy" in result
     assert "Write tests" in result
 
 

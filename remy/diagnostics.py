@@ -41,16 +41,16 @@ _since_dt = since_dt
 
 
 def _log_file(data_dir: str) -> Path:
-    """Return the path to drbot.log, checking both logs/ subdir and data_dir directly."""
-    candidate = Path(data_dir) / "logs" / "drbot.log"
+    """Return the path to remy.log, checking both logs/ subdir and data_dir directly."""
+    candidate = Path(data_dir) / "logs" / "remy.log"
     if candidate.exists():
         return candidate
-    return Path(data_dir) / "drbot.log"
+    return Path(data_dir) / "remy.log"
 
 
 def get_session_start_line(data_dir: str) -> int:
     """
-    Return the line index (0-based) of the last 'Starting drbot' entry in the log.
+    Return the line index (0-based) of the last 'Starting remy' entry in the log.
     Returns 0 if not found (include everything).
 
     Using line index rather than timestamp avoids timezone mismatch between
@@ -64,7 +64,7 @@ def get_session_start_line(data_dir: str) -> int:
     try:
         with open(log_file, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
-                if "Starting drbot" in line:
+                if "Starting remy" in line:
                     result = i  # keep the last (most recent by file position) match
     except Exception:
         pass
@@ -73,7 +73,7 @@ def get_session_start_line(data_dir: str) -> int:
 
 def get_session_start(data_dir: str) -> Optional[datetime]:
     """
-    Return the timestamp of the last 'Starting drbot' entry for display purposes only.
+    Return the timestamp of the last 'Starting remy' entry for display purposes only.
     Do not use this for filtering — use get_session_start_line instead.
     """
     log_file = _log_file(data_dir)
@@ -84,7 +84,7 @@ def get_session_start(data_dir: str) -> Optional[datetime]:
     try:
         with open(log_file, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
-                if "Starting drbot" in line:
+                if "Starting remy" in line:
                     ts = _parse_ts(line)
                     if ts is not None:
                         result = ts
@@ -100,11 +100,11 @@ def get_recent_logs(
     since: Optional[datetime] = None,
     since_line: Optional[int] = None,
 ) -> str:
-    """Read recent logs from drbot.log file efficiently using a deque."""
+    """Read recent logs from remy.log file efficiently using a deque."""
     log_file = _log_file(data_dir)
 
     if not log_file.exists():
-        return "No logs available yet (drbot.log not created)"
+        return "No logs available yet (remy.log not created)"
 
     try:
         buffer: deque[str] = deque(maxlen=lines)

@@ -1,6 +1,6 @@
 """
-One-shot script to initialise the drbot SQLite database.
-Run this before `make db` if drbot hasn't started yet.
+One-shot script to initialise the remy SQLite database.
+Run this before `make db` if remy hasn't started yet.
 
 Usage:
     python3 scripts/init_db.py
@@ -17,7 +17,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "placeholder")
 os.environ.setdefault("ANTHROPIC_API_KEY", "placeholder")
 os.environ.setdefault("TELEGRAM_ALLOWED_USERS_RAW", "")
 
-from drbot.memory.database import DatabaseManager  # noqa: E402
+from remy.memory.database import DatabaseManager  # noqa: E402
 
 
 async def main() -> None:

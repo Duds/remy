@@ -1,5 +1,5 @@
 """
-Tests for drbot/agents/ — Board of Directors sub-agents and orchestrator.
+Tests for remy/agents/ — Board of Directors sub-agents and orchestrator.
 
 All Claude calls are mocked — no real API calls are made.
 """
@@ -9,13 +9,13 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from drbot.agents.base_agent import SubAgent
-from drbot.agents.strategy import StrategyAgent
-from drbot.agents.content import ContentAgent
-from drbot.agents.finance import FinanceAgent
-from drbot.agents.researcher import ResearcherAgent
-from drbot.agents.critic import CriticAgent
-from drbot.agents.orchestrator import BoardOrchestrator
+from remy.agents.base_agent import SubAgent
+from remy.agents.strategy import StrategyAgent
+from remy.agents.content import ContentAgent
+from remy.agents.finance import FinanceAgent
+from remy.agents.researcher import ResearcherAgent
+from remy.agents.critic import CriticAgent
+from remy.agents.orchestrator import BoardOrchestrator
 
 
 # --------------------------------------------------------------------------- #

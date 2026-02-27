@@ -46,9 +46,9 @@ partial text is repeated.
 ## Implementation
 
 **Files to investigate:**
-- `drbot/bot/handlers.py` — event loop, `StreamingReply` usage
-- `drbot/bot/streaming.py` — `StreamingReply.feed()` and flush logic
-- `drbot/ai/claude_client.py` — event emission order around `ToolTurnComplete`
+- `remy/bot/handlers.py` — event loop, `StreamingReply` usage
+- `remy/bot/streaming.py` — `StreamingReply.feed()` and flush logic
+- `remy/ai/claude_client.py` — event emission order around `ToolTurnComplete`
 
 ### Hypothesis
 

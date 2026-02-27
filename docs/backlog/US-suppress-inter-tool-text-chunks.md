@@ -11,7 +11,7 @@ monologue between tool calls — they belong in the logs, not in my chat.
 
 ## Background
 
-`ClaudeClient.stream_with_tools()` in `drbot/ai/claude_client.py` runs an agentic loop.
+`ClaudeClient.stream_with_tools()` in `remy/ai/claude_client.py` runs an agentic loop.
 Between tool invocations, Claude sometimes emits short `TextChunk` events — fragments
 like "using list_directory" or "let me check that". These are status thoughts, not
 user-facing content.
@@ -39,7 +39,7 @@ tool turn is in progress. This causes the fragments to appear verbatim in Telegr
 
 ## Implementation
 
-**File:** `drbot/bot/handlers.py`
+**File:** `remy/bot/handlers.py`
 **Location:** Path A — the `async for event in claude_client.stream_with_tools(...)` loop
 
 ### Change

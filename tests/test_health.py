@@ -1,5 +1,5 @@
 """
-Tests for drbot/health.py — HTTP health endpoint.
+Tests for remy/health.py — HTTP health endpoint.
 
 Uses aiohttp's TestClient so no real TCP socket is needed.
 """
@@ -7,8 +7,8 @@ Uses aiohttp's TestClient so no real TCP socket is needed.
 import pytest
 import pytest_asyncio
 
-import drbot.health as health_module
-from drbot.health import run_health_server, set_ready, _handle_health, _handle_ready, _handle_root
+import remy.health as health_module
+from remy.health import run_health_server, set_ready, _handle_health, _handle_ready, _handle_root
 
 
 # --------------------------------------------------------------------------- #
@@ -106,7 +106,7 @@ async def test_root_endpoint_returns_service_info():
         resp = await client.get("/")
         assert resp.status == 200
         data = await resp.json()
-        assert data["service"] == "drbot"
+        assert data["service"] == "remy"
         assert "version" in data
 
 

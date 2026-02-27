@@ -35,11 +35,11 @@ lightweight SQLite-backed job registry so results survive restarts and remain qu
 
 ## Implementation
 
-**New file:** `drbot/memory/background_jobs.py`
-**Modified files:** `drbot/memory/database.py`, `drbot/agents/background.py`,
-`drbot/bot/handlers.py`, `drbot/ai/tool_registry.py`
+**New file:** `remy/memory/background_jobs.py`
+**Modified files:** `remy/memory/database.py`, `remy/agents/background.py`,
+`remy/bot/handlers.py`, `remy/ai/tool_registry.py`
 
-### Schema (`drbot/memory/database.py`)
+### Schema (`remy/memory/database.py`)
 
 ```sql
 CREATE TABLE IF NOT EXISTS background_jobs (
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS background_jobs (
 );
 ```
 
-### `BackgroundJobStore` (`drbot/memory/background_jobs.py`)
+### `BackgroundJobStore` (`remy/memory/background_jobs.py`)
 
 Methods: `create()`, `set_running()`, `set_done()`, `set_failed()`,
 `list_recent(user_id, limit=10)`, `get(job_id)`.

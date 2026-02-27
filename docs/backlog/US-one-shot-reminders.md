@@ -35,8 +35,8 @@ Remy should parse natural language time expressions from conversation and schedu
 ## Implementation
 
 **Files to create/modify:**
-- `drbot/scheduler/` — add one-shot job support (likely APScheduler `date` trigger)
-- `drbot/agents/` — extend the reminder tool definitions to include a `schedule_once` action
+- `remy/scheduler/` — add one-shot job support (likely APScheduler `date` trigger)
+- `remy/agents/` — extend the reminder tool definitions to include a `schedule_once` action
 - Update `list_reminders` response formatting to include one-shot entries with a "once" frequency label
 
 **Approach:**

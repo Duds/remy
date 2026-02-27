@@ -1,6 +1,7 @@
 # User Story: Android SMS Ingestion
 
 ## Summary
+
 As a user, I want Remy to receive my incoming SMS messages so she can alert me to
 important texts and let me respond or take action via Telegram — without needing to
 pick up my phone for every message.
@@ -12,11 +13,11 @@ pick up my phone for every message.
 Android exposes SMS events to third-party apps via a standard Broadcast intent. A
 lightweight open-source app — **SMS Gateway for Android** (free, no account) — runs a
 local HTTP server on the phone and forwards every incoming SMS as a JSON webhook POST.
-Drbot needs a new `/webhook/sms` endpoint to receive these POSTs.
+Remy needs a new `/webhook/sms` endpoint to receive these POSTs.
 
 The secondary challenge is **cellular connectivity**: when the phone is not on home WiFi,
 it cannot reach `localhost:8080`. The recommended solution is **Tailscale**, which gives
-drbot a stable private IP reachable from the phone over any network.
+remy a stable private IP reachable from the phone over any network.
 
 **No cloud intermediaries required. SMS never touches a third-party server.**
 
@@ -24,7 +25,7 @@ drbot a stable private IP reachable from the phone over any network.
 
 ## Acceptance Criteria
 
-1. **New `POST /webhook/sms` endpoint** in drbot accepts and validates incoming SMS payloads.
+1. **New `POST /webhook/sms` endpoint** in remy accepts and validates incoming SMS payloads.
 2. **Remy is notified via Telegram** for every inbound SMS with: sender number, message
    preview (first 200 chars), and timestamp. Format:
    ```
@@ -40,7 +41,7 @@ drbot a stable private IP reachable from the phone over any network.
    token return `401`.
 5. **Remy can read back recent SMS** on request: "what texts have I received today?"
    SMS are stored in a lightweight `sms_messages` SQLite table (sender, text, received_at).
-6. **No data leaves the local network** (phone → Tailscale → drbot only).
+6. **No data leaves the local network** (phone → Tailscale → remy only).
 
 ---
 
@@ -50,14 +51,14 @@ drbot a stable private IP reachable from the phone over any network.
 
 1. Install **SMS Gateway for Android** from F-Droid or Google Play.
    - GitHub: https://github.com/capcom6/android-sms-gateway
-2. In the app: enable webhook mode, set URL to `http://<drbot-tailscale-ip>:8080/webhook/sms`,
+2. In the app: enable webhook mode, set URL to `http://<remy-tailscale-ip>:8080/webhook/sms`,
    set the secret header `X-Secret: <SMS_WEBHOOK_SECRET>`.
-3. Install **Tailscale** on the phone and on the Mac running drbot.
+3. Install **Tailscale** on the phone and on the Mac running remy.
    - Add `network_mode: host` or expose port 8080 via the Tailscale IP in `docker-compose.yml`.
 
-### drbot changes
+### remy changes
 
-**New file:** `drbot/integrations/sms.py`
+**New file:** `remy/integrations/sms.py`
 
 ```python
 SMS_TABLE_DDL = """
@@ -74,7 +75,7 @@ class SMSStore:
     async def recent(self, hours: int = 24) -> list[dict]: ...
 ```
 
-**`drbot/bot/webhook.py` (or extend `main.py` aiohttp app):**
+**`remy/bot/webhook.py` (or extend `main.py` aiohttp app):**
 
 ```python
 @routes.post("/webhook/sms")
@@ -102,6 +103,7 @@ async def handle_sms(request: web.Request) -> web.Response:
 "what texts did I get today?" via natural language.
 
 **`.env` additions:**
+
 ```
 SMS_WEBHOOK_SECRET=<random 32-char string>
 SMS_ALLOWED_SENDERS=   # comma-separated E.164 numbers, or empty for all
@@ -113,31 +115,32 @@ SMS_KEYWORD_FILTER=    # comma-separated keywords, or empty for all
 ## Tailscale Setup Note
 
 Tailscale creates a WireGuard mesh between the phone and the Mac. Once installed on both:
+
 - Mac gets a stable IP like `100.x.y.z` (visible in Tailscale admin)
-- Phone can POST to `http://100.x.y.z:8080/webhook/sms` over WiFi *or* cellular
+- Phone can POST to `http://100.x.y.z:8080/webhook/sms` over WiFi _or_ cellular
 - No port-forwarding, no public exposure, no firewall changes needed
 
-In `docker-compose.yml`, bind drbot to `0.0.0.0:8080` (already the case for health check)
+In `docker-compose.yml`, bind remy to `0.0.0.0:8080` (already the case for health check)
 so the Tailscale IP can reach it.
 
 ---
 
 ## Test Cases
 
-| Scenario | Expected |
-|---|---|
-| SMS received from any number (no filter set) | Telegram alert sent within 3 s |
-| SMS received, sender not in allowed list | Alert suppressed |
-| Webhook POST with wrong secret | `401` returned, no alert |
-| Malformed JSON payload | `400` returned, logged |
-| "What texts did I get today?" | Remy queries `sms_store.recent(24)` and summarises |
-| Phone on cellular (Tailscale active) | Webhook reaches drbot; same behaviour |
+| Scenario                                     | Expected                                           |
+| -------------------------------------------- | -------------------------------------------------- |
+| SMS received from any number (no filter set) | Telegram alert sent within 3 s                     |
+| SMS received, sender not in allowed list     | Alert suppressed                                   |
+| Webhook POST with wrong secret               | `401` returned, no alert                           |
+| Malformed JSON payload                       | `400` returned, logged                             |
+| "What texts did I get today?"                | Remy queries `sms_store.recent(24)` and summarises |
+| Phone on cellular (Tailscale active)         | Webhook reaches remy; same behaviour               |
 
 ---
 
 ## Out of Scope
 
-- Sending SMS replies via drbot (requires SMS Gateway outbound API — separate story)
+- Sending SMS replies via remy (requires SMS Gateway outbound API — separate story)
 - iMessage / RCS support
 - SMS search beyond recent history (full text search can be added later)
 - Notification forwarding beyond SMS (see `US-google-wallet-monitoring`)

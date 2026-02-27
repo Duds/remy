@@ -3,7 +3,7 @@
 
 # ── Local development ─────────────────────────────────────────────────────────
 run:
-	python3 -m drbot.main
+	python3 -m remy.main
 
 setup:
 	python3 -m venv .venv
@@ -13,11 +13,11 @@ test:
 	python3 -m pytest tests/ -v
 
 test-cov:
-	python3 -m pytest tests/ -v --cov=drbot --cov-report=term-missing
+	python3 -m pytest tests/ -v --cov=remy --cov-report=term-missing
 
 lint:
-	python3 -m ruff check drbot/ tests/
-	python3 -m mypy drbot/ --ignore-missing-imports
+	python3 -m ruff check remy/ tests/
+	python3 -m mypy remy/ --ignore-missing-imports
 
 # ── Datasette (local DB browser) ──────────────────────────────────────────────
 db-init:
@@ -25,11 +25,11 @@ db-init:
 	python3 scripts/init_db.py
 
 db: db-init
-	python3 -m datasette serve data/drbot.db --metadata config/datasette.yml --open
+	python3 -m datasette serve data/remy.db --metadata config/datasette.yml --open
 
 # ── Docker (local) ────────────────────────────────────────────────────────────
 build:
-	docker build -t drbot:latest .
+	docker build -t remy:latest .
 
 docker-run:
 	docker compose up --build
@@ -43,7 +43,7 @@ HOST ?= localhost
 PORT ?= 8080
 health:
 	@curl -sf http://$(HOST):$(PORT)/health | python3 -m json.tool || \
-		echo "Health check failed — is drbot running?"
+		echo "Health check failed — is remy running?"
 
 # ── Azure deployment ──────────────────────────────────────────────────────────
 # Required env vars (set in shell or .env.azure):
@@ -51,7 +51,7 @@ health:
 #   RESOURCE_GROUP    — Azure resource group
 #   STORAGE_ACCOUNT   — Azure Storage Account name (for SQLite persistence)
 #   STORAGE_KEY       — Azure Storage Account key
-#   STORAGE_SHARE     — Azure File Share name (e.g. drbot-data)
+#   STORAGE_SHARE     — Azure File Share name (e.g. remy-data)
 #   TELEGRAM_BOT_TOKEN
 #   ANTHROPIC_API_KEY
 
@@ -59,14 +59,14 @@ health:
 deploy: build
 	@echo "── Pushing image to ACR: $(ACR_NAME) ──"
 	az acr login --name $(ACR_NAME)
-	docker tag drbot:latest $(ACR_NAME).azurecr.io/drbot:latest
-	docker push $(ACR_NAME).azurecr.io/drbot:latest
+	docker tag remy:latest $(ACR_NAME).azurecr.io/remy:latest
+	docker push $(ACR_NAME).azurecr.io/remy:latest
 
 	@echo "── Creating Azure Container Instance ──"
 	az container create \
 		--resource-group $(RESOURCE_GROUP) \
-		--name drbot \
-		--image $(ACR_NAME).azurecr.io/drbot:latest \
+		--name remy \
+		--image $(ACR_NAME).azurecr.io/remy:latest \
 		--registry-login-server $(ACR_NAME).azurecr.io \
 		--registry-username $(ACR_NAME) \
 		--registry-password $$(az acr credential show --name $(ACR_NAME) --query passwords[0].value -o tsv) \
@@ -92,24 +92,24 @@ deploy: build
 deploy-update: build
 	@echo "── Pushing updated image to ACR ──"
 	az acr login --name $(ACR_NAME)
-	docker tag drbot:latest $(ACR_NAME).azurecr.io/drbot:latest
-	docker push $(ACR_NAME).azurecr.io/drbot:latest
+	docker tag remy:latest $(ACR_NAME).azurecr.io/remy:latest
+	docker push $(ACR_NAME).azurecr.io/remy:latest
 	@echo "── Restarting container to pick up new image ──"
-	az container restart --resource-group $(RESOURCE_GROUP) --name drbot
+	az container restart --resource-group $(RESOURCE_GROUP) --name remy
 	@echo "── Done. Use 'make deploy-logs' to watch startup ──"
 
 # Stream live container logs
 deploy-logs:
-	az container logs --resource-group $(RESOURCE_GROUP) --name drbot --follow
+	az container logs --resource-group $(RESOURCE_GROUP) --name remy --follow
 
 # Show container status and IP
 deploy-status:
 	@az container show \
 		--resource-group $(RESOURCE_GROUP) \
-		--name drbot \
+		--name remy \
 		--query "{state:instanceView.state, ip:ipAddress.ip, fqdn:ipAddress.fqdn}" \
 		--output table
 
 # Delete the container (preserves storage — data safe)
 deploy-delete:
-	az container delete --resource-group $(RESOURCE_GROUP) --name drbot --yes
+	az container delete --resource-group $(RESOURCE_GROUP) --name remy --yes

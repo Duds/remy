@@ -61,7 +61,7 @@ def check_setup() -> bool:
     _header("Pre-flight: credentials & token")
 
     try:
-        from drbot.google.auth import get_credentials
+        from remy.google.auth import get_credentials
         get_credentials(TOKEN_FILE)
         _ok("Google credentials available (ADC or token file)")
     except Exception as e:
@@ -78,7 +78,7 @@ def check_setup() -> bool:
 async def test_calendar() -> bool:
     _header("Google Calendar")
 
-    from drbot.google.calendar import CalendarClient
+    from remy.google.calendar import CalendarClient
     cal = CalendarClient(TOKEN_FILE)
 
     # List events
@@ -102,7 +102,7 @@ async def test_calendar() -> bool:
         test_date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
         test_time = "23:58"  # late enough not to cause distraction
         event = await cal.create_event(
-            title="[drbot integration test — please delete]",
+            title="[remy integration test — please delete]",
             date_str=test_date,
             time_str=test_time,
             description="Auto-created by test_google_integration.py — safe to delete",
@@ -116,7 +116,7 @@ async def test_calendar() -> bool:
         # Delete the test event
         def _delete():
             from googleapiclient.discovery import build
-            from drbot.google.auth import get_credentials
+            from remy.google.auth import get_credentials
             svc = build("calendar", "v3", credentials=get_credentials(TOKEN_FILE))
             svc.events().delete(calendarId="primary", eventId=event_id).execute()
 
@@ -135,7 +135,7 @@ async def test_calendar() -> bool:
 async def test_gmail() -> bool:
     _header("Gmail")
 
-    from drbot.google.gmail import GmailClient
+    from remy.google.gmail import GmailClient
     gmail = GmailClient(TOKEN_FILE)
 
     # Unread count
@@ -189,7 +189,7 @@ async def test_docs() -> bool:
         _info("To test: export GOOGLE_TEST_DOC_ID=<doc-url-or-id> and re-run")
         return True
 
-    from drbot.google.docs import DocsClient
+    from remy.google.docs import DocsClient
     docs = DocsClient(TOKEN_FILE)
 
     # Read document
@@ -205,7 +205,7 @@ async def test_docs() -> bool:
 
     # Append text
     try:
-        test_line = f"[drbot integration test — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
+        test_line = f"[remy integration test — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
         await docs.append_text(TEST_DOC_ID, test_line)
         _ok(f"Appended test line to document")
         _info(f"Appended: {test_line}")
@@ -222,7 +222,7 @@ async def test_docs() -> bool:
 async def test_web_search() -> bool:
     _header("Web Search (bonus — no token needed)")
 
-    from drbot.web.search import web_search
+    from remy.web.search import web_search
     try:
         results = await web_search("python asyncio tutorial", max_results=3)
         if results:
@@ -244,7 +244,7 @@ async def test_web_search() -> bool:
 
 
 async def main():
-    print("\n🤖 drbot Google Workspace Integration Test\n")
+    print("\n🤖 remy Google Workspace Integration Test\n")
 
     if not check_setup():
         sys.exit(1)

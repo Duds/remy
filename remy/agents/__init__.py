@@ -1,5 +1,5 @@
 """
-drbot Board of Directors agents.
+remy Board of Directors agents.
 """
 
 from .background import BackgroundTaskRunner

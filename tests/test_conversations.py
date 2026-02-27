@@ -2,8 +2,8 @@ import os
 import tempfile
 import asyncio
 
-from drbot.memory.conversations import ConversationStore
-from drbot.models import ConversationTurn
+from remy.memory.conversations import ConversationStore
+from remy.models import ConversationTurn
 
 
 def test_delete_session(tmp_path):

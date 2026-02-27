@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-User Acceptance Testing (UAT) script for drbot.
+User Acceptance Testing (UAT) script for remy.
 
 Tests all major features by sending messages to the running bot and validating responses.
 
@@ -8,7 +8,7 @@ Usage:
     python3 scripts/uat.py
 
 Requirements:
-    - Bot must be running locally (python3 -m drbot.main)
+    - Bot must be running locally (python3 -m remy.main)
     - TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USERS_RAW must be in .env
 """
 
@@ -40,7 +40,7 @@ class TestResult:
     duration: float
 
 
-class DrbotUAT:
+class RemyUAT:
     def __init__(self):
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
         self.results: list[TestResult] = []
@@ -267,7 +267,7 @@ class DrbotUAT:
     async def run_all_tests(self):
         """Run all UAT tests."""
         print("\n" + "=" * 70)
-        print("🤖 drbot User Acceptance Testing (UAT)")
+        print("🤖 remy User Acceptance Testing (UAT)")
         print("=" * 70)
         print(f"\n📍 Testing bot: {TELEGRAM_BOT_TOKEN[:20]}...")
         print(f"📍 User ID: {TELEGRAM_USER_ID}")
@@ -328,7 +328,7 @@ class DrbotUAT:
 
 
 async def main():
-    uat = DrbotUAT()
+    uat = RemyUAT()
     await uat.run_all_tests()
 
 

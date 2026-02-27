@@ -44,10 +44,10 @@ added to the existing tool registry and is available to the `quick-assistant` pa
 
 ## Implementation
 
-**New file:** `drbot/tools/run_python.py`
-**Modified file:** `drbot/tools/__init__.py` — register `run_python`
+**New file:** `remy/tools/run_python.py`
+**Modified file:** `remy/tools/__init__.py` — register `run_python`
 
-### `drbot/tools/run_python.py`
+### `remy/tools/run_python.py`
 
 ```python
 import subprocess
@@ -163,7 +163,7 @@ RUN_PYTHON_TOOL = {
 ## Security Notes
 
 - This is a **best-effort** sandbox on macOS; it is not a full container boundary. Suitable
-  for a single-user personal bot (drbot's threat model) but not for multi-tenant deployments.
+  for a single-user personal bot (remy's threat model) but not for multi-tenant deployments.
 - If the bot is ever opened to untrusted users, replace the subprocess approach with a
   proper sandbox (e.g., `pyodide` in a WASM runtime, or a Docker-in-Docker ephemeral container).
 - The `board-analyst` subagent (when implemented) must **not** receive this tool to preserve

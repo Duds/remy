@@ -10,7 +10,7 @@ conversation flow.
 
 ## Background
 
-`ClaudeClient.stream_with_tools()` in `drbot/ai/claude_client.py` manually implements
+`ClaudeClient.stream_with_tools()` in `remy/ai/claude_client.py` manually implements
 a tool-use loop: call Claude → parse tool calls → execute tools → feed results back →
 repeat. This works but lacks composability. Every "agent type" (board analyst, researcher,
 quick assistant) shares the same loop and the same model setting.

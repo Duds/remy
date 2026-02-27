@@ -1,11 +1,11 @@
-"""Tests for drbot/bot/streaming.py — uses mock Telegram Message."""
+"""Tests for remy/bot/streaming.py — uses mock Telegram Message."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
-from drbot.bot.session import SessionManager
-from drbot.bot.streaming import StreamingReply, stream_to_telegram
+from remy.bot.session import SessionManager
+from remy.bot.streaming import StreamingReply, stream_to_telegram
 
 
 def make_mock_message():

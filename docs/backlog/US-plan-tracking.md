@@ -51,11 +51,11 @@ be able to check in and see the full picture at any time.
 
 ## Implementation
 
-**New file:** `drbot/memory/plans.py`
-**Modified files:** `drbot/memory/database.py`, `drbot/ai/tool_registry.py`,
-`drbot/scheduler/proactive.py`, `drbot/bot/handlers.py`
+**New file:** `remy/memory/plans.py`
+**Modified files:** `remy/memory/database.py`, `remy/ai/tool_registry.py`,
+`remy/scheduler/proactive.py`, `remy/bot/handlers.py`
 
-### Schema (`drbot/memory/database.py`)
+### Schema (`remy/memory/database.py`)
 
 ```sql
 CREATE TABLE IF NOT EXISTS plans (
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS plan_step_attempts (
 );
 ```
 
-### `PlanStore` (`drbot/memory/plans.py`)
+### `PlanStore` (`remy/memory/plans.py`)
 
 ```python
 class PlanStore:
@@ -102,7 +102,7 @@ class PlanStore:
     async def stale_steps(user_id, days=7) -> list[dict]: ...  # for briefing
 ```
 
-### Tools (`drbot/ai/tool_registry.py`)
+### Tools (`remy/ai/tool_registry.py`)
 
 **`create_plan`**
 ```json
@@ -184,7 +184,7 @@ class PlanStore:
 }
 ```
 
-### Proactive Surfacing (`drbot/scheduler/proactive.py`)
+### Proactive Surfacing (`remy/scheduler/proactive.py`)
 
 In the morning briefing, call `PlanStore.stale_steps(user_id, days=7)`. If any steps are
 returned, append a section to the briefing:
@@ -195,7 +195,7 @@ returned, append a section to the briefing:
   • "Switch energy provider" — Step 1 (Call AGL) last attempted 12 days ago: no answer.
 ```
 
-### `/plans` handler (`drbot/bot/handlers.py`)
+### `/plans` handler (`remy/bot/handlers.py`)
 
 Convenience alias. Calls `list_plans` for the user and formats output as:
 

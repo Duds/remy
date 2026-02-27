@@ -5,7 +5,7 @@ Tests for preserving conversation history during Ollama fallback in ModelRouter.
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from drbot.ai.router import ModelRouter
+from remy.ai.router import ModelRouter
 
 @pytest.mark.asyncio
 async def test_stream_with_fallback_passes_history_to_ollama():

@@ -1,5 +1,5 @@
 """
-Tests for drbot/agents/background.py — BackgroundTaskRunner.
+Tests for remy/agents/background.py — BackgroundTaskRunner.
 
 All Telegram bot calls are mocked — no real network calls are made.
 """
@@ -11,7 +11,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from drbot.agents.background import BackgroundTaskRunner, _MAX_MESSAGE_LENGTH
+from remy.agents.background import BackgroundTaskRunner, _MAX_MESSAGE_LENGTH
 
 
 # --------------------------------------------------------------------------- #

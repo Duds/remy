@@ -1,20 +1,20 @@
 """
-Tests for drbot/memory/goals.py — GoalExtractor (mocked Claude) and GoalStore.
+Tests for remy/memory/goals.py — GoalExtractor (mocked Claude) and GoalStore.
 """
 
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from drbot.memory.database import DatabaseManager
-from drbot.memory.embeddings import EmbeddingStore
-from drbot.memory.goals import (
+from remy.memory.database import DatabaseManager
+from remy.memory.embeddings import EmbeddingStore
+from remy.memory.goals import (
     GoalExtractor,
     GoalStore,
     _message_has_goal_signal,
     extract_and_store_goals,
 )
-from drbot.models import Goal
+from remy.models import Goal
 
 
 # --------------------------------------------------------------------------- #
@@ -128,16 +128,16 @@ async def test_extract_truncates_title():
 
 @pytest.mark.asyncio
 async def test_goal_store_upsert_inserts_new_goal(db, goal_store):
-    goals = [Goal(title="Launch drbot", description="Personal AI agent")]
+    goals = [Goal(title="Launch remy", description="Personal AI agent")]
     await goal_store.upsert(1, goals)
     active = await goal_store.get_active(1)
     assert len(active) == 1
-    assert active[0]["title"] == "Launch drbot"
+    assert active[0]["title"] == "Launch remy"
 
 
 @pytest.mark.asyncio
 async def test_goal_store_deduplicates_by_title(db, goal_store):
-    goals = [Goal(title="Launch drbot")]
+    goals = [Goal(title="Launch remy")]
     await goal_store.upsert(1, goals)
     await goal_store.upsert(1, goals)
     active = await goal_store.get_active(1)
@@ -146,9 +146,9 @@ async def test_goal_store_deduplicates_by_title(db, goal_store):
 
 @pytest.mark.asyncio
 async def test_goal_store_dedup_handles_substring_titles(db, goal_store):
-    """'Launch drbot' and 'drbot' should deduplicate (substring match)."""
-    await goal_store.upsert(1, [Goal(title="Launch drbot")])
-    await goal_store.upsert(1, [Goal(title="drbot")])
+    """'Launch remy' and 'remy' should deduplicate (substring match)."""
+    await goal_store.upsert(1, [Goal(title="Launch remy")])
+    await goal_store.upsert(1, [Goal(title="remy")])
     active = await goal_store.get_active(1)
     assert len(active) == 1
 

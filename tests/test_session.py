@@ -1,8 +1,8 @@
-"""Tests for drbot/bot/session.py"""
+"""Tests for remy/bot/session.py"""
 
 import asyncio
 import pytest
-from drbot.bot.session import SessionManager, validate_session_key
+from remy.bot.session import SessionManager, validate_session_key
 
 
 def test_validate_session_key_valid():

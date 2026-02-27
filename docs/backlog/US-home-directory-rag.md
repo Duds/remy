@@ -16,7 +16,7 @@ The current file access model is **pull-only**: Remy can only read a file if the
 it by path, or if a README.md is loaded via `MemoryInjector._get_project_context()`. There is
 no background indexing of file content.
 
-The existing `EmbeddingStore` in `drbot/memory/embeddings.py` already stores vectors in
+The existing `EmbeddingStore` in `remy/memory/embeddings.py` already stores vectors in
 `embeddings_vec` using `all-MiniLM-L6-v2` (384 dims) with sqlite-vec / FTS5 fallback. The
 `source_type` column in the `embeddings` table can be extended to include `"file_chunk"` —
 no schema changes required to the embeddings infrastructure.
@@ -42,7 +42,7 @@ add an ops burden. SQLite is sufficient for a single-user home assistant at this
 
 ### 1. Background file indexer
 
-A `FileIndexer` class in `drbot/memory/file_index.py` that:
+A `FileIndexer` class in `remy/memory/file_index.py` that:
 
 - Walks `~/Projects` and `~/Documents` (configurable via `settings.rag_index_paths`)
 - Skips: `.git/`, `node_modules/`, `__pycache__/`, `.venv/`, binary files, files > 500 KB
@@ -168,15 +168,15 @@ and sends a summary on completion.
 ## Implementation
 
 **New files:**
-- `drbot/memory/file_index.py` — `FileIndexer`, `FileChunkStore`
+- `remy/memory/file_index.py` — `FileIndexer`, `FileChunkStore`
 
 **Modified files:**
-- `drbot/memory/database.py` — add `file_chunks` + `file_index_log` DDL + migration
-- `drbot/scheduler/proactive.py` — add nightly `_reindex_files` job
-- `drbot/ai/tool_registry.py` — add `search_files` + `index_status` tools
-- `drbot/bot/handlers.py` — add `/reindex` command
-- `drbot/main.py` — instantiate `FileIndexer`, pass to `ToolRegistry` and scheduler
-- `drbot/config.py` — add `rag_index_paths`, `rag_index_extensions`, `rag_index_enabled`
+- `remy/memory/database.py` — add `file_chunks` + `file_index_log` DDL + migration
+- `remy/scheduler/proactive.py` — add nightly `_reindex_files` job
+- `remy/ai/tool_registry.py` — add `search_files` + `index_status` tools
+- `remy/bot/handlers.py` — add `/reindex` command
+- `remy/main.py` — instantiate `FileIndexer`, pass to `ToolRegistry` and scheduler
+- `remy/config.py` — add `rag_index_paths`, `rag_index_extensions`, `rag_index_enabled`
 
 **New dependencies:** None. Uses existing `EmbeddingStore`, `aiosqlite`, `asyncio`, and
 `pathlib`. Chunking is character-based (no tokeniser needed at this scale).

@@ -40,10 +40,10 @@ generalises this for user-triggered requests.
 
 ## Implementation
 
-**New file:** `drbot/agents/background.py`
-**Modified file:** `drbot/bot/handlers.py`
+**New file:** `remy/agents/background.py`
+**Modified file:** `remy/bot/handlers.py`
 
-### `drbot/agents/background.py`
+### `remy/agents/background.py`
 
 ```python
 class BackgroundTaskRunner:

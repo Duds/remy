@@ -130,13 +130,13 @@ def make_handlers(
     board_orchestrator: "BoardOrchestrator | None" = None,
     db=None,  # DatabaseManager — used to upsert user on first message
     tool_registry=None,  # ToolRegistry — enables native Anthropic tool use
-    google_calendar=None,  # drbot.google.calendar.CalendarClient | None
-    google_gmail=None,     # drbot.google.gmail.GmailClient | None
-    google_docs=None,      # drbot.google.docs.DocsClient | None
-    google_contacts=None,  # drbot.google.contacts.ContactsClient | None
-    automation_store=None,  # drbot.memory.automations.AutomationStore | None
+    google_calendar=None,  # remy.google.calendar.CalendarClient | None
+    google_gmail=None,     # remy.google.gmail.GmailClient | None
+    google_docs=None,      # remy.google.docs.DocsClient | None
+    google_contacts=None,  # remy.google.contacts.ContactsClient | None
+    automation_store=None,  # remy.memory.automations.AutomationStore | None
     scheduler_ref: dict | None = None,  # mutable {"proactive_scheduler": ...} for late-binding
-    conversation_analyzer=None,  # drbot.analytics.analyzer.ConversationAnalyzer | None
+    conversation_analyzer=None,  # remy.analytics.analyzer.ConversationAnalyzer | None
 ):
     """
     Factory that returns handler functions bound to shared dependencies.
