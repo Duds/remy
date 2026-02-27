@@ -29,6 +29,7 @@ from .memory.facts import FactExtractor, FactStore
 from .memory.fts import FTSSearch
 from .memory.goals import GoalExtractor, GoalStore
 from .memory.injector import MemoryInjector
+from .memory.knowledge import KnowledgeExtractor, KnowledgeStore
 from .analytics.analyzer import ConversationAnalyzer
 from .scheduler.proactive import ProactiveScheduler
 from .voice.transcriber import VoiceTranscriber
@@ -101,7 +102,10 @@ def main() -> None:
     goal_store = GoalStore(db, embeddings)
     goal_extractor = GoalExtractor(claude_client)
     fts = FTSSearch(db)
-    memory_injector = MemoryInjector(db, embeddings, fact_store, goal_store, fts)
+    # Unified Knowledge Store (supersedes fact_store + goal_store for new data)
+    knowledge_store = KnowledgeStore(db, embeddings)
+    knowledge_extractor = KnowledgeExtractor(claude_client)
+    memory_injector = MemoryInjector(db, embeddings, knowledge_store, fts)
     automation_store = AutomationStore(db)
     conv_analyzer = ConversationAnalyzer(conv_store, db)
 
@@ -148,10 +152,14 @@ def main() -> None:
     # Google Workspace clients may be None if not configured; tools degrade gracefully.
     tool_registry = ToolRegistry(
         logs_dir=settings.logs_dir,
-        goal_store=goal_store,
-        fact_store=fact_store,
+        knowledge_store=knowledge_store,
+        knowledge_extractor=knowledge_extractor,
+        goal_store=goal_store,       # legacy fallback during transition
+        fact_store=fact_store,       # legacy fallback during transition
         board_orchestrator=board_orchestrator,
         claude_client=claude_client,
+        mistral_client=mistral_client,
+        moonshot_client=moonshot_client,
         ollama_base_url=settings.ollama_base_url,
         model_complex=settings.model_complex,
         # Google Workspace (None if not configured)
@@ -161,7 +169,7 @@ def main() -> None:
         docs_client=google_docs,
         # Phase 5: automations
         automation_store=automation_store,
-        scheduler_ref=_late,  # populated after post_init; tools read it at call time
+        scheduler_ref=_late,
         # Files / grocery
         grocery_list_file=settings.grocery_list_file,
         # Phase 6: analytics
@@ -240,6 +248,9 @@ def main() -> None:
             automation_store=automation_store,
             claude_client=claude_client,
             conversation_analyzer=conv_analyzer,
+            session_manager=session_manager,
+            conv_store=conv_store,
+            tool_registry=tool_registry,
         )
         _late["proactive_scheduler"] = sched
         _proactive_ref.append(sched)

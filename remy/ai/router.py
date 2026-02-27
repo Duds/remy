@@ -38,6 +38,12 @@ class ModelRouter:
         self._moonshot = moonshot_client
         self._ollama = ollama_client
         self._classifier = MessageClassifier(claude_client=claude_client)
+        self._last_model = "unknown"
+
+    @property
+    def last_model(self) -> str:
+        """Returns the name of the model effectively used in the last stream."""
+        return self._last_model
 
     async def stream(
         self,
@@ -111,6 +117,11 @@ class ModelRouter:
         self, provider: str, messages: list[dict], model: str | None = None, system: str | None = None
     ) -> AsyncIterator[str]:
         """Try a cloud provider; fall back to Ollama on failure."""
+        effective_model = model or "default"
+        self._last_model = f"{provider}:{effective_model}"
+        
+        logger.info("Streaming via %s: model=%s", provider, effective_model)
+        
         try:
             if provider == "claude":
                 async for chunk in self._claude.stream_message(messages, model=model, system=system):
@@ -123,6 +134,7 @@ class ModelRouter:
                     yield chunk
         except Exception as e:
             logger.warning("%s unavailable (%s). Falling back to Ollama.", provider.capitalize(), e)
+            self._last_model = "ollama:local"
             if not await self._ollama.is_available():
                 raise ServiceUnavailableError(
                     f"Both {provider.capitalize()} and Ollama are unavailable. Please try again later."

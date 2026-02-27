@@ -654,4 +654,7 @@ if __name__ == "__main__":
     print(f"Database: {_db_path}", file=sys.stderr)
     print(f"Known agents: {', '.join(KNOWN_AGENTS)}", file=sys.stderr)
 
-    mcp.run(transport="streamable-http", host=args.host, port=args.port)
+    # FastMCP run() on streamable-http typically picks up configuration 
+    # from the environment or uses defaults; additional kwargs may cause errors
+    # in some SDK versions.
+    mcp.run(transport="streamable-http")

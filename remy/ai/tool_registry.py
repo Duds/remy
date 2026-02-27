@@ -978,6 +978,9 @@ class ToolRegistry:
         self,
         *,
         logs_dir: str,
+        knowledge_store=None,          # Unified KnowledgeStore
+        knowledge_extractor=None,      # Unified KnowledgeExtractor
+        # Legacy (deprecated) — kept for backwards compat during transition
         goal_store=None,
         fact_store=None,
         board_orchestrator=None,
@@ -991,17 +994,25 @@ class ToolRegistry:
         docs_client=None,
         # Phase 5
         automation_store=None,
-        scheduler_ref: dict | None = None,  # mutable {"proactive_scheduler": ...}
+        scheduler_ref: dict | None = None,
+        # AI Clients (Phase 7+)
+        mistral_client=None,
+        moonshot_client=None,
         # Files / grocery
         grocery_list_file: str = "",
         # Phase 6
         conversation_analyzer=None,
     ) -> None:
         self._logs_dir = logs_dir
+        self._knowledge_store = knowledge_store
+        self._knowledge_extractor = knowledge_extractor
+        # Legacy stores kept for safety during migration
         self._goal_store = goal_store
         self._fact_store = fact_store
         self._board_orchestrator = board_orchestrator
         self._claude_client = claude_client
+        self._mistral_client = mistral_client
+        self._moonshot_client = moonshot_client
         self._ollama_base_url = ollama_base_url
         self._model_complex = model_complex
         self._calendar = calendar_client
@@ -1081,7 +1092,7 @@ class ToolRegistry:
                 return await self._exec_read_gdoc(tool_input)
             # Grocery
             elif tool_name == "grocery_list":
-                return await self._exec_grocery_list(tool_input)
+                return await self._exec_grocery_list(tool_input, user_id)
             # Automations
             elif tool_name == "schedule_reminder":
                 return await self._exec_schedule_reminder(tool_input, user_id)
@@ -1176,48 +1187,85 @@ class ToolRegistry:
             return f"Diagnostics summary ({since_label}):\n\n{summary}\n\nRecent log tail (10 lines):\n{tail}"
 
     async def _exec_get_goals(self, inp: dict, user_id: int) -> str:
-        if self._goal_store is None:
-            return "Goal store not available — memory system not initialised."
+        if self._knowledge_store is None:
+            # Fall back to legacy store if available
+            if self._goal_store is None:
+                return "Goal store not available — memory system not initialised."
+            limit = min(int(inp.get("limit", 10)), 50)
+            goals = await self._goal_store.get_active(user_id, limit=limit)
+            if not goals:
+                return "No active goals found."
+            lines = []
+            for g in goals:
+                title = g.get("title", "Untitled")
+                desc = g.get("description", "")
+                gid = g.get("id", "?")
+                line = f"• [ID:{gid}] {title}"
+                if desc:
+                    line += f" — {desc}"
+                lines.append(line)
+            return f"Active goals ({len(goals)}):\n" + "\n".join(lines)
 
         limit = min(int(inp.get("limit", 10)), 50)
-        goals = await self._goal_store.get_active(user_id, limit=limit)
+        goals = await self._knowledge_store.get_by_type(user_id, "goal", limit=limit)
 
         if not goals:
             return "No active goals found."
 
         lines = []
         for g in goals:
-            title = g.get("title", "Untitled")
-            desc = g.get("description", "")
-            line = f"• {title}"
+            status = g.metadata.get("status", "active")
+            if status != "active":
+                continue
+            desc = g.metadata.get("description", "")
+            line = f"• [ID:{g.id}] {g.content}"
             if desc:
                 line += f" — {desc}"
             lines.append(line)
 
-        return f"Active goals ({len(goals)}):\n" + "\n".join(lines)
+        if not lines:
+            return "No active goals found."
+
+        return (
+            f"Active goals ({len(lines)}):\n"
+            + "\n".join(lines)
+            + "\n\n(Use the ID with manage_goal to update, complete, or delete a goal)"
+        )
 
     async def _exec_get_facts(self, inp: dict, user_id: int) -> str:
-        if self._fact_store is None:
-            return "Fact store not available — memory system not initialised."
-
         category = inp.get("category")
         limit = min(int(inp.get("limit", 20)), 100)
+
+        if self._knowledge_store is not None:
+            facts = await self._knowledge_store.get_by_type(user_id, "fact", limit=limit)
+            if category:
+                facts = [f for f in facts if f.metadata.get("category") == category]
+            if not facts:
+                cat_str = f" in category '{category}'" if category else ""
+                return f"No facts found{cat_str}."
+            lines = []
+            for f in facts:
+                cat = f.metadata.get("category", "other")
+                lines.append(f"[ID:{f.id}] [{cat}] {f.content}")
+            cat_str = f" (category: {category})" if category else ""
+            return f"Stored facts{cat_str} ({len(facts)}):\n" + "\n".join(lines)
+
+        # Legacy fallback
+        if self._fact_store is None:
+            return "Fact store not available — memory system not initialised."
         if category:
             facts = await self._fact_store.get_by_category(user_id, category)
             facts = facts[:limit]
         else:
             facts = await self._fact_store.get_for_user(user_id, limit=limit)
-
         if not facts:
             cat_str = f" in category '{category}'" if category else ""
             return f"No facts found{cat_str}."
-
         lines = []
         for f in facts:
             cat = f.get("category", "other")
             content = f.get("content", "")
             lines.append(f"[{cat}] {content}")
-
         cat_str = f" (category: {category})" if category else ""
         return f"Stored facts{cat_str} ({len(facts)}):\n" + "\n".join(lines)
 
@@ -1247,6 +1295,14 @@ class ToolRegistry:
                 lines.append(f"Claude: ❌ error ({e})")
         else:
             lines.append("Claude: ⚠️  client not configured")
+
+        if self._mistral_client is not None:
+            available = await self._mistral_client.is_available()
+            lines.append(f"Mistral: {'✅ online' if available else '❌ offline'}")
+
+        if self._moonshot_client is not None:
+            available = await self._moonshot_client.is_available()
+            lines.append(f"Moonshot: {'✅ online' if available else '❌ offline'}")
 
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
@@ -1739,11 +1795,55 @@ class ToolRegistry:
     # Grocery list executor                                                #
     # ------------------------------------------------------------------ #
 
-    async def _exec_grocery_list(self, inp: dict) -> str:
+    async def _exec_grocery_list(self, inp: dict, user_id: int = 0) -> str:
+        """Manage the shopping/grocery list via unified KnowledgeStore (or file fallback)."""
         action = inp.get("action", "show")
         items_raw = inp.get("items", "").strip()
-        grocery_file = self._grocery_list_file
 
+        # ── Unified KnowledgeStore path ──────────────────────────────────────
+        if self._knowledge_store is not None and user_id:
+            if action == "show":
+                items = await self._knowledge_store.get_by_type(user_id, "shopping_item", limit=100)
+                if not items:
+                    return "Shopping list is empty."
+                lines = [f"• [ID:{i.id}] {i.content}" for i in items]
+                return "Shopping list:\n" + "\n".join(lines) + "\n\n(Use the ID to remove specific items)"
+
+            elif action == "add":
+                if not items_raw:
+                    return "Please specify what to add."
+                new_items = [s.strip() for s in items_raw.replace(";", ",").split(",") if s.strip()]
+                from ..models import KnowledgeItem
+                ki_list = [KnowledgeItem(entity_type="shopping_item", content=it) for it in new_items]
+                await self._knowledge_store.upsert(user_id, ki_list)
+                return f"✅ Added to shopping list: {', '.join(new_items)}"
+
+            elif action == "remove":
+                if not items_raw:
+                    return "Please specify what to remove (name substring or item ID)."
+                # Support removing by ID
+                if items_raw.isdigit():
+                    removed = await self._knowledge_store.delete(user_id, int(items_raw))
+                    return f"✅ Removed item {items_raw}." if removed else f"Item {items_raw} not found."
+                # Fuzzy name removal
+                all_items = await self._knowledge_store.get_by_type(user_id, "shopping_item", limit=100)
+                removed_count = 0
+                for item in all_items:
+                    if items_raw.lower() in item.content.lower():
+                        await self._knowledge_store.delete(user_id, item.id)
+                        removed_count += 1
+                return f"✅ Removed {removed_count} item(s) matching '{items_raw}'."
+
+            elif action == "clear":
+                all_items = await self._knowledge_store.get_by_type(user_id, "shopping_item", limit=500)
+                for item in all_items:
+                    await self._knowledge_store.delete(user_id, item.id)
+                return "✅ Shopping list cleared."
+
+            return f"Unknown action: {action}"
+
+        # ── Legacy file-based fallback ────────────────────────────────────────
+        grocery_file = self._grocery_list_file
         if not grocery_file:
             return "Grocery list not configured."
 
@@ -1772,8 +1872,7 @@ class ToolRegistry:
             items = await asyncio.to_thread(_read)
             items.extend(new_items)
             await asyncio.to_thread(_write, items)
-            added = ", ".join(new_items)
-            return f"✅ Added to grocery list: {added}"
+            return f"✅ Added to grocery list: {', '.join(new_items)}"
 
         elif action == "remove":
             if not items_raw:

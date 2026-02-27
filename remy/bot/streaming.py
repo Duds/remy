@@ -104,21 +104,23 @@ class StreamingReply:
         self._last_flush = asyncio.get_event_loop().time()
 
     async def _edit_or_skip(self, text: str) -> None:
-        """Edit the current message, silently ignoring 'message not modified'."""
+        """Edit the current message with MarkdownV2 formatting."""
+        from ..utils.telegram_formatting import format_telegram_message
+        
+        formatted = format_telegram_message(text)
         try:
-            await self._message.edit_text(text, parse_mode="Markdown")
+            await self._message.edit_text(formatted, parse_mode="MarkdownV2")
             self._last_sent = text
         except BadRequest as e:
             err = str(e).lower()
             if "message is not modified" in err:
                 return
-            # Partial stream may have unbalanced markdown — retry as plain text
-            if "can't parse" in err or "parse" in err:
-                try:
-                    await self._message.edit_text(text)
-                    self._last_sent = text
-                except BadRequest:
-                    pass
+            # If MarkdownV2 fails (e.g. unbalanced), fallback to plain text escaping
+            try:
+                await self._message.edit_text(text)
+                self._last_sent = text
+            except BadRequest:
+                pass
             else:
                 logger.debug("Telegram BadRequest on edit: %s", e)
         except Exception as e:

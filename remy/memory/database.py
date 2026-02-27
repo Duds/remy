@@ -70,6 +70,19 @@ CREATE TABLE IF NOT EXISTS goals (
 );
 CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);
 
+CREATE TABLE IF NOT EXISTS knowledge (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(user_id),
+    entity_type  TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    metadata     TEXT NOT NULL DEFAULT '{}',
+    confidence   REAL DEFAULT 1.0,
+    embedding_id INTEGER,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_user_type ON knowledge(user_id, entity_type);
+
 CREATE TABLE IF NOT EXISTS embeddings (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL,
@@ -113,6 +126,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS goals_fts USING fts5(
     content=goals,
     content_rowid=id
 );
+
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+    content,
+    entity_type,
+    content=knowledge,
+    content_rowid=id
+);
 """
 
 # Schema migrations applied after the main DDL.
@@ -120,6 +140,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS goals_fts USING fts5(
 _MIGRATIONS = [
     # 001: one-time reminder support
     "ALTER TABLE automations ADD COLUMN fire_at TEXT;",
+    # 002: confidence score on knowledge items (added in model-orchestration-refactor)
+    "ALTER TABLE knowledge ADD COLUMN confidence REAL DEFAULT 1.0;",
 ]
 
 # Triggers to keep FTS indices in sync with source tables
@@ -133,6 +155,17 @@ END;
 CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
     INSERT INTO facts_fts(facts_fts, rowid, content, category) VALUES('delete', old.id, old.content, old.category);
     INSERT INTO facts_fts(rowid, content, category) VALUES (new.id, new.content, new.category);
+END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge BEGIN
+    INSERT INTO knowledge_fts(rowid, content, entity_type) VALUES (new.id, new.content, new.entity_type);
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge BEGIN
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, content, entity_type) VALUES('delete', old.id, old.content, old.entity_type);
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge BEGIN
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, content, entity_type) VALUES('delete', old.id, old.content, old.entity_type);
+    INSERT INTO knowledge_fts(rowid, content, entity_type) VALUES (new.id, new.content, new.entity_type);
 END;
 
 CREATE TRIGGER IF NOT EXISTS goals_ai AFTER INSERT ON goals BEGIN

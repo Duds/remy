@@ -7,6 +7,9 @@ data/google_token.json
 data/drbot.db
 data/drbot.db-wal
 data/drbot.db-shm
+data/remy.db
+data/remy.db-wal
+data/remy.db-shm
 data/sessions/
 data/logs/
 data/primary_chat_id.txt

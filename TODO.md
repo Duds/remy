@@ -417,6 +417,8 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **C**    | Context-aware reminders (snooze, dedup)                            | US-context-aware-reminders          | ⬜ P3 (deferred)             |
 | **C**    | SMS ingestion via Android webhook                                  | US-sms-ingestion                    | ⬜ P3 (new infra)            |
 | **C**    | Google Wallet transaction alerts                                   | US-google-wallet-monitoring         | ⬜ P3 (needs SMS first)      |
+| **C**    | Funny/nonsensical "working" messages for Telegram                  | US-working-messages                 | ⬜ P3                        |
+| **C**    | Telegram Markdown header/formatting fixes                          | US-telegram-markdown-fix            | ⬜ P2                        |
 | **S**    | Multi-Model Orchestration (Mistral, Moonshot)                      | US-model-orchestration              | ⬜ P1                        |
 | **S**    | Claude Agent SDK subagents                                         | US-claude-agent-sdk-subagents       | ⬜ Deferred (major refactor) |
 | **S**    | Gmail send                                                         | —                                   | ⬜ Deferred (security)       |
@@ -436,17 +438,17 @@ These were in my-agent and caused bloat. **Do not implement.**
      Claude can respond gracefully; `ToolTurnComplete` still fires normally
    - File: `ai/claude_client.py` — ~10 lines; isolated change, no new dependencies
 
-2. **Fix final reply duplication** (`US-final-reply-duplication`)
+1. **Fix final reply duplication** (`US-final-reply-duplication`)
    - Bug: after multi-tool flows the final message sometimes appears twice or out of order
    - Files: `bot/handlers.py`, `bot/streaming.py` — gate on `in_tool_turn` flag (same infrastructure as suppress story)
    - Implement after #1 (both touch the same event loop)
 
-3. **Gmail label/folder search** (`US-gmail-label-search`)
+1. **Gmail label/folder search** (`US-gmail-label-search`)
    - Gap: emails in Promotions, All Mail, and custom labels are invisible to Remy
    - Files: `google/gmail_client.py`, `ai/tool_registry.py`
    - No new dependencies; extends existing Gmail client
 
-4. **Persistent job tracking + `/jobs`** (`US-persistent-job-tracking`)
+1. **Persistent job tracking + `/jobs`** (`US-persistent-job-tracking`)
    - Adds SQLite-backed job registry so background task results survive restarts
    - Files: `memory/database.py` (schema), new `memory/background_jobs.py`, `agents/background.py`, `tool_registry.py`, `bot/handlers.py`
    - Depends on BackgroundTaskRunner ✅ (complete)
@@ -476,6 +478,10 @@ These were in my-agent and caused bloat. **Do not implement.**
    - Files: `bot/handlers.py` only — ~20 lines
    - Very low effort for real user value
 
+9. **Telegram Markdown header/formatting fixes** (`US-telegram-markdown-fix`)
+   - Issue: Headings (`#`) not rendering properly in TG; special chars causing parse errors.
+   - Files: `bot/handlers.py`, `utils/telegram_formatting.py`
+
 ### P3 — Future (new infrastructure or deferred)
 
 9. **Home directory RAG index** (`US-home-directory-rag`)
@@ -496,10 +502,16 @@ These were in my-agent and caused bloat. **Do not implement.**
     - Only implement if the current evening check-in proves insufficient in practice
 
 12. **SMS ingestion** (`US-sms-ingestion`)
+    - Android gateway integration; P3 due to hardware dependency.
+    - Files: `api/sms_webhook.py`, `memory/database.py`, `bot/handlers.py`
+
+13. **Funny/nonsensical "working" messages for Telegram** (`US-working-messages`)
+    - SimCity style status updates ("Reticulating splines...") while bot is "thinking".
+    - Files: `bot/handlers.py`
     - Android SMS via SMS Gateway app + Tailscale tunnel + `/webhook/sms` endpoint
     - Prerequisite: Tailscale installed on phone and Mac
 
-13. **Google Wallet alerts** (`US-google-wallet-monitoring`)
+14. **Google Wallet alerts** (`US-google-wallet-monitoring`)
     - Tasker profile → `/webhook/notification`; depends on SMS infrastructure
 
 ### Deferred (explicit non-starters for now)

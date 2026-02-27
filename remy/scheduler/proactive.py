@@ -32,6 +32,10 @@ from ..memory.goals import GoalStore
 if TYPE_CHECKING:
     from telegram import Bot
     from ..memory.automations import AutomationStore
+    from ..ai.claude_client import ClaudeClient
+    from ..ai.tool_registry import ToolRegistry
+    from ..bot.session import SessionManager
+    from ..memory.conversations import ConversationStore
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +93,11 @@ class ProactiveScheduler:
         calendar_client=None,   # remy.google.calendar.CalendarClient | None
         contacts_client=None,   # remy.google.contacts.ContactsClient | None
         automation_store: "AutomationStore | None" = None,
-        claude_client=None,             # for monthly retrospective
+        claude_client: "ClaudeClient | None" = None,
         conversation_analyzer=None,     # remy.analytics.analyzer.ConversationAnalyzer | None
+        session_manager: "SessionManager | None" = None,
+        conv_store: "ConversationStore | None" = None,
+        tool_registry: "ToolRegistry | None" = None,
     ) -> None:
         self._bot = bot
         self._goal_store = goal_store
@@ -100,6 +107,9 @@ class ProactiveScheduler:
         self._automation_store = automation_store
         self._claude_client = claude_client
         self._conversation_analyzer = conversation_analyzer
+        self._session_manager = session_manager
+        self._conv_store = conv_store
+        self._tool_registry = tool_registry
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
@@ -244,7 +254,7 @@ class ProactiveScheduler:
     async def _run_automation(
         self, automation_id: int, user_id: int, label: str, one_time: bool = False
     ) -> None:
-        """Fire a user-defined automation: send a reminder Telegram message."""
+        """Fire a user-defined automation through the full Claude pipeline."""
         logger.info(
             "Automation %d dispatching (one_time=%s, label=%r)", automation_id, one_time, label
         )
@@ -277,6 +287,35 @@ class ProactiveScheduler:
                         "Could not update last_run for automation %d: %s", automation_id, e,
                     )
 
+        # Agentic path: invoke the full Claude pipeline so Remy can reason,
+        # call tools, and respond meaningfully rather than echoing the label.
+        pipeline_available = (
+            self._session_manager is not None
+            and self._conv_store is not None
+            and self._tool_registry is not None
+            and self._claude_client is not None
+        )
+        if pipeline_available:
+            try:
+                from ..bot.pipeline import run_proactive_trigger
+                await run_proactive_trigger(
+                    label=label,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    bot=self._bot,
+                    claude_client=self._claude_client,
+                    tool_registry=self._tool_registry,
+                    session_manager=self._session_manager,
+                    conv_store=self._conv_store,
+                )
+                return
+            except Exception as e:
+                logger.warning(
+                    "Proactive pipeline failed for automation %d, falling back to raw send: %s",
+                    automation_id, e,
+                )
+
+        # Fallback: raw string send (pipeline unavailable or errored)
         await self._send(chat_id, f"⏰ *Reminder:* {label}")
 
     async def _send(self, chat_id: int, text: str) -> None:

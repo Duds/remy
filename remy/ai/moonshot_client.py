@@ -15,8 +15,8 @@ class MoonshotClient:
     """Client for interacting with the Moonshot AI API."""
 
     def __init__(self, api_key: str | None = None) -> None:
-        self._api_key = api_key or settings.moonshot_api_key
-        self._base_url = "https://api.moonshot.cn/v1"
+        self._api_key = (api_key or settings.moonshot_api_key).strip()
+        self._base_url = "https://api.moonshot.ai/v1"
 
     async def stream_chat(
         self,
@@ -81,6 +81,10 @@ class MoonshotClient:
             try:
                 headers = {"Authorization": f"Bearer {self._api_key}"}
                 response = await client.get(f"{self._base_url}/models", headers=headers)
-                return response.status_code == 200
-            except Exception:
+                if response.status_code != 200:
+                    logger.error("Moonshot availability check failed with status %d: %s", response.status_code, response.text)
+                    return False
+                return True
+            except Exception as e:
+                logger.error("Moonshot availability check failed: %s", e)
                 return False

@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 # Tags that MemoryInjector adds as structural wrappers — preserve these exactly.
 # Any other XML-like tag found in injected memory content will be escaped.
+# Attributes (id, category) are permitted on known structural tags.
 _SAFE_MEMORY_TAG = re.compile(
-    r'^<(?:/?memory|/?facts|/?goals|/?goal|fact\b[^>]*|/fact)>$',
+    r'^</?(?:memory|facts|goals|goal|topic|shopping_list|item)(\s[^>]*)?/?>$',
     re.IGNORECASE,
 )
 _ANY_TAG = re.compile(r'</?[a-zA-Z][^>]*>')
@@ -222,8 +223,8 @@ def sanitize_memory_injection(text: str) -> str:
             escaped = tag.replace("<", "&lt;").replace(">", "&gt;")
             sanitized = sanitized.replace(tag, escaped)
             if not warned:
-                logger.warning(
-                    "Escaped potentially dangerous tag in memory injection: %s", tag
+                logger.debug(
+                    "Escaped structural-lookalike tag in memory injection: %s", tag
                 )
                 warned = True
     return sanitized

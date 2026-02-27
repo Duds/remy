@@ -20,7 +20,8 @@ RUN pip install --no-cache-dir --prefix=/install --pre "sqlite-vec>=0.1.7a10"
 # HF_HOME points to where the cache will be copied in the runtime stage
 RUN PYTHONPATH=/install/lib/python3.12/site-packages \
     HF_HOME=/root/.cache/huggingface \
-    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && find /root/.cache/huggingface -name "*.lock" -delete
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -37,9 +38,10 @@ RUN groupadd --gid 1001 remy && \
 WORKDIR /app
 
 # Copy installed packages and pre-downloaded model cache from builder
+# Cache goes to /home/remy/.cache so the remy user can actually traverse to it
+# (/root is drwx------ — chown-ing its contents doesn't help if /root itself blocks traversal)
 COPY --from=builder /install /usr/local
-COPY --from=builder /root/.cache /root/.cache
-RUN chmod -R a+rX /root/.cache
+COPY --chown=remy:remy --from=builder /root/.cache/huggingface /home/remy/.cache/huggingface
 
 # Copy application source and config (owned by remy user)
 COPY --chown=remy:remy remy/ remy/
@@ -59,7 +61,7 @@ ENV PYTHONUNBUFFERED=1 \
     AZURE_ENVIRONMENT=true \
     DATA_DIR=/data \
     HEALTH_PORT=8080 \
-    HF_HOME=/root/.cache/huggingface
+    HF_HOME=/home/remy/.cache/huggingface
 
 # Docker HEALTHCHECK — Azure uses its own probes but this works for local docker
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

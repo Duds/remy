@@ -99,6 +99,78 @@ def _build_message_from_turn(turn: ConversationTurn) -> dict:
 # Estimate: 4 chars ≈ 1 token → 60k chars ≈ 15k tokens for history.
 _HISTORY_CHAR_BUDGET = 60_000
 
+# Funny "working" messages for Telegram
+_WORKING_MESSAGES = [
+    "Reticulating splines…",
+    "Homologating girdles…",
+    "Initializing neural pathways…",
+    "Consulting the archives…",
+    "Synthesizing creative juices…",
+    "Parsing the universe…",
+    "Herding digital cats…",
+    "Buffing the bits…",
+    "Aligning the planets…",
+    "Calculating the meaning of life…",
+    "Polishing the protocols…",
+    "Twiddling virtual thumbs…",
+    "Brewing digital coffee…",
+    "Charging flux capacitors…",
+    "Optimizing the optimism…",
+    "Rerouting power to thinking…",
+]
+
+def _get_working_msg() -> str:
+    import random
+    return random.choice(_WORKING_MESSAGES)
+
+
+class MessageRotator:
+    """
+    Background task that rotates working messages on a Telegram message
+    at random intervals until stopped.
+    """
+    def __init__(self, message: any, user_id: int):
+        self._message = message
+        self._user_id = user_id
+        self._task: asyncio.Task | None = None
+        self._stop_event = asyncio.Event()
+
+    async def _rotate_loop(self):
+        import random
+        last_msg = ""
+        while not self._stop_event.is_set():
+            # Get a new random message different from the last one
+            pool = [m for m in _WORKING_MESSAGES if m != last_msg]
+            msg = random.choice(pool)
+            last_msg = msg
+            
+            try:
+                await self._message.edit_text(msg)
+            except Exception:
+                # Ignore edit errors (rate limits, message deleted, etc)
+                pass
+            
+            # Wait for random interval 0.5s - 2.5s
+            wait_time = random.uniform(0.5, 2.5)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=wait_time)
+            except asyncio.TimeoutError:
+                continue
+
+    def start(self):
+        if self._task is None:
+            self._stop_event.clear()
+            self._task = asyncio.create_task(self._rotate_loop())
+
+    async def stop(self):
+        if self._task:
+            self._stop_event.set()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
 
 def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
     """
@@ -236,32 +308,10 @@ def make_handlers(
     async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await _reject_unauthorized(update):
             return
-        import httpx
-        ollama_url = settings.ollama_base_url
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{ollama_url}/api/tags")
-                if resp.status_code == 200:
-                    models = [m.get("name") for m in resp.json().get("models", [])]
-                    ollama_status = f"online — {', '.join(models[:5]) or 'no models'}"
-                else:
-                    ollama_status = f"error ({resp.status_code})"
-        except Exception:
-            ollama_status = "offline"
-
-        # Check other models
-        from ..ai.mistral_client import MistralClient
-        from ..ai.moonshot_client import MoonshotClient
-        mistral_ok = await MistralClient().is_available()
-        moonshot_ok = await MoonshotClient().is_available()
-
-        await update.message.reply_text(
-            f"Claude: configured ({settings.model_complex})\n"
-            f"Mistral: {'online' if mistral_ok else 'offline / not configured'}\n"
-            f"Moonshot: {'online' if moonshot_ok else 'offline / not configured'}\n"
-            f"Ollama: {ollama_status}\n"
-            f"Environment: {'Azure' if settings.azure_environment else 'local'}"
-        )
+        
+        # Use the central status check from ToolRegistry
+        status_text = await tool_registry.dispatch("check_status", {}, update.effective_user.id)
+        await update.message.reply_text(status_text)
 
     async def compact_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await _reject_unauthorized(update):
@@ -1950,6 +2000,8 @@ def make_handlers(
         in_tool_turn = False  # True between ToolStatusChunk and ToolTurnComplete;
                               # TextChunks arriving in this window are suppressed
         last_edit_len = 0
+        rotator = MessageRotator(sent, user_id)
+        rotator_stopped = False
 
         async def _flush_display(final: bool = False) -> None:
             """Push accumulated display text to Telegram message."""
@@ -1976,12 +2028,16 @@ def make_handlers(
                         pass  # Skip failed edits (no-change, flood control, etc.)
 
         try:
+            rotator.start()
             async for event in claude_client.stream_with_tools(
                 messages=messages,
                 tool_registry=tool_registry,
                 user_id=user_id,
                 system=system_prompt,
             ):
+                if not rotator_stopped:
+                    await rotator.stop()
+                    rotator_stopped = True
                 if session_manager.is_cancelled(user_id):
                     shown = "".join(current_display)
                     try:
@@ -2035,6 +2091,8 @@ def make_handlers(
                     last_edit_len = 0
 
         except Exception as exc:
+            if not rotator_stopped:
+                await rotator.stop()
             logger.error("stream_with_tools error for user %d: %s", user_id, exc)
             await sent.edit_text(f"Sorry, something went wrong: {exc}")
             return
@@ -2049,7 +2107,7 @@ def make_handlers(
             asst_serialised = _TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
             await conv_store.append_turn(
                 user_id, session_key,
-                ConversationTurn(role="assistant", content=asst_serialised),
+                ConversationTurn(role="assistant", content=asst_serialised, model_used="claude:sonnet"),
             )
             # User turn with tool_result blocks
             usr_serialised = _TOOL_TURN_PREFIX + json.dumps(result_blocks)
@@ -2066,7 +2124,7 @@ def make_handlers(
         if final_text:
             await conv_store.append_turn(
                 user_id, session_key,
-                ConversationTurn(role="assistant", content=final_text),
+                ConversationTurn(role="assistant", content=final_text, model_used="claude:sonnet"),
             )
 
     async def _process_text_input(
@@ -2216,7 +2274,7 @@ def make_handlers(
                 )
 
             # Send placeholder message to stream into
-            sent = await update.message.reply_text("…")
+            sent = await update.message.reply_text(_get_working_msg())
 
             # ---------------------------------------------------------------- #
             # Path A: Native tool use (preferred when tool_registry available)  #
@@ -2246,9 +2304,21 @@ def make_handlers(
             # ---------------------------------------------------------------- #
             # Path B: Router fallback (no tool_registry)                        #
             # ---------------------------------------------------------------- #
+            rotator = MessageRotator(sent, user_id)
+            rotator.start()
+            rotator_stopped = False
+
+            async def wrapper_stream():
+                nonlocal rotator_stopped
+                async for chunk in router.stream(text, messages, user_id, system=system_prompt):
+                    if not rotator_stopped:
+                        await rotator.stop()
+                        rotator_stopped = True
+                    yield chunk
+
             try:
                 response_text = await stream_to_telegram(
-                    chunks=router.stream(text, messages, user_id, system=system_prompt),
+                    chunks=wrapper_stream(),
                     initial_message=sent,
                     session_manager=session_manager,
                     user_id=user_id,
@@ -2264,9 +2334,13 @@ def make_handlers(
                 logger.error("Error processing message for user %d: %s", user_id, e)
                 await sent.edit_text(f"❌ Sorry, something went wrong: {e}")
                 return
+            finally:
+                if not rotator_stopped:
+                    await rotator.stop()
 
             # Save assistant turn
-            assistant_turn = ConversationTurn(role="assistant", content=response_text)
+            model_name = router.last_model
+            assistant_turn = ConversationTurn(role="assistant", content=response_text, model_used=model_name)
             await conv_store.append_turn(user_id, session_key, assistant_turn)
 
             # Clear task timer on success

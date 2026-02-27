@@ -33,6 +33,14 @@ class Goal(BaseModel):
     status: Literal["active", "completed", "abandoned"] = "active"
 
 
+class KnowledgeItem(BaseModel):
+    entity_type: Literal["fact", "goal", "shopping_item"]
+    content: str
+    metadata: dict = Field(default_factory=dict)
+    confidence: float = 1.0
+    id: Optional[int] = None
+
+
 class TelegramUser(BaseModel):
     user_id: int
     username: Optional[str] = None
