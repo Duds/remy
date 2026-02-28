@@ -47,7 +47,17 @@ class SessionManager:
         return event is not None and event.is_set()
 
     @staticmethod
-    def get_session_key(user_id: int) -> str:
-        """Return a daily session key: user_<id>_<YYYYMMDD>."""
+    def get_session_key(user_id: int, thread_id: int | None = None) -> str:
+        """
+        Return a daily session key.
+
+        Without thread_id: user_<id>_<YYYYMMDD>
+        With thread_id:    user_<id>_thread_<tid>_<YYYYMMDD>
+
+        Thread IDs come from Telegram's message_thread_id when Topics are enabled.
+        Each topic maintains its own isolated conversation history.
+        """
         date = datetime.now(timezone.utc).strftime("%Y%m%d")
+        if thread_id is not None:
+            return f"user_{user_id}_thread_{thread_id}_{date}"
         return f"user_{user_id}_{date}"

@@ -1,6 +1,6 @@
 # User Story: Proactive Memory Storage
 
-⬜ Backlog — P1
+✅ Done — 2026-02-28
 
 ## Summary
 As a user, I want Remy to automatically store important things I mention in conversation —
@@ -68,25 +68,30 @@ Remy to call `manage_memory` proactively when Dale mentions anything worth persi
 
 No code changes required for Phase 1. The instruction runs entirely through the system prompt.
 
-### Phase 2 — Prompt evaluation and tuning
+### Phase 2 — Prompt evaluation and tuning (complete)
 
-Run a set of test conversations (see Test Cases below) and observe whether Remy stores the
-right facts, avoids storing trivia, and silently updates stale facts.
+Updated `manage_memory` tool description in `tool_registry.py` to explicitly instruct
+proactive use. The description now mentions:
+- Use PROACTIVELY when Doc mentions something worth remembering
+- Examples: completed tasks, people's plans, personal updates, decisions
+- Do NOT announce storage — just do it silently
 
-Tune the SOUL.md instruction if Remy is over- or under-storing.
+Added `tests/test_proactive_memory.py` with 16 test cases covering:
+- Tool schema validation (proactive mention, silent mention, all actions, categories)
+- Storage scenarios (completed tasks, people's plans, decisions, health updates)
+- Update/delete flows for outdated facts
+- Exact deduplication
+- Tool dispatch validation
 
-### Phase 3 — Supporting infrastructure (optional, depends on US-improved-persistent-memory)
+### Phase 3 — Supporting infrastructure (complete)
 
-If semantic dedup (from `US-improved-persistent-memory.md`) is in place, Remy can store
-proactively without worrying about duplicates — the dedup layer will merge near-identical facts.
-Without it, over-eager storage may create noise. Consider gating Phase 3 on that story.
+`US-improved-persistent-memory.md` is complete — semantic dedup is in place via
+`KnowledgeStore.upsert()` which uses ANN similarity to merge near-duplicate facts.
 
-**Files potentially modified:**
-- `config/SOUL.md` — already updated
-- `remy/memory/facts.py` — ensure `manage_memory` tool handles `action: update` and
-  `action: delete` cleanly when called with a fact_id sourced from `get_facts`
-- `remy/ai/tool_registry.py` — verify `manage_memory` tool schema includes `fact_id` for
-  update/delete flows (should already exist; confirm)
+**Files modified:**
+- `config/SOUL.md` — Proactive Memory Storage section added (Phase 1)
+- `remy/ai/tool_registry.py` — `manage_memory` tool description updated for proactive use
+- `tests/test_proactive_memory.py` — new test file with 16 test cases
 
 ---
 

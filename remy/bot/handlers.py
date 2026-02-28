@@ -27,6 +27,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from ..agents.background import BackgroundTaskRunner
+from ..bot.working_message import WorkingMessage
 from ..ai.claude_client import TextChunk, ToolResultChunk, ToolStatusChunk, ToolTurnComplete
 from ..ai.input_validator import (
     RateLimiter,
@@ -210,6 +211,7 @@ def make_handlers(
     scheduler_ref: dict | None = None,  # mutable {"proactive_scheduler": ...} for late-binding
     conversation_analyzer=None,  # remy.analytics.analyzer.ConversationAnalyzer | None
     job_store=None,  # remy.memory.background_jobs.BackgroundJobStore | None
+    plan_store=None,  # remy.memory.plans.PlanStore | None
 ):
     """
     Factory that returns handler functions bound to shared dependencies.
@@ -245,6 +247,7 @@ def make_handlers(
             "  /delete_conversation — delete conversation history for privacy\n"
             "  /status    — check backend status\n"
             "  /goals     — list your active goals\n"
+            "  /plans     — list your active plans with step progress\n"
             "  /read <path> — read a text file (Projects/Documents/Downloads)\n"
             "  /write <path> — write text to a file (you'll be prompted for content)\n"
             "  /ls <dir> — list files in a directory\n"
@@ -289,7 +292,8 @@ def make_handlers(
             "  /breakdown <task> — break a task into actionable steps\n"
             "  /stats [period]   — usage stats (7d, 30d, 90d, all)\n"
             "  /goal-status      — goal tracking dashboard\n"
-            "  /retrospective    — generate monthly retrospective\n\n"
+            "  /retrospective    — generate monthly retrospective\n"
+            "  /consolidate      — extract memories from today's chats\n\n"
             "Send a voice message to transcribe and process it.\n"
             "Just send me a message to get started."
         )
@@ -318,7 +322,8 @@ def make_handlers(
         if await _reject_unauthorized(update):
             return
         user_id = update.effective_user.id
-        session_key = SessionManager.get_session_key(user_id)
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+        session_key = SessionManager.get_session_key(user_id, thread_id)
         turns = await conv_store.get_recent_turns(user_id, session_key, limit=50)
 
         if not turns:
@@ -395,12 +400,62 @@ def make_handlers(
             parse_mode="Markdown",
         )
 
+    async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """List your active plans with step progress."""
+        if await _reject_unauthorized(update):
+            return
+        if plan_store is None:
+            await update.message.reply_text("Plan tracking not available.")
+            return
+        user_id = update.effective_user.id
+        try:
+            plans = await plan_store.list_plans(user_id, status="active")
+        except Exception as e:
+            await update.message.reply_text(f"Could not load plans: {e}")
+            return
+
+        if not plans:
+            await update.message.reply_text(
+                "No active plans. Tell me about a project and I'll help you track it!"
+            )
+            return
+
+        lines = [f"📋 *Active plans* ({len(plans)}):"]
+        lines.append("")
+
+        for plan in plans:
+            counts = plan.get("step_counts", {})
+            done = counts.get("done", 0)
+            in_progress = counts.get("in_progress", 0)
+            pending = counts.get("pending", 0)
+            blocked = counts.get("blocked", 0)
+            total = plan.get("total_steps", 0)
+
+            progress_parts = []
+            if done:
+                progress_parts.append(f"{done} done")
+            if in_progress:
+                progress_parts.append(f"{in_progress} in progress")
+            if pending:
+                progress_parts.append(f"{pending} pending")
+            if blocked:
+                progress_parts.append(f"{blocked} blocked")
+            progress = ", ".join(progress_parts) if progress_parts else "no steps"
+
+            lines.append(f"*{plan['title']}* (ID {plan['id']})")
+            lines.append(f"  {total} steps — {progress}")
+            lines.append(f"  Last activity: {plan['updated_at'][:10]}")
+            lines.append("")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
     async def delete_conversation_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Delete conversation history for privacy."""
         if await _reject_unauthorized(update):
             return
         user_id = update.effective_user.id
-        session_key = SessionManager.get_session_key(user_id)
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+        session_key = SessionManager.get_session_key(user_id, thread_id)
         try:
             await conv_store.delete_session(user_id, session_key)
             # Clear task timer for this user
@@ -1337,20 +1392,29 @@ def make_handlers(
             await update.message.reply_text("❌ Claude not available for research synthesis.")
             return
         from ..web.search import web_search
+
         topic = " ".join(context.args)
-        await update.message.reply_text(f"📚 Researching _{topic}_…", parse_mode="Markdown")
-        results = await web_search(topic, max_results=5)
-        if not results:
-            await update.message.reply_text(
-                "❌ Web search unavailable. Install `duckduckgo-search` or try again later."
-            )
-            return
-        # Build context block for Claude
-        snippets = "\n\n".join(
-            f"Source {i}: {r.get('title','')}\nURL: {r.get('href','')}\n{r.get('body','')}"
-            for i, r in enumerate(results, 1)
-        )
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+
+        # Start animated working message
+        wm = WorkingMessage(context.bot, update.message.chat_id, thread_id)
+        await wm.start()
+
         try:
+            results = await web_search(topic, max_results=5)
+            if not results:
+                await wm.stop()
+                await update.message.reply_text(
+                    "❌ Web search unavailable. Install `duckduckgo-search` or try again later."
+                )
+                return
+
+            # Build context block for Claude
+            snippets = "\n\n".join(
+                f"Source {i}: {r.get('title','')}\nURL: {r.get('href','')}\n{r.get('body','')}"
+                for i, r in enumerate(results, 1)
+            )
+
             synthesis = await claude_client.complete(
                 messages=[{
                     "role": "user",
@@ -1364,11 +1428,14 @@ def make_handlers(
                 system="You are a research assistant. Synthesise web search results accurately.",
                 max_tokens=1024,
             )
+
+            await wm.stop()
             msg = f"📚 *Research: {topic}*\n\n{synthesis}"
             if len(msg) > 4000:
                 msg = msg[:4000] + "…"
             await update.message.reply_text(msg, parse_mode="Markdown")
         except Exception as e:
+            await wm.stop()
             await update.message.reply_text(f"❌ Could not synthesise results: {e}")
 
     async def save_url_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1602,6 +1669,7 @@ def make_handlers(
             return
 
         user_id = update.effective_user.id
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
 
         # Optionally inject user memory so agents can personalise their advice
         user_context = ""
@@ -1617,11 +1685,12 @@ def make_handlers(
             except Exception as exc:
                 logger.warning("Board memory injection failed: %s", exc)
 
-        # Acknowledge immediately and release the session lock
-        await update.message.reply_text("Started — I'll message you when done 🔄")
+        # Start animated working message and fire background task
+        wm = WorkingMessage(context.bot, update.message.chat_id, thread_id)
+        await wm.start()
 
         async def _collect_board() -> str:
-            session_key = SessionManager.get_session_key(user_id)
+            session_key = SessionManager.get_session_key(user_id, thread_id)
             chunks = [f"🏛 *Board of Directors: {topic}*\n\n"]
             async for chunk in board_orchestrator.run_board_streaming(
                 topic, user_context, user_id=user_id, session_key=session_key
@@ -1633,6 +1702,7 @@ def make_handlers(
         runner = BackgroundTaskRunner(
             context.bot, update.message.chat_id,
             job_store=job_store, job_id=job_id,
+            working_message=wm,
         )
         asyncio.create_task(runner.run(_collect_board(), label="board analysis"))
 
@@ -1889,6 +1959,130 @@ def make_handlers(
             parse_mode="Markdown",
         )
 
+    async def privacy_audit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        /privacy-audit — start a guided privacy/digital fingerprint audit.
+
+        Initiates a multi-step conversation where Remy asks for identifiers
+        (names, emails, usernames) and searches for data broker presence,
+        breach exposure, and privacy hygiene issues.
+        """
+        if await _reject_unauthorized(update):
+            return
+
+        if claude_client is None:
+            await update.message.reply_text("Privacy audit unavailable — no Claude client.")
+            return
+
+        user_id = update.effective_user.id
+        await update.message.chat.send_action(ChatAction.TYPING)
+
+        privacy_audit_system = """You are conducting a privacy audit for the user. Guide them through these steps:
+
+1. **Gather identifiers**: Ask which names, email addresses, or usernames they want to check. Be specific — ask for their full name, any aliases, primary email, and any usernames they use on social media or forums.
+
+2. **Search for exposure**: For each identifier provided, use the web_search tool to look up:
+   - Data broker sites (e.g. "john smith whitepages", "john.smith@email.com data broker")
+   - Breach databases (e.g. "john.smith@email.com breach", "email haveibeenpwned")
+   - Social media presence and public profiles
+   - Any other publicly visible information
+
+3. **Assess exposure level**: For each identifier, summarise:
+   - LOW: Minimal public presence, no known breaches
+   - MEDIUM: Some public info or minor breaches (old, password-only)
+   - HIGH: Significant exposure, recent breaches, or sensitive data visible
+
+4. **Provide action items**: Offer a prioritised list of steps:
+   - Opt-out links for data brokers found
+   - Password changes for breached accounts
+   - 2FA recommendations for exposed accounts
+   - Privacy setting adjustments for social profiles
+
+IMPORTANT:
+- Do NOT store the user's personal identifiers as memory facts unless they explicitly ask.
+- Be upfront that results are based on public web search and are not exhaustive.
+- If the user seems uncomfortable, remind them they can stop at any time.
+
+Start by introducing the audit and asking for the first identifier to check."""
+
+        # Build the initial message to Claude
+        initial_message = (
+            "The user has requested a privacy audit. Begin the guided audit process."
+        )
+
+        # Get session and add the audit context
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+        session_key = SessionManager.get_session_key(user_id, thread_id)
+        async with session_manager.get_lock(user_id):
+            # Store the audit initiation in conversation history
+            await conv_store.add_turn(
+                session_key,
+                ConversationTurn(role="user", content="/privacy-audit"),
+            )
+
+            # Use the tool-aware path if available, otherwise simple completion
+            if tool_registry is not None:
+                sent = await update.message.reply_text("🔒 Starting privacy audit…")
+
+                try:
+                    response_parts = []
+                    async for event in claude_client.stream_with_tools(
+                        messages=[{"role": "user", "content": initial_message}],
+                        system=privacy_audit_system,
+                        tools=tool_registry.get_tool_schemas(),
+                        tool_executor=tool_registry.execute,
+                        max_tokens=1500,
+                    ):
+                        from ..ai.claude_client import TextChunk
+                        if isinstance(event, TextChunk):
+                            response_parts.append(event.text)
+
+                    response = "".join(response_parts)
+                except Exception as exc:
+                    logger.error("Privacy audit error for user %d: %s", user_id, exc)
+                    await sent.edit_text(f"❌ Could not start privacy audit: {exc}")
+                    return
+
+                # Store assistant response
+                await conv_store.add_turn(
+                    session_key,
+                    ConversationTurn(role="assistant", content=response),
+                )
+
+                if response:
+                    await sent.edit_text(
+                        f"🔒 *Privacy Audit*\n\n{response}",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await sent.edit_text(
+                        "🔒 *Privacy Audit*\n\nReady to begin. What name, email, or username "
+                        "would you like me to check first?",
+                        parse_mode="Markdown",
+                    )
+            else:
+                # Fallback without tools
+                try:
+                    response = await claude_client.complete(
+                        messages=[{"role": "user", "content": initial_message}],
+                        system=privacy_audit_system,
+                        max_tokens=800,
+                    )
+                except Exception as exc:
+                    logger.error("Privacy audit error for user %d: %s", user_id, exc)
+                    await update.message.reply_text(f"❌ Could not start privacy audit: {exc}")
+                    return
+
+                await conv_store.add_turn(
+                    session_key,
+                    ConversationTurn(role="assistant", content=response),
+                )
+
+                await update.message.reply_text(
+                    f"🔒 *Privacy Audit*\n\n{response}",
+                    parse_mode="Markdown",
+                )
+
     # ------------------------------------------------------------------ #
     # Phase 6: Analytics commands                                           #
     # ------------------------------------------------------------------ #
@@ -1920,6 +2114,37 @@ def make_handlers(
         except Exception as exc:
             logger.error("Stats command failed for user %d: %s", user_id, exc)
             await sent.edit_text(f"❌ Could not calculate stats: {exc}")
+
+    async def costs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/costs [period] — estimated AI costs by provider and model."""
+        if await _reject_unauthorized(update):
+            return
+        if db is None:
+            await update.message.reply_text("Analytics not available.")
+            return
+
+        from ..analytics.costs import CostAnalyzer
+
+        args = context.args or []
+        period = args[0].lower() if args else "30d"
+        valid_periods = {"7d", "30d", "90d", "all", "month"}
+        if period not in valid_periods and not (period.endswith("d") and period[:-1].isdigit()):
+            await update.message.reply_text(
+                "Usage: /costs [period]\nValid periods: 7d, 30d (default), 90d, all"
+            )
+            return
+
+        user_id = update.effective_user.id
+        await update.message.chat.send_action(ChatAction.TYPING)
+        sent = await update.message.reply_text("Calculating costs…")
+        try:
+            cost_analyzer = CostAnalyzer(db)
+            summary = await cost_analyzer.get_cost_summary(user_id, period)
+            msg = cost_analyzer.format_cost_message(summary)
+            await sent.edit_text(msg, parse_mode="Markdown")
+        except Exception as exc:
+            logger.error("Costs command failed for user %d: %s", user_id, exc)
+            await sent.edit_text(f"❌ Could not calculate costs: {exc}")
 
     async def goal_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/goal-status — goal tracking dashboard with age and staleness info."""
@@ -1955,7 +2180,11 @@ def make_handlers(
             return
 
         user_id = update.effective_user.id
-        await update.message.reply_text("Started — I'll message you when done 🔄")
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+
+        # Start animated working message and fire background task
+        wm = WorkingMessage(context.bot, update.message.chat_id, thread_id)
+        await wm.start()
 
         async def _run_retrospective() -> str:
             return await conversation_analyzer.generate_retrospective(
@@ -1966,6 +2195,7 @@ def make_handlers(
         runner = BackgroundTaskRunner(
             context.bot, update.message.chat_id,
             job_store=job_store, job_id=job_id,
+            working_message=wm,
         )
         asyncio.create_task(runner.run(_run_retrospective(), label="retrospective"))
 
@@ -1998,6 +2228,93 @@ def make_handlers(
             )
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    async def reindex_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/reindex — trigger file reindexing for home directory RAG."""
+        if await _reject_unauthorized(update):
+            return
+
+        sched = scheduler_ref.get("proactive_scheduler") if scheduler_ref else None
+        if sched is None:
+            await update.message.reply_text("Scheduler not available.")
+            return
+
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+
+        # Start animated working message and fire background task
+        wm = WorkingMessage(context.bot, update.message.chat_id, thread_id)
+        await wm.start()
+
+        async def _run_reindex() -> str:
+            stats = await sched.run_file_reindex_now()
+            if stats.get("status") == "error":
+                return f"❌ {stats.get('message', 'Reindex failed')}"
+            if stats.get("status") == "disabled":
+                return "File indexing is disabled in configuration."
+            return (
+                f"✅ File reindex complete:\n"
+                f"  Files indexed: {stats.get('files_indexed', 0)}\n"
+                f"  Chunks created: {stats.get('chunks_created', 0)}\n"
+                f"  Files removed: {stats.get('files_removed', 0)}\n"
+                f"  Files skipped: {stats.get('files_skipped', 0)}\n"
+                f"  Errors: {stats.get('errors', 0)}"
+            )
+
+        job_id = await job_store.create(update.effective_user.id, "reindex", "") if job_store else None
+        runner = BackgroundTaskRunner(
+            context.bot, update.message.chat_id,
+            job_store=job_store, job_id=job_id,
+            working_message=wm,
+        )
+        asyncio.create_task(runner.run(_run_reindex(), label="reindex"))
+
+    async def consolidate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/consolidate — trigger end-of-day memory consolidation manually."""
+        if await _reject_unauthorized(update):
+            return
+
+        sched = scheduler_ref.get("proactive_scheduler") if scheduler_ref else None
+        if sched is None:
+            await update.message.reply_text("Scheduler not available.")
+            return
+
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+        user_id = update.effective_user.id
+
+        wm = WorkingMessage(context.bot, update.message.chat_id, thread_id=thread_id)
+        await wm.start()
+
+        async def _run_consolidation() -> str:
+            result = await sched.run_memory_consolidation_now(user_id)
+            if result.get("status") == "error":
+                return f"❌ {result.get('message', 'Consolidation failed')}"
+
+            facts = result.get("facts_stored", 0)
+            goals = result.get("goals_stored", 0)
+
+            if facts == 0 and goals == 0:
+                return (
+                    "✅ Memory consolidation complete.\n\n"
+                    "No new facts or goals extracted from today's conversations. "
+                    "Either nothing worth persisting was discussed, or the information "
+                    "was already stored proactively during the conversation."
+                )
+
+            lines = ["✅ Memory consolidation complete:\n"]
+            if facts > 0:
+                lines.append(f"  Facts stored: {facts}")
+            if goals > 0:
+                lines.append(f"  Goals stored: {goals}")
+            lines.append("\nUse /facts or /goals to review what was stored.")
+            return "\n".join(lines)
+
+        job_id = await job_store.create(user_id, "consolidate", "") if job_store else None
+        runner = BackgroundTaskRunner(
+            context.bot, update.message.chat_id,
+            job_store=job_store, job_id=job_id,
+            working_message=wm,
+        )
+        asyncio.create_task(runner.run(_run_consolidation(), label="consolidate"))
 
     # ------------------------------------------------------------------ #
     # Message handler                                                       #
@@ -2204,6 +2521,9 @@ def make_handlers(
         if not text.strip():
             return
 
+        # Extract thread_id for Telegram Topics support (isolated conversation contexts)
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+
         # 1. RATE LIMITING CHECK
         allowed, rate_limit_reason = _rate_limiter.is_allowed(user_id)
         if not allowed:
@@ -2234,7 +2554,7 @@ def make_handlers(
         # Acquire per-user lock
         async with session_manager.get_lock(user_id):
             session_manager.clear_cancel(user_id)
-            session_key = SessionManager.get_session_key(user_id)
+            session_key = SessionManager.get_session_key(user_id, thread_id)
 
             # 5a. INTERCEPT PENDING GMAIL ARCHIVE CONFIRMATION
             if user_id in _pending_archive:
@@ -2389,6 +2709,7 @@ def make_handlers(
                     initial_message=sent,
                     session_manager=session_manager,
                     user_id=user_id,
+                    thread_id=thread_id,
                 )
             except ServiceUnavailableError as e:
                 _task_start_times.pop(user_id, None)
@@ -2468,6 +2789,7 @@ def make_handlers(
             return
 
         user_id = update.effective_user.id
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
 
         # Rate limiting
         allowed, rate_limit_reason = _rate_limiter.is_allowed(user_id)
@@ -2509,7 +2831,7 @@ def make_handlers(
         await _ensure_user(update.effective_user)
         async with session_manager.get_lock(user_id):
             session_manager.clear_cancel(user_id)
-            session_key = SessionManager.get_session_key(user_id)
+            session_key = SessionManager.get_session_key(user_id, thread_id)
 
             # Build history from conv_store
             recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
@@ -2574,9 +2896,155 @@ def make_handlers(
                         initial_message=sent,
                         session_manager=session_manager,
                         user_id=user_id,
+                        thread_id=thread_id,
                     )
                 except Exception as exc:
                     logger.error("Error processing photo for user %d: %s", user_id, exc)
+                    await sent.edit_text(f"❌ Sorry, something went wrong: {exc}")
+
+            _task_start_times.pop(user_id, None)
+
+    # Constants for document handler
+    ALLOWED_DOC_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    MAX_DOC_SIZE = 5 * 1024 * 1024  # 5 MB
+
+    async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Process document messages — handle images sent as files (uncompressed)."""
+        if await _reject_unauthorized(update):
+            return
+
+        if claude_client is None:
+            await update.message.reply_text("Image analysis not available (Claude not configured).")
+            return
+
+        doc = update.message.document
+        if doc is None:
+            return
+
+        # Check MIME type — only process images
+        if not doc.mime_type or doc.mime_type not in ALLOWED_DOC_MIMES:
+            await update.message.reply_text(
+                "I can only analyse image files (JPEG, PNG, GIF, WebP). "
+                "For other documents, try copying and pasting the text."
+            )
+            return
+
+        # Check file size before downloading
+        if doc.file_size and doc.file_size > MAX_DOC_SIZE:
+            await update.message.reply_text("❌ Image too large (max 5 MB).")
+            return
+
+        user_id = update.effective_user.id
+        thread_id: int | None = getattr(update.message, "message_thread_id", None)
+
+        # Rate limiting
+        allowed, rate_limit_reason = _rate_limiter.is_allowed(user_id)
+        if not allowed:
+            await update.message.reply_text(f"⏱️ {rate_limit_reason}")
+            return
+
+        # Task timeout check
+        if user_id in _task_start_times:
+            elapsed = time.time() - _task_start_times[user_id]
+            if elapsed > TASK_TIMEOUT_SECONDS:
+                _task_start_times.pop(user_id, None)
+                session_manager.request_cancel(user_id)
+                await update.message.reply_text(
+                    "⏰ Previous task exceeded 2-hour limit and was cancelled. Starting fresh."
+                )
+        _task_start_times[user_id] = time.time()
+
+        await update.message.chat.send_action(ChatAction.TYPING)
+
+        caption = update.message.caption or ""
+        user_text = caption if caption else "What is this image?"
+        filename = doc.file_name or "image"
+
+        try:
+            doc_file = await doc.get_file()
+            bio = io.BytesIO()
+            await doc_file.download_to_memory(bio)
+            image_bytes = bio.getvalue()
+        except Exception as exc:
+            logger.error("Failed to download document for user %d: %s", user_id, exc)
+            await update.message.reply_text("❌ Could not download file.")
+            _task_start_times.pop(user_id, None)
+            return
+
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        await _ensure_user(update.effective_user)
+        async with session_manager.get_lock(user_id):
+            session_manager.clear_cancel(user_id)
+            session_key = SessionManager.get_session_key(user_id, thread_id)
+
+            # Build history from conv_store
+            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            messages = [_build_message_from_turn(t) for t in recent]
+            # Strip orphaned tool-turn fragments from the start of history
+            while messages:
+                first = messages[0]
+                if first["role"] == "user" and isinstance(first["content"], str):
+                    break
+                messages.pop(0)
+            messages = _trim_messages_to_budget(messages)
+
+            # Append the image message as a multi-block content list
+            messages.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": doc.mime_type,
+                            "data": image_b64,
+                        },
+                    },
+                    {"type": "text", "text": user_text},
+                ],
+            })
+
+            # Save user turn as text-only — do NOT store image bytes in history
+            history_text = f"[document: {filename}] {caption}" if caption else f"[document: {filename}]"
+            user_turn = ConversationTurn(role="user", content=history_text)
+            await conv_store.append_turn(user_id, session_key, user_turn)
+
+            # Build system prompt with memory injection
+            system_prompt = settings.soul_md
+            if memory_injector is not None:
+                try:
+                    system_prompt = await memory_injector.build_system_prompt(
+                        user_id, user_text, settings.soul_md
+                    )
+                    system_prompt = sanitize_memory_injection(system_prompt)
+                except Exception as e:
+                    logger.error("Memory injection failed, using base prompt: %s", e)
+
+            # Send placeholder message to stream into
+            sent = await update.message.reply_text("…")
+
+            if tool_registry is not None and claude_client is not None:
+                await _stream_with_tools_path(
+                    user_id=user_id,
+                    text=user_text,
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    session_key=session_key,
+                    sent=sent,
+                )
+            else:
+                # Path B fallback: router (won't use image block but won't crash)
+                try:
+                    await stream_to_telegram(
+                        chunks=router.stream(user_text, messages, user_id, system=system_prompt),
+                        initial_message=sent,
+                        session_manager=session_manager,
+                        user_id=user_id,
+                        thread_id=thread_id,
+                    )
+                except Exception as exc:
+                    logger.error("Error processing document for user %d: %s", user_id, exc)
                     await sent.edit_text(f"❌ Sorry, something went wrong: {exc}")
 
             _task_start_times.pop(user_id, None)
@@ -2590,6 +3058,7 @@ def make_handlers(
         "setmychat": setmychat_command,
         "briefing": briefing_command,
         "goals": goals_command,
+        "plans": plans_command,
         "read": read_command,
         "write": write_command,
         "ls": ls_command,
@@ -2629,11 +3098,16 @@ def make_handlers(
         "list-automations": list_automations_command,
         "unschedule": unschedule_command,
         "breakdown": breakdown_command,
+        "privacy-audit": privacy_audit_command,
         "stats": stats_command,
+        "costs": costs_command,
         "goal-status": goal_status_command,
         "retrospective": retrospective_command,
         "jobs": jobs_command,
+        "reindex": reindex_command,
+        "consolidate": consolidate_command,
         "message": handle_message,
         "voice": handle_voice,
         "photo": handle_photo,
+        "document": handle_document,
     }

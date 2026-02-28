@@ -271,6 +271,55 @@ async def test_dispatch_get_facts_with_category_filter():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_manage_memory_add():
+    ks = MagicMock()
+    ks.add_item = AsyncMock(return_value=123)
+    reg = make_registry(knowledge_store=ks)
+    
+    result = await reg.dispatch("manage_memory", {
+        "action": "add",
+        "content": "I like blue",
+        "category": "preference"
+    }, USER_ID)
+    
+    assert "Fact stored" in result
+    assert "123" in result
+    ks.add_item.assert_called_once_with(USER_ID, "fact", "I like blue", {"category": "preference"})
+
+
+@pytest.mark.asyncio
+async def test_dispatch_manage_memory_update():
+    ks = MagicMock()
+    ks.update = AsyncMock(return_value=True)
+    reg = make_registry(knowledge_store=ks)
+    
+    result = await reg.dispatch("manage_memory", {
+        "action": "update",
+        "fact_id": 456,
+        "content": "I like red",
+        "category": "preference"
+    }, USER_ID)
+    
+    assert "Fact 456 updated" in result
+    ks.update.assert_called_once_with(USER_ID, 456, "I like red", {"category": "preference"})
+
+
+@pytest.mark.asyncio
+async def test_dispatch_manage_memory_delete():
+    ks = MagicMock()
+    ks.delete = AsyncMock(return_value=True)
+    reg = make_registry(knowledge_store=ks)
+    
+    result = await reg.dispatch("manage_memory", {
+        "action": "delete",
+        "fact_id": 789
+    }, USER_ID)
+    
+    assert "Fact 789 deleted" in result
+    ks.delete.assert_called_once_with(USER_ID, 789)
+
+
+@pytest.mark.asyncio
 async def test_dispatch_run_board_no_orchestrator():
     reg = make_registry(board_orchestrator=None)
     result = await reg.dispatch("run_board", {"topic": "test"}, USER_ID)
@@ -313,6 +362,42 @@ async def test_dispatch_check_status_claude_available():
         )
         result = await reg.dispatch("check_status", {}, USER_ID)
     assert "online" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_manage_goal_add():
+    ks = MagicMock()
+    ks.add_item = AsyncMock(return_value=123)
+    reg = make_registry(knowledge_store=ks)
+    
+    result = await reg.dispatch("manage_goal", {
+        "action": "add",
+        "title": "Learn Rust",
+        "description": "Read the book"
+    }, USER_ID)
+    
+    assert "Goal added" in result
+    assert "123" in result
+    ks.add_item.assert_called_once_with(USER_ID, "goal", "Learn Rust", {"status": "active", "description": "Read the book"})
+
+
+@pytest.mark.asyncio
+async def test_dispatch_manage_goal_complete():
+    from remy.models import KnowledgeItem
+    item = KnowledgeItem(id=456, entity_type="goal", content="Launch", metadata={"status": "active"}, confidence=1.0)
+    
+    ks = MagicMock()
+    ks.get_by_type = AsyncMock(return_value=[item])
+    ks.update = AsyncMock(return_value=True)
+    reg = make_registry(knowledge_store=ks)
+    
+    result = await reg.dispatch("manage_goal", {
+        "action": "complete",
+        "goal_id": 456
+    }, USER_ID)
+    
+    assert "marked as completed" in result
+    ks.update.assert_called_once_with(USER_ID, 456, metadata={"status": "completed"})
 
 
 @pytest.mark.asyncio

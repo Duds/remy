@@ -26,6 +26,8 @@ _SAFE_MEMORY_TAG = re.compile(
 _ANY_TAG = re.compile(r'</?[a-zA-Z][^>]*>')
 
 # Shell metacharacters that could trigger injection
+# NOTE: Patterns are intentionally narrow to avoid false positives on normal prose.
+# `&&` alone is too common in English ("bugs && features"); require shell-command context.
 _SHELL_INJECTION_PATTERN = re.compile(
     r"""
     (?:
@@ -34,17 +36,19 @@ _SHELL_INJECTION_PATTERN = re.compile(
         >\s*\/dev\/null |                                 # silent redirection
         \$\(.*\) |                                        # command substitution
         `.*` |                                            # backtick substitution
-        &&|;;|&                                           # shell operators (if not normal)
+        ;;                                                # shell case terminator (rare in prose)
     )
     """,
     re.VERBOSE | re.IGNORECASE,
 )
 
 # Patterns that suggest prompt injection attacks
+# NOTE: Patterns require adversarial framing (ignore/override/bypass) to avoid false positives
+# on legitimate technical discussions about system prompts.
 _PROMPT_INJECTION_PATTERNS = [
-    re.compile(r"ignore.*previous.*instruction|disregard.*prompt|forget.*context", re.IGNORECASE),
-    re.compile(r"system.*override|system.*prompt|administrator|root.*access", re.IGNORECASE),
-    re.compile(r"role.*play.*as.*admin|pretend.*you.*are.*uncensored", re.IGNORECASE),
+    re.compile(r"ignore.*(?:previous|your|the).*instruction|disregard.*prompt|forget.*(?:your|the).*context", re.IGNORECASE),
+    re.compile(r"(?:ignore|override|bypass|change).*(?:your|the).*system.*prompt", re.IGNORECASE),
+    re.compile(r"(?:you.*are.*now|act.*as|pretend.*to.*be).*(?:admin|root|unrestricted|uncensored|jailbroken)", re.IGNORECASE),
 ]
 
 # Max reasonable input sizes

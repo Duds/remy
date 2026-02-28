@@ -32,6 +32,8 @@ from ..memory.goals import GoalStore
 if TYPE_CHECKING:
     from telegram import Bot
     from ..memory.automations import AutomationStore
+    from ..memory.plans import PlanStore
+    from ..memory.file_index import FileIndexer
     from ..ai.claude_client import ClaudeClient
     from ..ai.tool_registry import ToolRegistry
     from ..bot.session import SessionManager
@@ -44,6 +46,12 @@ _STALE_GOAL_DAYS = 3
 
 # Default cron for the afternoon focus check-in (configurable via .env)
 _AFTERNOON_CRON_DEFAULT = "0 14 * * *"
+
+# Default cron for nightly file reindexing (03:00)
+_REINDEX_CRON_DEFAULT = "0 3 * * *"
+
+# Default cron for end-of-day memory consolidation (22:00)
+_CONSOLIDATION_CRON_DEFAULT = "0 22 * * *"
 
 
 def _read_primary_chat_id() -> int | None:
@@ -99,6 +107,8 @@ class ProactiveScheduler:
         conv_store: "ConversationStore | None" = None,
         tool_registry: "ToolRegistry | None" = None,
         db=None,
+        plan_store: "PlanStore | None" = None,
+        file_indexer: "FileIndexer | None" = None,
     ) -> None:
         self._bot = bot
         self._goal_store = goal_store
@@ -112,6 +122,8 @@ class ProactiveScheduler:
         self._conv_store = conv_store
         self._tool_registry = tool_registry
         self._db = db
+        self._plan_store = plan_store
+        self._file_indexer = file_indexer
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
@@ -157,6 +169,38 @@ class ProactiveScheduler:
             replace_existing=True,
             misfire_grace_time=3600,  # 1-hour grace for a monthly job
         )
+
+        # Nightly file reindexing (if file indexer is configured)
+        if self._file_indexer is not None and self._file_indexer.enabled:
+            reindex_cron = getattr(settings, "rag_reindex_cron", _REINDEX_CRON_DEFAULT)
+            try:
+                reindex_trigger = _parse_cron(reindex_cron)
+                self._scheduler.add_job(
+                    self._reindex_files,
+                    trigger=reindex_trigger,
+                    id="reindex_files",
+                    replace_existing=True,
+                    misfire_grace_time=3600,
+                )
+                logger.info("File reindex job scheduled: %s", reindex_cron)
+            except ValueError as e:
+                logger.warning("Invalid reindex cron %r, job not scheduled: %s", reindex_cron, e)
+
+        # End-of-day memory consolidation (22:00 by default)
+        consolidation_cron = getattr(settings, "consolidation_cron", _CONSOLIDATION_CRON_DEFAULT)
+        try:
+            consolidation_trigger = _parse_cron(consolidation_cron)
+            self._scheduler.add_job(
+                self._end_of_day_consolidation,
+                trigger=consolidation_trigger,
+                id="end_of_day_consolidation",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            logger.info("Memory consolidation job scheduled: %s", consolidation_cron)
+        except ValueError as e:
+            logger.warning("Invalid consolidation cron %r, job not scheduled: %s", consolidation_cron, e)
+
         self._scheduler.start()
         logger.info(
             "Proactive scheduler started — briefing: %s, afternoon: %s, check-in: %s (tz: %s)",
@@ -281,6 +325,8 @@ class ProactiveScheduler:
                     logger.warning(
                         "Could not delete one-time automation %d: %s", automation_id, e,
                     )
+                # Log the completed reminder as a memory fact for future reference
+                await self._log_completed_reminder(user_id, label)
             else:
                 try:
                     await self._automation_store.update_last_run(automation_id)
@@ -320,6 +366,30 @@ class ProactiveScheduler:
 
         # Fallback: raw string send (pipeline unavailable or errored)
         await self._send(chat_id, f"⏰ *Reminder:* {label}")
+
+    async def _log_completed_reminder(self, user_id: int, label: str) -> None:
+        """Store a fact recording that a one-time reminder was completed.
+
+        This gives Remy a persistent history of completed tasks/reminders,
+        preventing stale reminders and enabling "what reminders have I had?" queries.
+        """
+        if self._fact_store is None:
+            logger.debug("Cannot log completed reminder — fact_store not configured")
+            return
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        fact_content = f"Reminder completed: {label} ({today})"
+
+        try:
+            await self._fact_store.add(user_id, fact_content, category="other")
+            logger.info(
+                "Logged completed one-time reminder as fact for user %d: %s",
+                user_id, label[:50],
+            )
+        except Exception as e:
+            logger.warning(
+                "Could not log completed reminder as fact: %s", e,
+            )
 
     async def _send(self, chat_id: int, text: str) -> None:
         """Send a message, swallowing errors so a bad send never kills the scheduler."""
@@ -407,6 +477,11 @@ class ProactiveScheduler:
         if downloads_msg:
             extras.append("\n" + downloads_msg)
 
+        # Stale plan steps needing attention
+        stale_steps_msg = await self._stale_plan_steps(user_ids[0] if user_ids else 0)
+        if stale_steps_msg:
+            extras.append(stale_steps_msg)
+
         message = "\n\n".join(extras)
         await self._send(chat_id, message)
 
@@ -478,6 +553,38 @@ class ProactiveScheduler:
             lines += f"\n…and {len(old) - 10} more files"
         return f"🧹 *Downloads cleanup suggestion*\nThese files are older than a week:\n{lines}"
 
+    async def _stale_plan_steps(self, user_id: int) -> str:
+        """Return a message about plan steps that need attention."""
+        if self._plan_store is None or not user_id:
+            return ""
+        try:
+            stale = await self._plan_store.stale_steps(user_id, days=7)
+        except Exception as e:
+            logger.debug("Could not load stale plan steps: %s", e)
+            return ""
+        if not stale:
+            return ""
+
+        lines = ["📋 *Plans needing attention:*"]
+        for step in stale[:5]:
+            days_stale = 7
+            try:
+                updated = datetime.fromisoformat(step["step_updated_at"]).replace(tzinfo=timezone.utc)
+                days_stale = (datetime.now(timezone.utc) - updated).days
+            except (ValueError, KeyError):
+                pass
+
+            line = f"• *{step['plan_title']}* — Step {step.get('step_title', '?')}"
+            if step.get("last_attempt_outcome"):
+                line += f" (last attempt: {step['last_attempt_outcome']})"
+            line += f" — {days_stale} days since activity"
+            lines.append(line)
+
+        if len(stale) > 5:
+            lines.append(f"_…and {len(stale) - 5} more steps_")
+
+        return "\n".join(lines)
+
     async def _evening_checkin(self) -> None:
         """19:00 job — nudge about goals that haven't been mentioned recently."""
         chat_id = _read_primary_chat_id()
@@ -546,6 +653,202 @@ class ProactiveScheduler:
         except Exception as e:
             logger.error("Monthly retrospective job failed: %s", e)
 
+    async def _reindex_files(self) -> None:
+        """Nightly job — run incremental file indexing for home directory RAG."""
+        if self._file_indexer is None:
+            logger.debug("File reindex skipped — file indexer not configured")
+            return
+
+        if not self._file_indexer.enabled:
+            logger.debug("File reindex skipped — file indexer disabled")
+            return
+
+        logger.info("Starting nightly file reindex...")
+        try:
+            stats = await self._file_indexer.run_incremental()
+            logger.info(
+                "Nightly file reindex complete: %d files indexed, %d chunks created, "
+                "%d files removed, %d errors",
+                stats.get("files_indexed", 0),
+                stats.get("chunks_created", 0),
+                stats.get("files_removed", 0),
+                stats.get("errors", 0),
+            )
+        except Exception as e:
+            logger.error("Nightly file reindex failed: %s", e)
+
+    async def _end_of_day_consolidation(self) -> None:
+        """
+        22:00 job — review the day's conversations and extract facts/goals to persist.
+
+        Uses Claude to analyse conversation history and identify:
+        - Completed tasks worth recording
+        - Personal updates (health, work, relationships)
+        - Decisions and preferences
+        - Plans and commitments
+
+        Stores extracted items via the knowledge store, avoiding duplicates
+        through semantic deduplication.
+        """
+        chat_id = _read_primary_chat_id()
+        if chat_id is None:
+            logger.debug("Memory consolidation skipped — no primary chat ID set")
+            return
+
+        if self._conv_store is None:
+            logger.debug("Memory consolidation skipped — conversation store not configured")
+            return
+
+        if self._claude_client is None:
+            logger.debug("Memory consolidation skipped — Claude client not configured")
+            return
+
+        user_ids = settings.telegram_allowed_users
+        if not user_ids:
+            logger.debug("Memory consolidation skipped — no allowed users configured")
+            return
+
+        logger.info("Starting end-of-day memory consolidation")
+
+        for user_id in user_ids:
+            try:
+                result = await self._consolidate_user_memory(user_id)
+                if result.get("facts_stored", 0) > 0 or result.get("goals_stored", 0) > 0:
+                    logger.info(
+                        "Memory consolidation for user %d: %d facts, %d goals stored",
+                        user_id, result.get("facts_stored", 0), result.get("goals_stored", 0),
+                    )
+            except Exception as e:
+                logger.error("Memory consolidation failed for user %d: %s", user_id, e)
+
+    async def _consolidate_user_memory(self, user_id: int) -> dict:
+        """
+        Consolidate a single user's conversations into persistent memory.
+
+        Returns dict with facts_stored and goals_stored counts.
+        """
+        from ..memory.knowledge import KnowledgeStore
+
+        turns = await self._conv_store.get_today_messages(user_id)
+        if not turns:
+            logger.debug("No conversations today for user %d", user_id)
+            return {"facts_stored": 0, "goals_stored": 0}
+
+        # Build conversation transcript for Claude
+        transcript_lines = []
+        for turn in turns:
+            role_label = "Dale" if turn.role == "user" else "Remy"
+            content = turn.content
+            # Skip tool turns and compacted summaries
+            if content.startswith("__TOOL_TURN__:") or content.startswith("[COMPACTED SUMMARY]"):
+                continue
+            # Truncate very long messages
+            if len(content) > 500:
+                content = content[:500] + "..."
+            transcript_lines.append(f"{role_label}: {content}")
+
+        if not transcript_lines:
+            return {"facts_stored": 0, "goals_stored": 0}
+
+        transcript = "\n".join(transcript_lines[-50:])  # Last 50 exchanges max
+
+        # Ask Claude to extract persistable information
+        prompt = (
+            "Review this conversation between Dale and his AI assistant Remy from today.\n\n"
+            f"CONVERSATION:\n{transcript}\n\n"
+            "Extract any information worth persisting to long-term memory. Look for:\n"
+            "1. Completed tasks or resolved items (e.g. 'tyre's done', 'finished the report')\n"
+            "2. Personal updates (health, work, relationships, living situation)\n"
+            "3. Decisions made (e.g. 'going with CommBank', 'decided to take the job')\n"
+            "4. People's plans or whereabouts (e.g. 'Alex is away this weekend')\n"
+            "5. New goals or commitments mentioned\n\n"
+            "Respond in JSON format:\n"
+            "{\n"
+            '  "facts": [\n'
+            '    {"content": "fact text", "category": "category_name"}\n'
+            "  ],\n"
+            '  "goals": [\n'
+            '    {"title": "goal title", "description": "optional description"}\n'
+            "  ]\n"
+            "}\n\n"
+            "Categories: name, location, occupation, health, medical, finance, hobby, "
+            "relationship, preference, deadline, project, other.\n\n"
+            "Only include genuinely useful information. Skip:\n"
+            "- Trivial chat ('it's hot today')\n"
+            "- Information already stored (assume Remy stores facts proactively)\n"
+            "- Temporary states that will change soon\n\n"
+            "If nothing worth storing, return: {\"facts\": [], \"goals\": []}"
+        )
+
+        try:
+            response = await self._claude_client.complete(
+                messages=[{"role": "user", "content": prompt}],
+                system=(
+                    "You are a memory extraction assistant. Extract only genuinely useful "
+                    "long-term information from conversations. Be conservative — only extract "
+                    "facts that would be valuable to remember in future conversations. "
+                    "Respond only with valid JSON."
+                ),
+                model=settings.model_simple,  # Use Haiku for cost efficiency
+                max_tokens=1000,
+            )
+        except Exception as e:
+            logger.error("Claude consolidation call failed: %s", e)
+            return {"facts_stored": 0, "goals_stored": 0}
+
+        # Parse Claude's response
+        import json
+        try:
+            # Handle response that might have markdown code blocks
+            response_text = response if isinstance(response, str) else str(response)
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0]
+            data = json.loads(response_text.strip())
+        except (json.JSONDecodeError, IndexError) as e:
+            logger.warning("Could not parse consolidation response: %s", e)
+            return {"facts_stored": 0, "goals_stored": 0}
+
+        facts_stored = 0
+        goals_stored = 0
+
+        # Store extracted facts
+        facts = data.get("facts", [])
+        if facts and self._fact_store is not None:
+            for fact in facts[:10]:  # Cap at 10 facts per day
+                content = fact.get("content", "").strip()
+                category = fact.get("category", "other").strip().lower()
+                if not content:
+                    continue
+                try:
+                    # Add date context to the fact
+                    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    if today not in content:
+                        content = f"{content} ({today})"
+                    await self._fact_store.add(user_id, content, category)
+                    facts_stored += 1
+                    logger.debug("Consolidated fact: [%s] %s", category, content[:50])
+                except Exception as e:
+                    logger.warning("Could not store consolidated fact: %s", e)
+
+        # Store extracted goals
+        goals = data.get("goals", [])
+        if goals and self._goal_store is not None:
+            for goal in goals[:5]:  # Cap at 5 goals per day
+                title = goal.get("title", "").strip()
+                description = goal.get("description", "").strip() or None
+                if not title:
+                    continue
+                try:
+                    await self._goal_store.add(user_id, title, description)
+                    goals_stored += 1
+                    logger.debug("Consolidated goal: %s", title[:50])
+                except Exception as e:
+                    logger.warning("Could not store consolidated goal: %s", e)
+
+        return {"facts_stored": facts_stored, "goals_stored": goals_stored}
+
     # ------------------------------------------------------------------ #
     # Manual triggers (for /briefing etc.)                                 #
     # ------------------------------------------------------------------ #
@@ -565,3 +868,50 @@ class ProactiveScheduler:
     async def send_monthly_retrospective_now(self) -> None:
         """Trigger the monthly retrospective immediately (e.g. via /retrospective command)."""
         await self._monthly_retrospective()
+
+    async def run_file_reindex_now(self) -> dict:
+        """Trigger file reindexing immediately (e.g. via /reindex command).
+        
+        Returns stats dict with files_indexed, chunks_created, etc.
+        """
+        if self._file_indexer is None:
+            return {"status": "error", "message": "File indexer not configured"}
+        if not self._file_indexer.enabled:
+            return {"status": "error", "message": "File indexer disabled"}
+        return await self._file_indexer.run_incremental()
+
+    async def run_memory_consolidation_now(self, user_id: int | None = None) -> dict:
+        """
+        Trigger memory consolidation immediately (e.g. via /consolidate command).
+
+        Args:
+            user_id: Specific user to consolidate. If None, consolidates all allowed users.
+
+        Returns:
+            Dict with total facts_stored and goals_stored counts.
+        """
+        if self._conv_store is None:
+            return {"status": "error", "message": "Conversation store not configured"}
+        if self._claude_client is None:
+            return {"status": "error", "message": "Claude client not configured"}
+
+        user_ids = [user_id] if user_id else settings.telegram_allowed_users
+        if not user_ids:
+            return {"status": "error", "message": "No users to consolidate"}
+
+        total_facts = 0
+        total_goals = 0
+
+        for uid in user_ids:
+            try:
+                result = await self._consolidate_user_memory(uid)
+                total_facts += result.get("facts_stored", 0)
+                total_goals += result.get("goals_stored", 0)
+            except Exception as e:
+                logger.error("Consolidation failed for user %d: %s", uid, e)
+
+        return {
+            "status": "success",
+            "facts_stored": total_facts,
+            "goals_stored": total_goals,
+        }

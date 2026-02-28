@@ -1,6 +1,6 @@
 # Remy Roadmap & Development Plan
 
-**Last Updated:** February 28, 2026 (Phase 7 Step 2 — persistent job tracking complete)
+**Last Updated:** February 28, 2026 (Document image support complete)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -409,19 +409,19 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **S**    | Persistent job tracking + `/jobs`                                  | US-persistent-job-tracking          | ✅ Done                      |
 | **S**    | Gmail label/folder search                                          | US-gmail-label-search               | ✅ Done                      |
 | **S**    | Analytics: per-call token capture                                  | US-analytics-token-capture          | ✅ Done                      |
-| **S**    | Analytics: API call log + latency                                  | US-analytics-call-log               | ⬜ P1                        |
-| **S**    | Analytics: `/costs` command                                        | US-analytics-costs-command          | ⬜ P1                        |
-| **S**    | Document image support (PNG/WebP as files)                         | US-document-image-support           | ⬜ P2                        |
-| **S**    | Plan tracking (multi-step, with attempts)                          | US-plan-tracking                    | ⬜ P2                        |
-| **C**    | Privacy audit (`/privacy-audit`)                                   | US-digital-fingerprint-audit        | ⬜ P2 (prompt-only)          |
-| **C**    | Native Telegram Message Threading (Topics)                         | US-telegram-message-threading       | ⬜ P3                        |
-| **C**    | Improved persistent memory (semantic dedup, staleness, categories) | US-improved-persistent-memory       | ⬜ P2                        |
-| **C**    | Home directory RAG index (~/Projects + ~/Documents)                | US-home-directory-rag               | ⬜ P3                        |
+| **S**    | Analytics: API call log + latency                                  | US-analytics-call-log               | ✅ Done                      |
+| **S**    | Analytics: `/costs` command                                        | US-analytics-costs-command          | ✅ Done                      |
+| **S**    | Document image support (PNG/WebP as files)                         | US-document-image-support           | ✅ Done                      |
+| **S**    | Plan tracking (multi-step, with attempts)                          | US-plan-tracking                    | ✅ Done                      |
+| **C**    | Privacy audit (`/privacy-audit`)                                   | US-digital-fingerprint-audit        | ✅ Done                      |
+| **C**    | Native Telegram Message Threading (Topics)                         | US-telegram-message-threading       | ✅ Done                      |
+| **C**    | Improved persistent memory (semantic dedup, staleness, categories) | US-improved-persistent-memory       | ✅ Done                      |
+| **C**    | Home directory RAG index (~/Projects + ~/Documents)                | US-home-directory-rag               | ✅ Done                      |
 | **C**    | Context-aware reminders (snooze, dedup)                            | US-context-aware-reminders          | ⬜ P3 (deferred)             |
 | **C**    | SMS ingestion via Android webhook                                  | US-sms-ingestion                    | ⬜ P3 (new infra)            |
 | **C**    | Google Wallet transaction alerts                                   | US-google-wallet-monitoring         | ⬜ P3 (needs SMS first)      |
-| **C**    | Funny/nonsensical "working" messages for Telegram                  | US-working-messages                 | ⬜ P3                        |
-| **C**    | Telegram Markdown header/formatting fixes                          | US-telegram-markdown-fix            | ⬜ P2                        |
+| **C**    | Funny/nonsensical "working" messages for Telegram                  | US-working-messages                 | ✅ Done                      |
+| **C**    | Telegram Markdown header/formatting fixes                          | US-telegram-markdown-fix            | ✅ Done                      |
 | **S**    | Telegram catch-all error handler                                   | US-telegram-error-handler           | ✅ Done                      |
 | **S**    | Multi-Model Orchestration (Mistral, Moonshot)                      | US-model-orchestration              | ✅ Done                      |
 | **S**    | Claude Agent SDK subagents                                         | US-claude-agent-sdk-subagents       | ⬜ Deferred (major refactor) |
@@ -444,63 +444,36 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 1. ~~**Analytics: token capture** (`US-analytics-token-capture`) — complete~~
 
-1. **Analytics: API call log** (`US-analytics-call-log`)
-   - Persist every model invocation to `api_calls` table with tokens, latency, provider
-   - Files: `memory/database.py`, `ai/router.py`, `ai/classifier.py`, `bot/handlers.py`, `bot/pipeline.py`, `agents/background.py`
-   - Depends on token capture above
+1. ~~**Analytics: API call log** (`US-analytics-call-log`) — complete~~
 
-1. **Analytics: `/costs` command** (`US-analytics-costs-command`)
-   - Show estimated token spend per provider/model for a chosen period
-   - Files: new `analytics/costs.py`, new `analytics/prices.py`, `bot/handlers.py`
-   - Depends on API call log above
+1. ~~**Analytics: `/costs` command** (`US-analytics-costs-command`) — complete~~
 
 ### P2 — Next quarter (moderate, high value)
 
-5. **Document image support** (`US-document-image-support`)
-   - Gap: images sent as Telegram documents (uncompressed PNG/WebP) are silently ignored
-   - Files: `bot/handlers.py` + register in `telegram_bot.py` — mirrors existing `handle_photo`
-   - No new dependencies; small targeted change
+5. ~~**Document image support** (`US-document-image-support`) — complete~~
 
-6. **Plan tracking** (`US-plan-tracking`)
-   - New capability: multi-step plans with attempt history, stale-step briefing alerts
-   - Files: new `memory/plans.py`, `memory/database.py`, `tool_registry.py`, `scheduler/proactive.py`
-   - No new dependencies; well-specced with full schema and tool definitions
+6. ~~**Plan tracking** (`US-plan-tracking`) — complete~~
 
-7. **Improved persistent memory** (`US-improved-persistent-memory`)
-   - Semantic fact deduplication (near-duplicate merging via ANN distance), expanded category
-     taxonomy (adds medical, finance, hobby, deadline), `last_referenced_at` staleness tracking,
-     `source_session` tracing, and a `get_memory_summary` tool
-   - Files: `memory/facts.py`, `memory/database.py`, `memory/embeddings.py`, `memory/injector.py`,
-     `ai/tool_registry.py`
-   - No new dependencies; builds entirely on existing EmbeddingStore infrastructure
+7. ~~**Improved persistent memory** (`US-improved-persistent-memory`) — complete~~
 
-8. **Privacy audit** (`US-digital-fingerprint-audit`)
-   - `/privacy-audit` slash command; prompt-only, no new code beyond a handler + system prompt addendum
-   - Files: `bot/handlers.py` only — ~20 lines
-   - Very low effort for real user value
+8. ~~**Privacy audit** (`US-digital-fingerprint-audit`) — complete~~
 
-9. **Telegram catch-all error handler** (`US-telegram-error-handler`)
+9. ~~**Telegram catch-all error handler** (`US-telegram-error-handler`) — complete~~
    - Gap: unhandled exceptions produce noisy "No error handlers are registered" log spam; no Telegram notification for unexpected errors
    - Files: `bot/telegram_bot.py` — ~30 lines, zero dependencies, isolated change
    - Suppress transient errors (NetworkError, TimedOut); alert Dale for unexpected exceptions
 
-10. **Telegram Markdown header/formatting fixes** (`US-telegram-markdown-fix`)
-    - Issue: Headings (`#`) not rendering properly in TG; special chars causing parse errors.
-    - Files: `bot/handlers.py`, `utils/telegram_formatting.py`
+10. ~~**Telegram Markdown header/formatting fixes** (`US-telegram-markdown-fix`) — complete~~
+    - Headers H1–H4 converted to bold/italic hierarchy; tables converted to bulleted lists
+    - Files: `utils/telegram_formatting.py`, `tests/test_telegram_formatting.py`
 
 ### P3 — Future (new infrastructure or deferred)
 
-9. **Home directory RAG index** (`US-home-directory-rag`)
-   - Background nightly indexer for ~/Projects + ~/Documents; character-chunked embeddings
-     stored in new `file_chunks` table; `search_files` + `index_status` tools; `/reindex` command
-   - Files: new `memory/file_index.py`, `memory/database.py`, `tool_registry.py`,
-     `scheduler/proactive.py`, `bot/handlers.py`, `config.py`
-   - No new dependencies; uses existing EmbeddingStore + sqlite-vec/FTS5 fallback
-   - Schedule after P2 memory improvements (shares the same embedding infrastructure)
+9. ~~**Home directory RAG index** (`US-home-directory-rag`) — complete~~
 
-10. **Native Telegram Message Threading** (`US-telegram-message-threading`)
+10. ~~**Native Telegram Message Threading** (`US-telegram-message-threading`) — complete~~
     - Implement support for Telegram Topics to maintain separate conversation contexts.
-    - Files: `bot/session.py`, `bot/handlers.py`, `memory/conversations.py`
+    - Files: `bot/session.py`, `bot/handlers.py`, `memory/conversations.py`, `bot/streaming.py`
     - Requires 'Threaded Mode' enabled in @BotFather.
 
 11. **Context-aware reminders** (`US-context-aware-reminders`)
@@ -511,9 +484,9 @@ These were in my-agent and caused bloat. **Do not implement.**
     - Android gateway integration; P3 due to hardware dependency.
     - Files: `api/sms_webhook.py`, `memory/database.py`, `bot/handlers.py`
 
-13. **Funny/nonsensical "working" messages for Telegram** (`US-working-messages`)
+13. ~~**Funny/nonsensical "working" messages for Telegram** (`US-working-messages`) — complete~~
     - SimCity style status updates ("Reticulating splines...") while bot is "thinking".
-    - Files: `bot/handlers.py`
+    - Files: `bot/working_message.py`, `bot/handlers.py`, `agents/background.py`
     - Android SMS via SMS Gateway app + Tailscale tunnel + `/webhook/sms` endpoint
     - Prerequisite: Tailscale installed on phone and Mac
 
@@ -677,8 +650,8 @@ These are tracked here inline; fix alongside related work rather than as standal
 
 ### Tasks
 
-- [ ] **Remy proactively stores conversational facts** — when Dale mentions something happened, something's resolved, or shares new personal info, Remy stores it as a memory fact without being asked. Behavioural change, no code required.
+- [x] **Remy proactively stores conversational facts** — when Dale mentions something happened, something's resolved, or shares new personal info, Remy stores it as a memory fact without being asked. SOUL.md instruction + `manage_memory` tool description updated for proactive use. See `US-proactive-memory-storage.md`.
 
-- [ ] **Completed one-time reminders auto-log to memory** — when a one-time reminder fires, write a fact or log entry recording that it fired (e.g. "Tyre collected from Tyrepower, 2026-03-01"). Prevents stale reminders and gives Remy a history of completed tasks.
+- [x] **Completed one-time reminders auto-log to memory** — when a one-time reminder fires, write a fact or log entry recording that it fired (e.g. "Reminder completed: Pick up tyres from Tyrepower (2026-03-01)"). Prevents stale reminders and gives Remy a history of completed tasks. Implemented in `scheduler/proactive.py:_log_completed_reminder()`.
 
-- [ ] **End-of-day memory consolidation** — scheduled job (or manual `/consolidate` command) that reviews the day's conversation history and extracts anything worth persisting as a fact or goal. Claude-powered summarisation pass over the JSONL session log.
+- [x] **End-of-day memory consolidation** — scheduled job (22:00 daily) + manual `/consolidate` command that reviews the day's conversation history and extracts anything worth persisting as a fact or goal. Claude-powered summarisation pass over the JSONL session log. Implemented in `scheduler/proactive.py:_end_of_day_consolidation()` and `_consolidate_user_memory()`. Also available as `consolidate_memory` tool for natural language invocation.

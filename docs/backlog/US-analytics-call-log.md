@@ -1,6 +1,6 @@
 # User Story: API Call Log — Storage, Latency & Model Accuracy
 
-⬜ Backlog
+✅ Done
 
 ## Summary
 

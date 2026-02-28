@@ -105,6 +105,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("retrospective", handlers.get("retrospective")))
         app.add_handler(CommandHandler("breakdown", handlers.get("breakdown")))
         app.add_handler(CommandHandler("stats", handlers.get("stats")))
+        app.add_handler(CommandHandler("costs", handlers.get("costs")))
         app.add_handler(CommandHandler("goal_status", handlers.get("goal-status")))
         app.add_handler(CommandHandler("gmail_search", handlers.get("gmail-search")))
         app.add_handler(CommandHandler("gmail_read", handlers.get("gmail-read")))
@@ -117,6 +118,9 @@ class TelegramBot:
         )
         app.add_handler(
             MessageHandler(filters.PHOTO, handlers["photo"])
+        )
+        app.add_handler(
+            MessageHandler(filters.Document.ALL, handlers["document"])
         )
         app.add_error_handler(_error_handler)
 

@@ -1,6 +1,6 @@
 # User Story: Improved Persistent Memory
 
-⬜ Backlog — P2
+✅ Complete — 2026-02-28
 
 ## Summary
 As a user, I want Remy's memory of me to stay accurate over time — old facts should be

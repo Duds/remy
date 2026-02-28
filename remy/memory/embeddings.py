@@ -207,8 +207,14 @@ class EmbeddingStore:
         query: str,
         source_type: str,
         limit: int = 5,
+        recency_boost: bool = False,
     ) -> list[dict[str, Any]]:
-        """ANN search filtered to a specific source_type (fact / goal / message)."""
+        """ANN search filtered to a specific source_type (fact / goal / message).
+        
+        Args:
+            recency_boost: If True, results from the last 30 days are weighted
+                          higher by applying a distance penalty to older items.
+        """
         if not SQLITE_VEC_AVAILABLE:
             return []
 
@@ -217,17 +223,41 @@ class EmbeddingStore:
 
         async with self._db.get_connection() as conn:
             try:
-                rows = await conn.execute_fetchall(
-                    """
-                    SELECT e.id, e.source_type, e.source_id, e.content_text, ev.distance
-                    FROM embeddings_vec ev
-                    JOIN embeddings e ON e.id = ev.rowid
-                    WHERE e.user_id = ? AND e.source_type = ?
-                    ORDER BY ev.distance
-                    LIMIT ?
-                    """,
-                    (user_id, source_type, limit),
-                )
+                if recency_boost:
+                    # Apply recency boost: items referenced in last 30 days get
+                    # their distance reduced, older items get a penalty
+                    rows = await conn.execute_fetchall(
+                        """
+                        SELECT e.id, e.source_type, e.source_id, e.content_text, ev.distance,
+                               k.last_referenced_at,
+                               CASE 
+                                   WHEN k.last_referenced_at >= datetime('now', '-30 days') 
+                                   THEN ev.distance * 0.8
+                                   WHEN k.last_referenced_at >= datetime('now', '-90 days')
+                                   THEN ev.distance * 1.0
+                                   ELSE ev.distance * 1.2
+                               END as boosted_distance
+                        FROM embeddings_vec ev
+                        JOIN embeddings e ON e.id = ev.rowid
+                        LEFT JOIN knowledge k ON k.id = e.source_id AND e.source_type LIKE 'knowledge_%'
+                        WHERE e.user_id = ? AND e.source_type = ?
+                        ORDER BY boosted_distance
+                        LIMIT ?
+                        """,
+                        (user_id, source_type, limit),
+                    )
+                else:
+                    rows = await conn.execute_fetchall(
+                        """
+                        SELECT e.id, e.source_type, e.source_id, e.content_text, ev.distance
+                        FROM embeddings_vec ev
+                        JOIN embeddings e ON e.id = ev.rowid
+                        WHERE e.user_id = ? AND e.source_type = ?
+                        ORDER BY ev.distance
+                        LIMIT ?
+                        """,
+                        (user_id, source_type, limit),
+                    )
                 return [dict(row) for row in rows]
             except Exception as e:
                 logger.warning("ANN search failed: %s", e)

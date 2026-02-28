@@ -24,6 +24,7 @@ from .logging_config import setup_logging
 from .memory.automations import AutomationStore
 from .memory.background_jobs import BackgroundJobStore
 from .memory.conversations import ConversationStore
+from .memory.plans import PlanStore
 from .memory.database import DatabaseManager
 from .memory.embeddings import EmbeddingStore
 from .memory.facts import FactExtractor, FactStore
@@ -31,6 +32,7 @@ from .memory.fts import FTSSearch
 from .memory.goals import GoalExtractor, GoalStore
 from .memory.injector import MemoryInjector
 from .memory.knowledge import KnowledgeExtractor, KnowledgeStore
+from .memory.file_index import FileIndexer
 from .analytics.analyzer import ConversationAnalyzer
 from .scheduler.proactive import ProactiveScheduler
 from .voice.transcriber import VoiceTranscriber
@@ -108,7 +110,23 @@ def main() -> None:
     memory_injector = MemoryInjector(db, embeddings, knowledge_store, fts)
     automation_store = AutomationStore(db)
     job_store = BackgroundJobStore(db)
+    plan_store = PlanStore(db)
     conv_analyzer = ConversationAnalyzer(conv_store, db)
+
+    # Home directory RAG file indexer
+    file_indexer = FileIndexer(
+        db=db,
+        embeddings=embeddings,
+        index_paths=(
+            [p.strip() for p in settings.rag_index_paths.split(",") if p.strip()]
+            if settings.rag_index_paths else None
+        ),
+        index_extensions=(
+            {e.strip() for e in settings.rag_index_extensions.split(",") if e.strip()}
+            if settings.rag_index_extensions else None
+        ),
+        enabled=settings.rag_index_enabled,
+    )
 
     # Initialise voice transcriber (lazy — Whisper model loads on first voice message)
     voice_transcriber = VoiceTranscriber()
@@ -177,6 +195,10 @@ def main() -> None:
         conversation_analyzer=conv_analyzer,
         # Phase 7 Step 2: persistent job tracking
         job_store=job_store,
+        # Plan tracking
+        plan_store=plan_store,
+        # Home directory RAG
+        file_indexer=file_indexer,
     )
 
     async def _briefing_proxy(update, context):
@@ -212,6 +234,7 @@ def main() -> None:
         scheduler_ref=_late,  # mutable container; scheduler set after post_init
         conversation_analyzer=conv_analyzer,
         job_store=job_store,
+        plan_store=plan_store,
     )
     handlers["briefing"] = _briefing_proxy
 
@@ -257,6 +280,8 @@ def main() -> None:
             conv_store=conv_store,
             tool_registry=tool_registry,
             db=db,
+            plan_store=plan_store,
+            file_indexer=file_indexer,
         )
         _late["proactive_scheduler"] = sched
         _proactive_ref.append(sched)
@@ -264,6 +289,23 @@ def main() -> None:
 
         # Load user-defined automations from DB into the live scheduler
         await sched.load_user_automations()
+
+        # Trigger initial file index if the index is empty (background task)
+        if file_indexer.enabled:
+            async def _initial_index():
+                try:
+                    status = await file_indexer.get_status()
+                    if status.files_indexed == 0:
+                        logger.info("File index is empty — running initial index in background")
+                        stats = await file_indexer.run_incremental()
+                        logger.info(
+                            "Initial file index complete: %d files, %d chunks",
+                            stats.get("files_indexed", 0),
+                            stats.get("chunks_created", 0),
+                        )
+                except Exception as e:
+                    logger.warning("Initial file index failed: %s", e)
+            asyncio.create_task(_initial_index())
 
         asyncio.create_task(health_monitor(claude_client, app.bot))
 

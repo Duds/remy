@@ -1,7 +1,7 @@
 # User Story: Native Telegram Message Threading (Topics)
 
 <!--
-Status: ⬜ Backlog
+Status: ✅ Done — 2026-02-28
 -->
 
 ## Summary

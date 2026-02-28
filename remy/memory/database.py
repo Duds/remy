@@ -163,6 +163,60 @@ CREATE TABLE IF NOT EXISTS api_calls (
     fallback INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_api_calls_user_ts ON api_calls(user_id, timestamp);
+
+-- Plan tracking (Phase 7+)
+CREATE TABLE IF NOT EXISTS plans (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(user_id),
+    title        TEXT NOT NULL,
+    description  TEXT,
+    status       TEXT NOT NULL DEFAULT 'active',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_plans_user_status ON plans(user_id, status);
+
+CREATE TABLE IF NOT EXISTS plan_steps (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id     INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    title       TEXT NOT NULL,
+    notes       TEXT,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_plan_steps_plan ON plan_steps(plan_id);
+
+CREATE TABLE IF NOT EXISTS plan_step_attempts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    step_id      INTEGER NOT NULL REFERENCES plan_steps(id) ON DELETE CASCADE,
+    attempted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    outcome      TEXT NOT NULL,
+    notes        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_plan_step_attempts_step ON plan_step_attempts(step_id);
+
+-- File chunks for home directory RAG index (US-home-directory-rag)
+CREATE TABLE IF NOT EXISTS file_chunks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    path         TEXT NOT NULL,
+    chunk_index  INTEGER NOT NULL,
+    content_text TEXT NOT NULL,
+    embedding_id INTEGER,
+    file_mtime   REAL NOT NULL,
+    indexed_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_file_chunks_path_chunk ON file_chunks(path, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_file_chunks_path ON file_chunks(path);
+
+-- FTS5 virtual table for file chunk text search fallback
+CREATE VIRTUAL TABLE IF NOT EXISTS file_chunks_fts USING fts5(
+    content_text,
+    path,
+    content=file_chunks,
+    content_rowid=id
+);
 """
 
 
@@ -177,6 +231,12 @@ _MIGRATIONS = [
     "UPDATE facts SET confidence = 0.8 WHERE confidence = 1.0;",
     # 004: backfill legacy knowledge rows for the same reason
     "UPDATE knowledge SET confidence = 0.8 WHERE confidence = 1.0;",
+    # 005: last_referenced_at for staleness tracking (US-improved-persistent-memory)
+    "ALTER TABLE knowledge ADD COLUMN last_referenced_at TEXT;",
+    # 006: backfill last_referenced_at from created_at
+    "UPDATE knowledge SET last_referenced_at = created_at WHERE last_referenced_at IS NULL;",
+    # 007: source_session for tracing facts back to conversations
+    "ALTER TABLE knowledge ADD COLUMN source_session TEXT;",
 ]
 
 # Triggers to keep FTS indices in sync with source tables
@@ -212,6 +272,17 @@ END;
 CREATE TRIGGER IF NOT EXISTS goals_au AFTER UPDATE ON goals BEGIN
     INSERT INTO goals_fts(goals_fts, rowid, title, description) VALUES('delete', old.id, old.title, COALESCE(old.description, ''));
     INSERT INTO goals_fts(rowid, title, description) VALUES (new.id, new.title, COALESCE(new.description, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS file_chunks_ai AFTER INSERT ON file_chunks BEGIN
+    INSERT INTO file_chunks_fts(rowid, content_text, path) VALUES (new.id, new.content_text, new.path);
+END;
+CREATE TRIGGER IF NOT EXISTS file_chunks_ad AFTER DELETE ON file_chunks BEGIN
+    INSERT INTO file_chunks_fts(file_chunks_fts, rowid, content_text, path) VALUES('delete', old.id, old.content_text, old.path);
+END;
+CREATE TRIGGER IF NOT EXISTS file_chunks_au AFTER UPDATE ON file_chunks BEGIN
+    INSERT INTO file_chunks_fts(file_chunks_fts, rowid, content_text, path) VALUES('delete', old.id, old.content_text, old.path);
+    INSERT INTO file_chunks_fts(rowid, content_text, path) VALUES (new.id, new.content_text, new.path);
 END;
 """
 

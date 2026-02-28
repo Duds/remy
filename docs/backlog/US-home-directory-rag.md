@@ -1,6 +1,6 @@
 # User Story: Home Directory RAG Index
 
-⬜ Backlog — P3
+✅ Done — 2026-02-28
 
 ## Summary
 As a user, I want Remy to be able to search across my files in ~/Projects and ~/Documents

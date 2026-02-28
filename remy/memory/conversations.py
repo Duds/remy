@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import aiofiles
@@ -89,8 +90,15 @@ class ConversationStore:
                 await f.write(summary_turn.model_dump_json() + "\n")
         logger.info("Compacted session %s", session_key)
 
-    async def get_all_sessions(self, user_id: int) -> list[str]:
-        """Return all session keys for a user (sorted chronologically)."""
+    async def get_all_sessions(
+        self, user_id: int, thread_id: int | None = None
+    ) -> list[str]:
+        """
+        Return all session keys for a user (sorted chronologically).
+
+        If thread_id is provided, only returns sessions for that specific thread.
+        Otherwise returns all sessions (both threaded and non-threaded).
+        """
         prefix = f"user_{user_id}_"
         try:
             keys = [
@@ -98,6 +106,10 @@ class ConversationStore:
                 for f in os.listdir(self.sessions_dir)
                 if f.startswith(prefix) and f.endswith(".jsonl")
             ]
+            # Filter by thread_id if specified
+            if thread_id is not None:
+                thread_marker = f"_thread_{thread_id}_"
+                keys = [k for k in keys if thread_marker in k]
             return sorted(keys)
         except OSError:
             return []
@@ -115,3 +127,48 @@ class ConversationStore:
             except OSError as e:
                 logger.error("Could not delete session %s: %s", session_key, e)
                 raise
+
+    async def get_today_messages(
+        self, user_id: int, thread_id: int | None = None
+    ) -> list[ConversationTurn]:
+        """
+        Return all conversation turns from today's sessions for a user.
+
+        Collects turns from all sessions whose timestamps fall within today
+        (in UTC). Used for end-of-day memory consolidation.
+        """
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        sessions = await self.get_all_sessions(user_id, thread_id)
+
+        all_turns: list[ConversationTurn] = []
+        for session_key in sessions:
+            # Session keys are formatted as user_{id}[_thread_{tid}]_{date}
+            # Check if session is from today
+            if today_str not in session_key:
+                continue
+
+            turns = await self.get_recent_turns(user_id, session_key, limit=500)
+            all_turns.extend(turns)
+
+        return all_turns
+
+    async def get_messages_since(
+        self, user_id: int, since: datetime, thread_id: int | None = None
+    ) -> list[ConversationTurn]:
+        """
+        Return all conversation turns since a given datetime.
+
+        Filters turns by their timestamp field. Used for memory consolidation
+        over custom time ranges.
+        """
+        sessions = await self.get_all_sessions(user_id, thread_id)
+        since_iso = since.isoformat()
+
+        all_turns: list[ConversationTurn] = []
+        for session_key in sessions:
+            turns = await self.get_recent_turns(user_id, session_key, limit=500)
+            for turn in turns:
+                if turn.timestamp >= since_iso:
+                    all_turns.append(turn)
+
+        return all_turns

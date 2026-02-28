@@ -13,10 +13,17 @@ arbitrary computations. Many useful tasks — number crunching, string manipulat
 parsing, date arithmetic — are more reliably handled by executing code than by asking the
 LLM to reason through them step by step.
 
-The implementation wraps Python execution in a `subprocess` call with strict resource limits
-and a temporary working directory so that no persistent state leaks between runs. The tool is
-added to the existing tool registry and is available to the `quick-assistant` path; the
-`board-analyst` subagent does **not** get it (read-only).
+This feature is implemented in **three phases**:
+
+1. **Phase A — Subprocess sandbox** (MVP): Best-effort isolation using `subprocess` with
+   import blocking. Suitable for single-user deployment.
+2. **Phase B — Container isolation**: Docker-based execution for proper security boundaries.
+   Required before opening to untrusted users.
+3. **Phase C — Jupyter-style notebooks**: Persistent kernel sessions with state preservation,
+   rich output (plots, dataframes), and conversation-scoped execution contexts.
+
+The tool is added to the existing tool registry and is available to the `quick-assistant`
+path; the `board-analyst` subagent does **not** get it (read-only).
 
 ---
 

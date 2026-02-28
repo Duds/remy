@@ -39,10 +39,12 @@ class StreamingReply:
         message: Message,
         session_manager: SessionManager,
         user_id: int,
+        thread_id: int | None = None,
     ) -> None:
         self._message = message
         self._session = session_manager
         self._user_id = user_id
+        self._thread_id = thread_id
 
         self._accumulated = ""   # all text received so far for current message
         self._last_sent = ""     # last text successfully sent to Telegram
@@ -87,9 +89,11 @@ class StreamingReply:
             display = display[split_at:].lstrip()
 
             await self._edit_or_skip(part)
-            # Start a new Telegram message for overflow
+            # Start a new Telegram message for overflow (preserve thread context)
             try:
-                new_msg = await self._message.chat.send_message("…")
+                new_msg = await self._message.chat.send_message(
+                    "…", message_thread_id=self._thread_id
+                )
                 self._messages.append(new_msg)
                 self._message = new_msg
                 self._last_sent = ""
@@ -137,11 +141,12 @@ async def stream_to_telegram(
     initial_message: Message,
     session_manager: SessionManager,
     user_id: int,
+    thread_id: int | None = None,
 ) -> str:
     """
     Helper that streams all chunks to Telegram and returns the full response.
     """
-    streamer = StreamingReply(initial_message, session_manager, user_id)
+    streamer = StreamingReply(initial_message, session_manager, user_id, thread_id)
     async for chunk in chunks:
         await streamer.feed(chunk)
         if session_manager.is_cancelled(user_id):

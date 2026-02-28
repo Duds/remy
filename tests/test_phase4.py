@@ -53,8 +53,14 @@ def test_web_search_returns_results():
 
 def test_web_search_error_returns_empty():
     """If DuckDuckGo raises an error, web_search returns [] gracefully."""
-    with patch("remy.web.search.DDGS", create=True) as MockDDGS:
-        MockDDGS.return_value.__enter__.return_value.text.side_effect = RuntimeError("rate limited")
+    # Patch at the ddgs package level so the import inside _sync() gets the mock
+    with patch.dict("sys.modules", {"ddgs": MagicMock()}):
+        import sys
+        mock_ddgs_module = sys.modules["ddgs"]
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.__enter__.return_value.text.side_effect = RuntimeError("rate limited")
+        mock_ddgs_module.DDGS.return_value = mock_ddgs_instance
+        
         from remy.web.search import web_search
         results = asyncio.run(web_search("test"))
     assert results == []

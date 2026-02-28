@@ -93,20 +93,34 @@ class MemoryInjector:
     async def _get_relevant_knowledge(
         self, user_id: int, query: str, entity_type: str, limit: int = 5, min_confidence: float = 0.5
     ) -> list:
-        """Unified search across ANN, FTS, and recent history for a specific type."""
-        # Note: types in types in Knowledge are: fact, goal, shopping_item
-        # 1. Try ANN search
+        """Unified search across ANN, FTS, and recent history for a specific type.
+        
+        Updates last_referenced_at for any items returned (staleness tracking).
+        """
+        # Note: types in Knowledge are: fact, goal, shopping_item
+        # 1. Try ANN search with recency boost
         ann_results = await self._embeddings.search_similar_for_type(
-            user_id, query, source_type=f"knowledge_{entity_type}", limit=limit
+            user_id, query, source_type=f"knowledge_{entity_type}", limit=limit,
+            recency_boost=True
         )
         if ann_results:
             ids = [r["source_id"] for r in ann_results if r.get("source_id")]
             if ids:
-                return await self._get_by_ids(user_id, ids, min_confidence=min_confidence)
+                items = await self._get_by_ids(user_id, ids, min_confidence=min_confidence)
+                # Update last_referenced_at for returned items
+                if items:
+                    item_ids = [i.id for i in items if i.id]
+                    await self._knowledge.update_last_referenced(user_id, item_ids)
+                return items
 
         # 2. Fall back to FTS (to be updated to unified search)
         # For now, we'll just fall back to recent items
-        return await self._knowledge.get_by_type(user_id, entity_type, limit=limit, min_confidence=min_confidence)
+        items = await self._knowledge.get_by_type(user_id, entity_type, limit=limit, min_confidence=min_confidence)
+        # Update last_referenced_at for returned items
+        if items:
+            item_ids = [i.id for i in items if i.id]
+            await self._knowledge.update_last_referenced(user_id, item_ids)
+        return items
 
     async def _get_by_ids(self, user_id: int, ids: list[int], min_confidence: float = 0.5) -> list[KnowledgeItem]:
         placeholders = ",".join("?" * len(ids))
@@ -165,7 +179,22 @@ class MemoryInjector:
         self, user_id: int, current_message: str, soul_md: str, min_confidence: float = 0.5
     ) -> str:
         """Return the full system prompt: SOUL.md + memory block."""
+        from ..utils.tokens import estimate_tokens
+
         memory_block = await self.build_context(user_id, current_message, min_confidence=min_confidence)
+
         if memory_block:
-            return f"{soul_md}\n\n{memory_block}"
-        return soul_md
+            full_prompt = f"{soul_md}\n\n{memory_block}"
+        else:
+            full_prompt = soul_md
+
+        # Log token breakdown at DEBUG level
+        soul_tokens = estimate_tokens(soul_md)
+        memory_tokens = estimate_tokens(memory_block) if memory_block else 0
+        total_tokens = estimate_tokens(full_prompt)
+        logger.debug(
+            "System prompt: %d tokens (soul: %d, memory: %d)",
+            total_tokens, soul_tokens, memory_tokens
+        )
+
+        return full_prompt

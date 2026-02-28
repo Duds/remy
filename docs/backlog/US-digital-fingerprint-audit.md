@@ -1,3 +1,5 @@
+# ✅ Done
+
 # User Story: Digital Fingerprint Privacy Audit
 
 ## Summary

@@ -1,6 +1,6 @@
 # User Story: /costs — Token & Spend Summary Command
 
-⬜ Backlog
+✅ Done
 
 ## Summary
 

@@ -12,7 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from remy.memory.database import DatabaseManager
 from remy.memory.embeddings import EmbeddingStore
+from remy.memory.facts import FactStore
 from remy.memory.goals import GoalStore
+from remy.memory.automations import AutomationStore
 from remy.models import Goal
 from remy.scheduler.proactive import (
     ProactiveScheduler,
@@ -39,6 +41,17 @@ async def db(tmp_path):
 async def goal_store(db):
     embeddings = EmbeddingStore(db)
     return GoalStore(db, embeddings)
+
+
+@pytest_asyncio.fixture
+async def fact_store(db):
+    embeddings = EmbeddingStore(db)
+    return FactStore(db, embeddings)
+
+
+@pytest_asyncio.fixture
+async def automation_store(db):
+    return AutomationStore(db)
 
 
 def make_bot():
@@ -272,3 +285,100 @@ async def test_scheduler_start_with_bad_cron_does_not_crash(db, goal_store):
         sched.start()
     # Scheduler should NOT be running
     assert not sched._scheduler.running
+
+
+# --------------------------------------------------------------------------- #
+# One-time reminder memory logging tests                                       #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_log_completed_reminder_stores_fact(db, goal_store, fact_store):
+    """Completed one-time reminder should be logged as a fact."""
+    bot = make_bot()
+    sched = ProactiveScheduler(bot, goal_store, fact_store=fact_store)
+
+    await sched._log_completed_reminder(user_id=1, label="Pick up tyres from Tyrepower")
+
+    facts = await fact_store.get_for_user(1)
+    assert len(facts) == 1
+    assert "Reminder completed" in facts[0]["content"]
+    assert "Pick up tyres from Tyrepower" in facts[0]["content"]
+    assert facts[0]["category"] == "other"
+
+
+@pytest.mark.asyncio
+async def test_log_completed_reminder_includes_date(db, goal_store, fact_store):
+    """Logged fact should include today's date for context."""
+    bot = make_bot()
+    sched = ProactiveScheduler(bot, goal_store, fact_store=fact_store)
+
+    await sched._log_completed_reminder(user_id=1, label="Call dentist")
+
+    facts = await fact_store.get_for_user(1)
+    assert len(facts) == 1
+    # Check that date is in ISO format (YYYY-MM-DD)
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assert today in facts[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_log_completed_reminder_skipped_without_fact_store(db, goal_store):
+    """No error if fact_store is not configured."""
+    bot = make_bot()
+    sched = ProactiveScheduler(bot, goal_store, fact_store=None)
+
+    # Should not raise
+    await sched._log_completed_reminder(user_id=1, label="Test reminder")
+
+
+@pytest.mark.asyncio
+async def test_run_automation_logs_fact_for_one_time(
+    db, goal_store, fact_store, automation_store, tmp_path
+):
+    """One-time automation should log a fact when it fires."""
+    bot = make_bot()
+    sched = ProactiveScheduler(
+        bot, goal_store, fact_store=fact_store, automation_store=automation_store
+    )
+
+    # Create a one-time automation
+    auto_id = await automation_store.add(
+        user_id=1, label="Collect parcel from post office", fire_at="2026-02-28T10:00:00"
+    )
+
+    # Set up primary chat ID
+    chat_file = tmp_path / "primary_chat_id.txt"
+    chat_file.write_text("12345")
+
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345):
+        await sched._run_automation(auto_id, user_id=1, label="Collect parcel from post office", one_time=True)
+
+    # Verify fact was stored
+    facts = await fact_store.get_for_user(1)
+    assert len(facts) == 1
+    assert "Collect parcel from post office" in facts[0]["content"]
+    assert "Reminder completed" in facts[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_run_automation_does_not_log_fact_for_recurring(
+    db, goal_store, fact_store, automation_store, tmp_path
+):
+    """Recurring automation should NOT log a fact (only one-time reminders do)."""
+    bot = make_bot()
+    sched = ProactiveScheduler(
+        bot, goal_store, fact_store=fact_store, automation_store=automation_store
+    )
+
+    # Create a recurring automation
+    auto_id = await automation_store.add(
+        user_id=1, label="Daily standup reminder", cron="0 9 * * *"
+    )
+
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345):
+        await sched._run_automation(auto_id, user_id=1, label="Daily standup reminder", one_time=False)
+
+    # Verify no fact was stored
+    facts = await fact_store.get_for_user(1)
+    assert len(facts) == 0

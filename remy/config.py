@@ -81,6 +81,17 @@ class Settings(BaseSettings):
 
     # SOUL.md path
     soul_md_path: str = "config/SOUL.md"
+    soul_compact_path: str = "config/SOUL.compact.md"
+    soul_prefer_compact: bool = True  # Prefer compact version if it exists
+
+    # Memory system (US-improved-persistent-memory)
+    fact_merge_threshold: float = 0.15  # ANN cosine distance below which facts are merged
+
+    # Home directory RAG index (US-home-directory-rag)
+    rag_index_enabled: bool = True
+    rag_index_paths: str = ""  # Comma-separated paths; empty = ~/Projects,~/Documents
+    rag_index_extensions: str = ""  # Comma-separated; empty = default set
+    rag_reindex_cron: str = "0 3 * * *"  # Nightly at 03:00
 
     # Google Workspace (Phase 3) — OAuth client credentials from Google Cloud Console.
     # Run scripts/setup_google_auth.py once to generate data/google_token.json.
@@ -127,11 +138,33 @@ class Settings(BaseSettings):
 
     @cached_property
     def soul_md(self) -> str:
-        """Load and cache SOUL.md content."""
+        """
+        Load and cache SOUL content.
+
+        Prefers SOUL.compact.md if soul_prefer_compact is True and the file exists.
+        Falls back to SOUL.md, then to a minimal default prompt.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Try compact version first if preferred
+        if self.soul_prefer_compact:
+            try:
+                with open(self.soul_compact_path, encoding="utf-8") as f:
+                    content = f.read().strip()
+                    logger.debug("Loaded compact soul from %s", self.soul_compact_path)
+                    return content
+            except FileNotFoundError:
+                pass
+
+        # Fall back to full SOUL.md
         try:
             with open(self.soul_md_path, encoding="utf-8") as f:
-                return f.read().strip()
+                content = f.read().strip()
+                logger.debug("Loaded soul from %s", self.soul_md_path)
+                return content
         except FileNotFoundError:
+            logger.warning("No SOUL.md found, using default prompt")
             return "You are Remy, a personal AI assistant. Be helpful, concise, and honest."
 
 

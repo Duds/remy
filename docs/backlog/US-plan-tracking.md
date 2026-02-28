@@ -1,6 +1,6 @@
 # User Story: Plan Tracking
 
-⬜ Backlog
+✅ Done (2026-02-28)
 
 ## Summary
 As a user, I want Remy to document and track multi-step plans that unfold over time —

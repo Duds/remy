@@ -172,8 +172,9 @@ TOOL_SCHEMAS: list[dict] = [
                 "category": {
                     "type": "string",
                     "description": (
-                        "Filter by category: name, age, location, occupation, preference, "
-                        "relationship, health, project, other. Omit for all categories."
+                        "Filter by category: name, location, occupation, health, medical, "
+                        "finance, hobby, relationship, preference, deadline, project, other. "
+                        "Omit for all categories."
                     ),
                 },
                 "limit": {
@@ -835,11 +836,12 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "manage_memory",
         "description": (
             "Add, update, or delete a stored memory fact. "
-            "Use this when the user wants to correct something remy knows about them "
-            "(e.g. 'change my favourite colour to green'), add a new fact "
-            "('remember that I prefer dark mode'), or forget something "
-            "('forget that I live in Sydney'). "
-            "Call get_facts first to find the fact_id when updating or deleting."
+            "Use PROACTIVELY when Doc mentions something worth remembering: "
+            "completed tasks ('tyre's done'), people's plans ('Alex is away'), "
+            "personal updates ('started seeing a physio'), decisions ('going with CommBank'). "
+            "Also use when Doc explicitly asks to remember, correct, or forget something. "
+            "Call get_facts first to find the fact_id when updating or deleting. "
+            "Do NOT announce that you are storing — just do it silently alongside your reply."
         ),
         "input_schema": {
             "type": "object",
@@ -864,8 +866,8 @@ TOOL_SCHEMAS: list[dict] = [
                 "category": {
                     "type": "string",
                     "description": (
-                        "Fact category: name, age, location, occupation, preference, "
-                        "relationship, health, project, other. "
+                        "Fact category: name, location, occupation, health, medical, "
+                        "finance, hobby, relationship, preference, deadline, project, other. "
                         "Required for add; optional for update (keeps existing if omitted)."
                     ),
                 },
@@ -909,6 +911,21 @@ TOOL_SCHEMAS: list[dict] = [
                 },
             },
             "required": ["action"],
+        },
+    },
+    {
+        "name": "get_memory_summary",
+        "description": (
+            "Show a structured overview of what remy remembers about the user: "
+            "total facts and goals, recent additions, category breakdown, oldest fact, "
+            "and potentially stale facts (not referenced in 90+ days). "
+            "Use when the user asks 'what do you remember about me?', 'how many facts "
+            "do you have?', or wants to understand their memory footprint."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
         },
     },
 
@@ -971,6 +988,22 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
+    {
+        "name": "consolidate_memory",
+        "description": (
+            "Review today's conversations and extract any facts or goals worth persisting to "
+            "long-term memory. This is a catch-all for information that wasn't stored proactively "
+            "during the conversation. "
+            "Use when the user asks to 'save what we talked about', 'consolidate memories', "
+            "'extract facts from today', or 'remember what we discussed'. "
+            "Runs automatically at 22:00 each day, but can be triggered manually."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
     # Phase 7 Step 2: persistent job tracking
     {
         "name": "list_background_jobs",
@@ -990,6 +1023,189 @@ TOOL_SCHEMAS: list[dict] = [
                     "description": "Filter by job status. Omit or use 'all' to see everything.",
                 },
             },
+            "required": [],
+        },
+    },
+
+    # ------------------------------------------------------------------ #
+    # Plan tracking                                                        #
+    # ------------------------------------------------------------------ #
+    {
+        "name": "create_plan",
+        "description": (
+            "Create a new multi-step plan. Use when the user describes a goal that has "
+            "discrete actions, may span days or weeks, or where individual steps may need "
+            "to be retried. Examples: 'make a plan to fix the fence', 'create a plan for "
+            "switching energy providers', 'I need to organise my tax return'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short name for the plan (e.g. 'Fix the fence', 'Tax return 2026').",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional longer description of the plan's purpose or context.",
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Ordered list of step titles (e.g. ['Get quotes', 'Hire contractor', 'Supervise work']).",
+                },
+            },
+            "required": ["title", "steps"],
+        },
+    },
+    {
+        "name": "get_plan",
+        "description": (
+            "Retrieve a plan by ID or title, including all steps and their full attempt history. "
+            "Use when the user asks 'what's the status of my fence plan?', 'show me the tax plan', "
+            "or 'how's that project going?'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "integer",
+                    "description": "The plan ID (from list_plans). Use this if you know the ID.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Fuzzy title search if plan_id not known (e.g. 'fence', 'tax').",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "list_plans",
+        "description": (
+            "List the user's plans with step progress and last activity. "
+            "Use when the user asks 'what plans do I have?', 'show my active plans', "
+            "'what am I working on?'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "complete", "abandoned", "all"],
+                    "description": "Filter by plan status. Default: 'active'.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "update_plan_step",
+        "description": (
+            "Update the status of a plan step and/or log a new attempt. "
+            "Use when the user reports progress: 'I called Jim — no answer', "
+            "'mark step 2 as done', 'step 1 is blocked waiting on council approval', "
+            "'I tried again but still waiting'. "
+            "Call get_plan first to find the step_id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "integer",
+                    "description": "The step ID (from get_plan).",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "in_progress", "done", "skipped", "blocked"],
+                    "description": "New status for the step. Omit to keep current status.",
+                },
+                "attempt_outcome": {
+                    "type": "string",
+                    "description": (
+                        "If this update is the result of an attempt, describe the outcome "
+                        "(e.g. 'no answer', 'sent email', 'approved', 'waiting for callback')."
+                    ),
+                },
+                "attempt_notes": {
+                    "type": "string",
+                    "description": "Additional notes about the attempt.",
+                },
+            },
+            "required": ["step_id"],
+        },
+    },
+    {
+        "name": "update_plan_status",
+        "description": (
+            "Mark an entire plan as complete or abandoned. "
+            "Use when the user says 'I finished the fence plan', 'mark the tax plan as done', "
+            "'abandon the energy switch plan — decided to stay with current provider'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan_id": {
+                    "type": "integer",
+                    "description": "The plan ID (from list_plans).",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["complete", "abandoned"],
+                    "description": "New status for the plan.",
+                },
+            },
+            "required": ["plan_id", "status"],
+        },
+    },
+
+    # ------------------------------------------------------------------ #
+    # File search (Home directory RAG)                                     #
+    # ------------------------------------------------------------------ #
+    {
+        "name": "search_files",
+        "description": (
+            "Search indexed files in ~/Projects and ~/Documents for content matching a query. "
+            "Use this when the user asks about something that might be in their files but "
+            "doesn't know which file — e.g. 'do I have any notes about the fence quote?', "
+            "'find my notes on the mortgage application', 'search my files for tax info'. "
+            "Returns matching file chunks with paths so the user can read the full file if needed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language search query describing what to find.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default 5, max 10).",
+                    "minimum": 1,
+                    "maximum": 10,
+                },
+                "path_filter": {
+                    "type": "string",
+                    "description": (
+                        "Optional subdirectory to restrict search, e.g. '~/Projects/ai-agents'. "
+                        "Omit to search all indexed paths."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "index_status",
+        "description": (
+            "Show the current state of the file index: how many files are indexed, "
+            "when the index was last updated, which paths are being indexed. "
+            "Use this when the user asks 'how many files have you indexed?', "
+            "'when did you last index my files?', or 'what directories are you indexing?'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
             "required": [],
         },
     },
@@ -1039,6 +1255,10 @@ class ToolRegistry:
         conversation_analyzer=None,
         # Phase 7 Step 2
         job_store=None,
+        # Plan tracking
+        plan_store=None,
+        # Home directory RAG
+        file_indexer=None,
     ) -> None:
         self._logs_dir = logs_dir
         self._knowledge_store = knowledge_store
@@ -1061,11 +1281,18 @@ class ToolRegistry:
         self._grocery_list_file = grocery_list_file
         self._conversation_analyzer = conversation_analyzer
         self._job_store = job_store
+        self._plan_store = plan_store
+        self._file_indexer = file_indexer
 
     @property
     def schemas(self) -> list[dict]:
         """Return the list of Anthropic tool schemas."""
         return TOOL_SCHEMAS
+
+    @property
+    def _proactive_scheduler(self):
+        """Return the proactive scheduler from the scheduler_ref dict."""
+        return self._scheduler_ref.get("proactive_scheduler")
 
     async def dispatch(self, tool_name: str, tool_input: dict, user_id: int) -> str:
         """
@@ -1147,6 +1374,8 @@ class ToolRegistry:
                 return await self._exec_manage_memory(tool_input, user_id)
             elif tool_name == "manage_goal":
                 return await self._exec_manage_goal(tool_input, user_id)
+            elif tool_name == "get_memory_summary":
+                return await self._exec_get_memory_summary(user_id)
             # Analytics (Phase 6)
             elif tool_name == "get_stats":
                 return await self._exec_get_stats(tool_input, user_id)
@@ -1154,9 +1383,27 @@ class ToolRegistry:
                 return await self._exec_get_goal_status(user_id)
             elif tool_name == "generate_retrospective":
                 return await self._exec_generate_retrospective(tool_input, user_id)
+            elif tool_name == "consolidate_memory":
+                return await self._exec_consolidate_memory(user_id)
             # Phase 7 Step 2: background job tracking
             elif tool_name == "list_background_jobs":
                 return await self._exec_list_background_jobs(tool_input, user_id)
+            # Plan tracking
+            elif tool_name == "create_plan":
+                return await self._exec_create_plan(tool_input, user_id)
+            elif tool_name == "get_plan":
+                return await self._exec_get_plan(tool_input, user_id)
+            elif tool_name == "list_plans":
+                return await self._exec_list_plans(tool_input, user_id)
+            elif tool_name == "update_plan_step":
+                return await self._exec_update_plan_step(tool_input, user_id)
+            elif tool_name == "update_plan_status":
+                return await self._exec_update_plan_status(tool_input, user_id)
+            # File search (Home directory RAG)
+            elif tool_name == "search_files":
+                return await self._exec_search_files(tool_input)
+            elif tool_name == "index_status":
+                return await self._exec_index_status()
             else:
                 return f"Unknown tool: {tool_name}"
         except Exception as exc:
@@ -2116,9 +2363,47 @@ class ToolRegistry:
     # ------------------------------------------------------------------ #
 
     async def _exec_manage_memory(self, inp: dict, user_id: int) -> str:
-        if self._fact_store is None:
-            return "Memory system not available."
+        if self._knowledge_store is None:
+            # Fall back to legacy store
+            if self._fact_store is None:
+                return "Memory system not available."
+            return await self._exec_manage_memory_legacy(inp, user_id)
 
+        action = inp.get("action", "").strip()
+        fact_id = inp.get("fact_id")
+        content = (inp.get("content") or "").strip()
+        category = (inp.get("category") or "").strip().lower() or None
+
+        if action == "add":
+            if not content:
+                return "Please provide content for the new fact."
+            cat = category or "other"
+            new_id = await self._knowledge_store.add_item(user_id, "fact", content, {"category": cat})
+            return f"✅ Fact stored (ID {new_id}): [{cat}] {content}"
+
+        elif action == "update":
+            if not fact_id:
+                return "Please provide fact_id to update. Call get_facts to find IDs."
+            if not content:
+                return "Please provide the new content for the fact."
+            metadata = {"category": category} if category else None
+            updated = await self._knowledge_store.update(user_id, int(fact_id), content, metadata)
+            if not updated:
+                return f"No fact with ID {fact_id} found."
+            cat_note = f" (category: {category})" if category else ""
+            return f"✅ Fact {fact_id} updated{cat_note}: {content}"
+
+        elif action == "delete":
+            if not fact_id:
+                return "Please provide fact_id to delete. Call get_facts to find IDs."
+            deleted = await self._knowledge_store.delete(user_id, int(fact_id))
+            if not deleted:
+                return f"No fact with ID {fact_id} found."
+            return f"✅ Fact {fact_id} deleted."
+
+        return f"Unknown action '{action}'. Use: add, update, or delete."
+
+    async def _exec_manage_memory_legacy(self, inp: dict, user_id: int) -> str:
         action = inp.get("action", "").strip()
         fact_id = inp.get("fact_id")
         content = (inp.get("content") or "").strip()
@@ -2153,9 +2438,95 @@ class ToolRegistry:
         return f"Unknown action '{action}'. Use: add, update, or delete."
 
     async def _exec_manage_goal(self, inp: dict, user_id: int) -> str:
-        if self._goal_store is None:
-            return "Goal store not available."
+        if self._knowledge_store is None:
+            # Fall back to legacy store
+            if self._goal_store is None:
+                return "Goal store not available."
+            return await self._exec_manage_goal_legacy(inp, user_id)
 
+        action = inp.get("action", "").strip()
+        goal_id = inp.get("goal_id")
+        title = (inp.get("title") or "").strip() or None
+        description = inp.get("description")  # None means "don't change"
+
+        if action == "add":
+            if not title:
+                return "Please provide a title for the new goal."
+            metadata = {"status": "active"}
+            if description:
+                metadata["description"] = description
+            new_id = await self._knowledge_store.add_item(user_id, "goal", title, metadata)
+            return f"✅ Goal added (ID {new_id}): {title}"
+
+        elif action == "update":
+            if not goal_id:
+                return "Please provide goal_id to update. Call get_goals to find IDs."
+            if not title and description is None:
+                return "Please provide a new title and/or description."
+            
+            # Since we only want to update the provided fields, we could fetch existing metadata first,
+            # but to keep it simple, we use a custom metadata merge or set fields explicitly if allowed by KnowledgeStore.
+            # Assuming KnowledgeStore.update() replaces the content and/or metadata completely if provided.
+            # We need to fetch it first to merge metadata if description is provided but status shouldn't change.
+            
+            # For simplicity let's do a partial fetch to preserve status
+            items = await self._knowledge_store.get_by_type(user_id, "goal", limit=100)
+            target = next((i for i in items if i.id == int(goal_id)), None)
+            if not target:
+                return f"No goal with ID {goal_id} found."
+            
+            new_meta = target.metadata.copy()
+            if description is not None:
+                new_meta["description"] = description
+                
+            updated = await self._knowledge_store.update(user_id, int(goal_id), title, new_meta)
+            if not updated:
+                return f"No goal with ID {goal_id} found."
+                
+            parts = []
+            if title:
+                parts.append(f"title → '{title}'")
+            if description is not None:
+                parts.append(f"description → '{description}'")
+            return f"✅ Goal {goal_id} updated: {', '.join(parts)}"
+
+        elif action == "complete":
+            if not goal_id:
+                return "Please provide goal_id to mark complete. Call get_goals to find IDs."
+            items = await self._knowledge_store.get_by_type(user_id, "goal", limit=100)
+            target = next((i for i in items if i.id == int(goal_id)), None)
+            if not target:
+                return f"No goal with ID {goal_id} found."
+                
+            new_meta = target.metadata.copy()
+            new_meta["status"] = "completed"
+            await self._knowledge_store.update(user_id, int(goal_id), metadata=new_meta)
+            return f"✅ Goal {goal_id} marked as completed. Nice work! 🎉"
+
+        elif action == "abandon":
+            if not goal_id:
+                return "Please provide goal_id to abandon. Call get_goals to find IDs."
+            items = await self._knowledge_store.get_by_type(user_id, "goal", limit=100)
+            target = next((i for i in items if i.id == int(goal_id)), None)
+            if not target:
+                return f"No goal with ID {goal_id} found."
+                
+            new_meta = target.metadata.copy()
+            new_meta["status"] = "abandoned"
+            await self._knowledge_store.update(user_id, int(goal_id), metadata=new_meta)
+            return f"✅ Goal {goal_id} marked as abandoned."
+
+        elif action == "delete":
+            if not goal_id:
+                return "Please provide goal_id to delete. Call get_goals to find IDs."
+            deleted = await self._knowledge_store.delete(user_id, int(goal_id))
+            if not deleted:
+                return f"No goal with ID {goal_id} found."
+            return f"✅ Goal {goal_id} permanently deleted."
+
+        return f"Unknown action '{action}'. Use: add, update, complete, abandon, or delete."
+
+    async def _exec_manage_goal_legacy(self, inp: dict, user_id: int) -> str:
         action = inp.get("action", "").strip()
         goal_id = inp.get("goal_id")
         title = (inp.get("title") or "").strip() or None
@@ -2204,6 +2575,41 @@ class ToolRegistry:
 
         return f"Unknown action '{action}'. Use: add, update, complete, abandon, or delete."
 
+    async def _exec_get_memory_summary(self, user_id: int) -> str:
+        """Return a structured overview of stored memory."""
+        if self._knowledge_store is None:
+            return "Memory system not available."
+        
+        try:
+            summary = await self._knowledge_store.get_memory_summary(user_id)
+        except Exception as e:
+            logger.warning("get_memory_summary failed: %s", e)
+            return f"Could not retrieve memory summary: {e}"
+        
+        total_facts = summary.get("total_facts", 0)
+        total_goals = summary.get("total_goals", 0)
+        recent = summary.get("recent_facts_7d", 0)
+        categories = summary.get("categories", {})
+        oldest = summary.get("oldest_fact")
+        stale = summary.get("potentially_stale", 0)
+        
+        lines = [f"📋 **Memory summary** ({total_facts} facts, {total_goals} goals)"]
+        lines.append(f"  Recent (last 7 days): {recent} facts")
+        
+        if categories:
+            cat_parts = [f"{cat} ({cnt})" for cat, cnt in list(categories.items())[:6]]
+            lines.append(f"  Categories: {', '.join(cat_parts)}")
+        
+        if oldest:
+            content = oldest["content"][:50] + "..." if len(oldest["content"]) > 50 else oldest["content"]
+            date_str = oldest["created_at"][:10] if oldest["created_at"] else "unknown"
+            lines.append(f"  Oldest fact: \"{content}\" ({date_str})")
+        
+        if stale > 0:
+            lines.append(f"  ⚠️ Potentially stale (>90 days, not referenced): {stale} facts")
+        
+        return "\n".join(lines)
+
     # ------------------------------------------------------------------ #
     # Phase 6: Analytics executors                                         #
     # ------------------------------------------------------------------ #
@@ -2243,6 +2649,34 @@ class ToolRegistry:
         except Exception as e:
             return f"Could not generate retrospective: {e}"
 
+    async def _exec_consolidate_memory(self, user_id: int) -> str:
+        if self._proactive_scheduler is None:
+            return "Scheduler not available for memory consolidation."
+        try:
+            result = await self._proactive_scheduler.run_memory_consolidation_now(user_id)
+            if result.get("status") == "error":
+                return f"❌ {result.get('message', 'Consolidation failed')}"
+
+            facts = result.get("facts_stored", 0)
+            goals = result.get("goals_stored", 0)
+
+            if facts == 0 and goals == 0:
+                return (
+                    "✅ Memory consolidation complete.\n\n"
+                    "No new facts or goals extracted from today's conversations. "
+                    "Either nothing worth persisting was discussed, or the information "
+                    "was already stored proactively during the conversation."
+                )
+
+            lines = ["✅ Memory consolidation complete:\n"]
+            if facts > 0:
+                lines.append(f"  Facts stored: {facts}")
+            if goals > 0:
+                lines.append(f"  Goals stored: {goals}")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Could not run memory consolidation: {e}"
+
     async def _exec_list_background_jobs(self, inp: dict, user_id: int) -> str:
         if self._job_store is None:
             return "Job tracking not available."
@@ -2269,3 +2703,288 @@ class ToolRegistry:
                 f'  (started {job["created_at"][:16]}){result_preview}'
             )
         return "\n\n".join(lines)
+
+    # ------------------------------------------------------------------ #
+    # Plan tracking executors                                              #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_create_plan(self, inp: dict, user_id: int) -> str:
+        if self._plan_store is None:
+            return "Plan tracking not available."
+
+        title = inp.get("title", "").strip()
+        description = inp.get("description", "").strip() or None
+        steps = inp.get("steps", [])
+
+        if not title:
+            return "Please provide a title for the plan."
+        if not steps:
+            return "Please provide at least one step for the plan."
+
+        try:
+            plan_id = await self._plan_store.create_plan(
+                user_id, title, description, steps
+            )
+        except Exception as e:
+            return f"Could not create plan: {e}"
+
+        step_list = "\n".join(f"  {i}. {s}" for i, s in enumerate(steps, 1))
+        return (
+            f"✅ Plan created (ID {plan_id}): {title}\n\n"
+            f"Steps:\n{step_list}\n\n"
+            f"Use get_plan to see full details, or update_plan_step to log progress."
+        )
+
+    async def _exec_get_plan(self, inp: dict, user_id: int) -> str:
+        if self._plan_store is None:
+            return "Plan tracking not available."
+
+        plan_id = inp.get("plan_id")
+        title = inp.get("title", "").strip()
+
+        if not plan_id and not title:
+            return "Please provide either plan_id or a title to search for."
+
+        try:
+            if plan_id:
+                plan = await self._plan_store.get_plan(int(plan_id))
+            else:
+                plan = await self._plan_store.get_plan_by_title(user_id, title)
+        except Exception as e:
+            return f"Could not fetch plan: {e}"
+
+        if not plan:
+            if plan_id:
+                return f"No plan with ID {plan_id} found."
+            return f"No plan matching '{title}' found."
+
+        _STATUS_EMOJI = {
+            "pending": "⬜",
+            "in_progress": "🔄",
+            "done": "✅",
+            "skipped": "⏭️",
+            "blocked": "🚫",
+        }
+
+        lines = [
+            f"📋 **{plan['title']}** (ID {plan['id']})",
+            f"Status: {plan['status']}",
+        ]
+        if plan.get("description"):
+            lines.append(f"Description: {plan['description']}")
+        lines.append(f"Created: {plan['created_at'][:10]} | Updated: {plan['updated_at'][:10]}")
+        lines.append("")
+
+        for step in plan.get("steps", []):
+            emoji = _STATUS_EMOJI.get(step["status"], "❓")
+            lines.append(f"{step['position']}. {emoji} [{step['status']}] {step['title']} (step ID {step['id']})")
+            if step.get("notes"):
+                lines.append(f"   Notes: {step['notes']}")
+            for attempt in step.get("attempts", []):
+                lines.append(
+                    f"   → {attempt['attempted_at'][:16]}: {attempt['outcome']}"
+                    + (f" — {attempt['notes']}" if attempt.get("notes") else "")
+                )
+
+        return "\n".join(lines)
+
+    async def _exec_list_plans(self, inp: dict, user_id: int) -> str:
+        if self._plan_store is None:
+            return "Plan tracking not available."
+
+        status = inp.get("status", "active")
+
+        try:
+            plans = await self._plan_store.list_plans(user_id, status)
+        except Exception as e:
+            return f"Could not list plans: {e}"
+
+        if not plans:
+            if status == "all":
+                return "No plans found. Use create_plan to make one."
+            return f"No {status} plans found. Use create_plan to make one, or list_plans with status='all' to see all."
+
+        lines = [f"📋 Plans ({status}): {len(plans)}"]
+        lines.append("")
+
+        for plan in plans:
+            counts = plan.get("step_counts", {})
+            done = counts.get("done", 0)
+            in_progress = counts.get("in_progress", 0)
+            pending = counts.get("pending", 0)
+            blocked = counts.get("blocked", 0)
+            total = plan.get("total_steps", 0)
+
+            progress_parts = []
+            if done:
+                progress_parts.append(f"{done} done")
+            if in_progress:
+                progress_parts.append(f"{in_progress} in progress")
+            if pending:
+                progress_parts.append(f"{pending} pending")
+            if blocked:
+                progress_parts.append(f"{blocked} blocked")
+            progress = ", ".join(progress_parts) if progress_parts else "no steps"
+
+            lines.append(f"**{plan['title']}** (ID {plan['id']})")
+            lines.append(f"  [{total} steps — {progress}]")
+            lines.append(f"  Last activity: {plan['updated_at'][:10]}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    async def _exec_update_plan_step(self, inp: dict, user_id: int) -> str:
+        if self._plan_store is None:
+            return "Plan tracking not available."
+
+        step_id = inp.get("step_id")
+        status = inp.get("status")
+        attempt_outcome = inp.get("attempt_outcome", "").strip()
+        attempt_notes = inp.get("attempt_notes", "").strip() or None
+
+        if not step_id:
+            return "Please provide step_id. Use get_plan to find step IDs."
+
+        results = []
+
+        try:
+            if status:
+                updated = await self._plan_store.update_step_status(int(step_id), status)
+                if updated:
+                    results.append(f"Status → {status}")
+                else:
+                    return f"No step with ID {step_id} found."
+
+            if attempt_outcome:
+                await self._plan_store.add_attempt(int(step_id), attempt_outcome, attempt_notes)
+                results.append(f"Attempt logged: {attempt_outcome}")
+                if not status:
+                    await self._plan_store.update_step_status(int(step_id), "in_progress")
+                    results.append("Status → in_progress (auto)")
+
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Could not update step: {e}"
+
+        if not results:
+            return "No changes made. Provide status and/or attempt_outcome."
+
+        return f"✅ Step {step_id} updated: " + "; ".join(results)
+
+    async def _exec_update_plan_status(self, inp: dict, user_id: int) -> str:
+        if self._plan_store is None:
+            return "Plan tracking not available."
+
+        plan_id = inp.get("plan_id")
+        status = inp.get("status")
+
+        if not plan_id:
+            return "Please provide plan_id. Use list_plans to find plan IDs."
+        if not status:
+            return "Please provide status ('complete' or 'abandoned')."
+
+        try:
+            updated = await self._plan_store.update_plan_status(int(plan_id), status)
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Could not update plan: {e}"
+
+        if not updated:
+            return f"No plan with ID {plan_id} found."
+
+        if status == "complete":
+            return f"✅ Plan {plan_id} marked as complete. Well done! 🎉"
+        return f"✅ Plan {plan_id} marked as {status}."
+
+    # ------------------------------------------------------------------ #
+    # File search (Home directory RAG) executors                           #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_search_files(self, inp: dict) -> str:
+        if self._file_indexer is None:
+            return (
+                "File indexing not available. "
+                "The file index may not be configured or enabled."
+            )
+
+        if not self._file_indexer.enabled:
+            return "File indexing is disabled in configuration."
+
+        query = inp.get("query", "").strip()
+        if not query:
+            return "No search query provided."
+
+        limit = min(int(inp.get("limit", 5)), 10)
+        path_filter = inp.get("path_filter", "").strip() or None
+
+        try:
+            results = await self._file_indexer.search(
+                query, limit=limit, path_filter=path_filter
+            )
+        except Exception as e:
+            return f"Search failed: {e}"
+
+        if not results:
+            msg = f"No files found matching '{query}'."
+            if path_filter:
+                msg += f" (searched in {path_filter})"
+            return msg
+
+        lines = [f"📂 File search results for \"{query}\":"]
+        lines.append("")
+
+        for i, result in enumerate(results, 1):
+            path = result.get("path", "unknown")
+            chunk_idx = result.get("chunk_index", 0)
+            content = result.get("content_text", "")
+
+            # Truncate content for display
+            if len(content) > 200:
+                content = content[:200] + "…"
+
+            # Clean up content for display
+            content = content.replace("\n", " ").strip()
+
+            lines.append(f"{i}. {path} (chunk {chunk_idx})")
+            lines.append(f"   \"{content}\"")
+            lines.append("")
+
+        lines.append("Use read_file to see the full content of any file.")
+        return "\n".join(lines)
+
+    async def _exec_index_status(self) -> str:
+        if self._file_indexer is None:
+            return (
+                "File indexing not available. "
+                "The file index may not be configured."
+            )
+
+        if not self._file_indexer.enabled:
+            return "File indexing is disabled in configuration."
+
+        try:
+            status = await self._file_indexer.get_status()
+        except Exception as e:
+            return f"Could not get index status: {e}"
+
+        # Format extensions (show first 8, then count)
+        ext_list = status.extensions[:8]
+        ext_str = ", ".join(ext_list)
+        if len(status.extensions) > 8:
+            ext_str += f" (+{len(status.extensions) - 8} more)"
+
+        # Format paths
+        paths_str = "\n  ".join(status.paths) if status.paths else "None configured"
+
+        last_run = status.last_run or "Never"
+
+        return (
+            f"📂 File index status:\n"
+            f"  Paths:\n  {paths_str}\n"
+            f"  Files indexed: {status.files_indexed:,}\n"
+            f"  Total chunks: {status.total_chunks:,}\n"
+            f"  Last indexed: {last_run}\n"
+            f"  Extensions: {ext_str}"
+        )
