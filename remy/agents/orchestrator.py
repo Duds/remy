@@ -51,21 +51,24 @@ class BoardOrchestrator:
         report = await orchestrator.run_board(topic, user_context)
     """
 
-    def __init__(self, claude_client: "ClaudeClient") -> None:
+    def __init__(self, claude_client: "ClaudeClient", db=None) -> None:
         self._client = claude_client
+        self._db = db
         # Critic MUST be last
         self._agents: list["SubAgent"] = [
-            StrategyAgent(claude_client),
-            ContentAgent(claude_client),
-            FinanceAgent(claude_client),
-            ResearcherAgent(claude_client),
-            CriticAgent(claude_client),
+            StrategyAgent(claude_client, db=db),
+            ContentAgent(claude_client, db=db),
+            FinanceAgent(claude_client, db=db),
+            ResearcherAgent(claude_client, db=db),
+            CriticAgent(claude_client, db=db),
         ]
 
     async def run_board(
         self,
         topic: str,
         user_context: str = "",
+        user_id: int | None = None,
+        session_key: str | None = None,
     ) -> str:
         """
         Run all agents sequentially and return the full formatted board report.
@@ -82,6 +85,8 @@ class BoardOrchestrator:
         results: list[tuple[str, str]] = []  # (agent_name, analysis)
 
         for agent in self._agents:
+            agent._current_user_id = user_id
+            agent._current_session_key = session_key
             logger.info("[Board] Running agent: %s", agent.name)
             try:
                 analysis = await agent.analyze(topic, thread, user_context)
@@ -102,6 +107,8 @@ class BoardOrchestrator:
         self,
         topic: str,
         user_context: str = "",
+        user_id: int | None = None,
+        session_key: str | None = None,
     ) -> AsyncIterator[str]:
         """
         Async generator that yields progress updates as each agent completes.
@@ -119,6 +126,8 @@ class BoardOrchestrator:
         agent_count = len(self._agents)
 
         for idx, agent in enumerate(self._agents, 1):
+            agent._current_user_id = user_id
+            agent._current_session_key = session_key
             emoji = "🟣" if agent.name == "Critic" else "🟡"
             yield f"{emoji} *{agent.name}* ({idx}/{agent_count})…\n"
             # Give the event loop a tick to let the progress update send

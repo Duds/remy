@@ -2,11 +2,13 @@
 Mistral AI client for Remy.
 """
 
+import json
 import logging
 from typing import AsyncIterator
 
 import httpx
 from ..config import settings
+from ..models import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class MistralClient:
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        usage_out: TokenUsage | None = None,
     ) -> AsyncIterator[str]:
         """Stream a chat completion from Mistral."""
         if not self._api_key:
@@ -57,19 +60,30 @@ class MistralClient:
                         yield f"⚠️ _Mistral API error ({response.status_code})_"
                         return
 
+                    last_usage_data: dict | None = None
                     async for line in response.aiter_lines():
                         if line.startswith("data: "):
                             data_str = line[6:].strip()
                             if data_str == "[DONE]":
                                 break
-                            
-                            import json
+
                             try:
                                 data = json.loads(data_str)
-                                if delta := data["choices"][0].get("delta", {}).get("content"):
-                                    yield delta
+                                if data.get("usage"):
+                                    last_usage_data = data["usage"]
+                                if choices := data.get("choices"):
+                                    if delta := choices[0].get("delta", {}).get("content"):
+                                        yield delta
                             except (json.JSONDecodeError, KeyError, IndexError) as e:
                                 logger.debug("Error parsing Mistral stream chunk: %s", e)
+
+                    if usage_out is not None:
+                        if last_usage_data:
+                            usage_out.input_tokens = last_usage_data.get("prompt_tokens", 0)
+                            usage_out.output_tokens = last_usage_data.get("completion_tokens", 0)
+                        else:
+                            logger.debug("No usage data in Mistral stream response")
+
             except Exception as e:
                 logger.error("Mistral stream failed: %s", e)
                 yield f"⚠️ _Mistral connection failed: {e}_"

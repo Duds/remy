@@ -2,11 +2,13 @@
 Moonshot AI client for Remy.
 """
 
+import json
 import logging
 from typing import AsyncIterator
 
 import httpx
 from ..config import settings
+from ..models import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class MoonshotClient:
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.3, # Lower temperature for reasoning/planning
+        usage_out: TokenUsage | None = None,
     ) -> AsyncIterator[str]:
         """Stream a chat completion from Moonshot."""
         if not self._api_key:
@@ -38,6 +41,7 @@ class MoonshotClient:
             "stream": True,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "stream_options": {"include_usage": True},
         }
 
         headers = {
@@ -56,19 +60,34 @@ class MoonshotClient:
                         yield f"⚠️ _Moonshot API error ({response.status_code})_"
                         return
 
+                    # Use a done flag so we can keep reading after [DONE] for the usage chunk
+                    done = False
+                    last_usage_data: dict | None = None
                     async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data_str = line[6:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            
-                            import json
-                            try:
-                                data = json.loads(data_str)
-                                if delta := data["choices"][0].get("delta", {}).get("content"):
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            done = True
+                            continue
+
+                        try:
+                            data = json.loads(data_str)
+                            if data.get("usage"):
+                                last_usage_data = data["usage"]
+                            if not done and (choices := data.get("choices")):
+                                if delta := choices[0].get("delta", {}).get("content"):
                                     yield delta
-                            except (json.JSONDecodeError, KeyError, IndexError) as e:
-                                logger.debug("Error parsing Moonshot stream chunk: %s", e)
+                        except (json.JSONDecodeError, KeyError, IndexError) as e:
+                            logger.debug("Error parsing Moonshot stream chunk: %s", e)
+
+                    if usage_out is not None:
+                        if last_usage_data:
+                            usage_out.input_tokens = last_usage_data.get("prompt_tokens", 0)
+                            usage_out.output_tokens = last_usage_data.get("completion_tokens", 0)
+                        else:
+                            logger.debug("No usage data in Moonshot stream response")
+
             except Exception as e:
                 logger.error("Moonshot stream failed: %s", e)
                 yield f"⚠️ _Moonshot connection failed: {e}_"

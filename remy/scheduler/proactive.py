@@ -98,6 +98,7 @@ class ProactiveScheduler:
         session_manager: "SessionManager | None" = None,
         conv_store: "ConversationStore | None" = None,
         tool_registry: "ToolRegistry | None" = None,
+        db=None,
     ) -> None:
         self._bot = bot
         self._goal_store = goal_store
@@ -110,6 +111,7 @@ class ProactiveScheduler:
         self._session_manager = session_manager
         self._conv_store = conv_store
         self._tool_registry = tool_registry
+        self._db = db
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
@@ -307,6 +309,7 @@ class ProactiveScheduler:
                     tool_registry=self._tool_registry,
                     session_manager=self._session_manager,
                     conv_store=self._conv_store,
+                    db=self._db,
                 )
                 return
             except Exception as e:

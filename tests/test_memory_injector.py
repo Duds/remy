@@ -9,11 +9,10 @@ from unittest.mock import AsyncMock, patch
 
 from remy.memory.database import DatabaseManager
 from remy.memory.embeddings import EmbeddingStore
-from remy.memory.facts import FactStore
+from remy.memory.knowledge import KnowledgeStore
 from remy.memory.fts import FTSSearch
-from remy.memory.goals import GoalStore
 from remy.memory.injector import MemoryInjector
-from remy.models import Fact, Goal
+from remy.models import KnowledgeItem
 
 
 # --------------------------------------------------------------------------- #
@@ -33,14 +32,12 @@ async def db(tmp_path):
 async def components(db):
     """Wire up the full memory stack with ANN search disabled."""
     embeddings = EmbeddingStore(db)
-    fact_store = FactStore(db, embeddings)
-    goal_store = GoalStore(db, embeddings)
+    knowledge_store = KnowledgeStore(db, embeddings)
     fts = FTSSearch(db)
-    injector = MemoryInjector(db, embeddings, fact_store, goal_store, fts)
+    injector = MemoryInjector(db, embeddings, knowledge_store, fts)
     return {
         "embeddings": embeddings,
-        "fact_store": fact_store,
-        "goal_store": goal_store,
+        "knowledge_store": knowledge_store,
         "fts": fts,
         "injector": injector,
     }
@@ -59,10 +56,10 @@ async def test_build_context_returns_empty_when_no_memory(db, components):
 
 @pytest.mark.asyncio
 async def test_build_context_includes_facts(db, components):
-    fact_store = components["fact_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="name", content="User is Alice")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="User is Alice", metadata={"category": "name"})])
 
     result = await injector.build_context(1, "Hello")
     assert "<memory>" in result
@@ -73,10 +70,10 @@ async def test_build_context_includes_facts(db, components):
 
 @pytest.mark.asyncio
 async def test_build_context_includes_goals(db, components):
-    goal_store = components["goal_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await goal_store.upsert(1, [Goal(title="Learn piano", description="Practice daily")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="goal", content="Learn piano", metadata={"description": "Practice daily"})])
 
     result = await injector.build_context(1, "Hello")
     assert "<memory>" in result
@@ -86,12 +83,11 @@ async def test_build_context_includes_goals(db, components):
 
 @pytest.mark.asyncio
 async def test_build_context_includes_both_facts_and_goals(db, components):
-    fact_store = components["fact_store"]
-    goal_store = components["goal_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="location", content="Lives in Sydney")])
-    await goal_store.upsert(1, [Goal(title="Run marathon")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="Lives in Sydney", metadata={"category": "location"})])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="goal", content="Run marathon", metadata={})])
 
     result = await injector.build_context(1, "Hello")
     assert "<facts>" in result
@@ -102,24 +98,25 @@ async def test_build_context_includes_both_facts_and_goals(db, components):
 
 @pytest.mark.asyncio
 async def test_build_context_xml_structure(db, components):
-    fact_store = components["fact_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="name", content="Name is Bob")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="Name is Bob", metadata={"category": "name"})])
 
     result = await injector.build_context(1, "Hello")
     assert result.startswith("<memory>")
     assert result.endswith("</memory>")
-    assert "<fact category='name'>" in result
+    assert "<fact" in result
+    assert "category='name'" in result
     assert "</fact>" in result
 
 
 @pytest.mark.asyncio
 async def test_build_context_goal_with_description(db, components):
-    goal_store = components["goal_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await goal_store.upsert(1, [Goal(title="Ship v1", description="Get to 100 users")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="goal", content="Ship v1", metadata={"description": "Get to 100 users"})])
 
     result = await injector.build_context(1, "Hello")
     assert "Ship v1" in result
@@ -130,10 +127,10 @@ async def test_build_context_goal_with_description(db, components):
 
 @pytest.mark.asyncio
 async def test_build_context_goal_without_description(db, components):
-    goal_store = components["goal_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await goal_store.upsert(1, [Goal(title="Exercise daily")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="goal", content="Exercise daily", metadata={})])
 
     result = await injector.build_context(1, "Hello")
     assert "Exercise daily" in result
@@ -145,10 +142,10 @@ async def test_build_context_goal_without_description(db, components):
 async def test_build_context_respects_user_isolation(db, components):
     """Memory for user 1 should not appear in user 2's context."""
     await db.upsert_user(2)
-    fact_store = components["fact_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="name", content="User 1 secret")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="User 1 secret", metadata={"category": "name"})])
 
     result = await injector.build_context(2, "Hello")
     assert "User 1 secret" not in result
@@ -160,10 +157,10 @@ async def test_build_context_respects_user_isolation(db, components):
 
 @pytest.mark.asyncio
 async def test_build_system_prompt_appends_memory(db, components):
-    fact_store = components["fact_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="name", content="Alice")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="Alice", metadata={"category": "name"})])
 
     result = await injector.build_system_prompt(1, "Hello", "You are remy.")
     assert result.startswith("You are remy.")
@@ -180,10 +177,10 @@ async def test_build_system_prompt_returns_soul_only_when_no_memory(db, componen
 @pytest.mark.asyncio
 async def test_build_system_prompt_separator(db, components):
     """Soul and memory block should be separated by double newline."""
-    fact_store = components["fact_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="preference", content="Prefers dark mode")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="Prefers dark mode", metadata={"category": "preference"})])
 
     result = await injector.build_system_prompt(1, "Hello", "You are remy.")
     assert "\n\n<memory>" in result
@@ -196,12 +193,11 @@ async def test_build_system_prompt_separator(db, components):
 @pytest.mark.asyncio
 async def test_build_context_uses_fts_fallback_when_ann_unavailable(db, components):
     """When ANN returns empty, FTS keyword search should still find facts."""
-    fact_store = components["fact_store"]
+    knowledge_store = components["knowledge_store"]
     injector = components["injector"]
 
-    await fact_store.upsert(1, [Fact(category="preference", content="Uses dark mode UI")])
+    await knowledge_store.upsert(1, [KnowledgeItem(entity_type="fact", content="Uses dark mode UI", metadata={"category": "preference"})])
 
-    # ANN is disabled (no sqlite-vec), so this exercises the FTS fallback path
+    # ANN is disabled (no sqlite-vec), so this exercises the fallback path
     result = await injector.build_context(1, "dark mode")
-    # Either FTS or the final fallback (recent facts) should include our fact
     assert "dark mode" in result.lower() or "Uses dark" in result

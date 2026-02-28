@@ -14,8 +14,7 @@ def mock_components():
     return {
         "db": MagicMock(),
         "embeddings": MagicMock(),
-        "fact_store": MagicMock(),
-        "goal_store": MagicMock(),
+        "knowledge_store": MagicMock(),
         "fts": MagicMock(),
     }
 
@@ -27,17 +26,19 @@ async def test_get_project_context_reads_readme(tmp_path, mock_components):
     readme = project_dir / "README.md"
     readme.write_text("Hello from README", encoding="utf-8")
     
-    # Mock FactStore to return this project
-    fact_store = mock_components["fact_store"]
-    fact_store.get_by_category = AsyncMock(return_value=[
-        {"category": "project", "content": str(project_dir)}
-    ])
+    # Mock DatabaseManager to return this project
+    db_mock = mock_components["db"]
+    conn_mock = AsyncMock()
+    conn_mock.execute_fetchall.return_value = [{"content": str(project_dir)}]
+    
+    cm_mock = MagicMock()
+    cm_mock.__aenter__.return_value = conn_mock
+    db_mock.get_connection.return_value = cm_mock
     
     injector = MemoryInjector(
-        mock_components["db"],
+        db_mock,
         mock_components["embeddings"],
-        fact_store,
-        mock_components["goal_store"],
+        mock_components["knowledge_store"],
         mock_components["fts"]
     )
     
@@ -56,16 +57,18 @@ async def test_get_project_context_handles_missing_readme(tmp_path, mock_compone
     project_dir = tmp_path / "empty_project"
     project_dir.mkdir()
     
-    fact_store = mock_components["fact_store"]
-    fact_store.get_by_category = AsyncMock(return_value=[
-        {"category": "project", "content": str(project_dir)}
-    ])
+    db_mock = mock_components["db"]
+    conn_mock = AsyncMock()
+    conn_mock.execute_fetchall.return_value = [{"content": str(project_dir)}]
+    
+    cm_mock = MagicMock()
+    cm_mock.__aenter__.return_value = conn_mock
+    db_mock.get_connection.return_value = cm_mock
     
     injector = MemoryInjector(
-        mock_components["db"],
+        db_mock,
         mock_components["embeddings"],
-        fact_store,
-        mock_components["goal_store"],
+        mock_components["knowledge_store"],
         mock_components["fts"]
     )
     

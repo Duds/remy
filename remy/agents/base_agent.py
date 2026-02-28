@@ -40,8 +40,9 @@ class SubAgent(ABC):
     #: Full system prompt for Claude — defines the agent's persona and task
     system_prompt: str = "You are a helpful analysis agent."
 
-    def __init__(self, claude_client: "ClaudeClient") -> None:
+    def __init__(self, claude_client: "ClaudeClient", db=None) -> None:
         self._client = claude_client
+        self._db = db
 
     @abstractmethod
     async def analyze(
@@ -75,16 +76,44 @@ class SubAgent(ABC):
         """
         Helper: non-streaming Claude call.  Falls back to empty string on error.
         """
+        import time
+        import asyncio
         from ..config import settings
+        from ..models import TokenUsage
+        from ..analytics.call_log import log_api_call
 
         model = model or settings.model_complex
+        t0 = time.monotonic()
+        usage = TokenUsage()
         try:
-            return await self._client.complete(
+            result = await self._client.complete(
                 messages=[{"role": "user", "content": user_content}],
                 system=self.system_prompt,
                 model=model,
                 max_tokens=max_tokens,
+                usage_out=usage,
             )
+            
+            user_id = getattr(self, "_current_user_id", None)
+            session_key = getattr(self, "_current_session_key", None)
+            if self._db is not None and user_id is not None and session_key is not None:
+                latency = int((time.monotonic() - t0) * 1000)
+                asyncio.create_task(
+                    log_api_call(
+                        self._db,
+                        user_id=user_id,
+                        session_key=session_key,
+                        provider="anthropic",
+                        model=model,
+                        category="reasoning",
+                        call_site="background",
+                        usage=usage,
+                        latency_ms=latency,
+                        fallback=False,
+                    )
+                )
+
+            return result
         except Exception as exc:
             logger.error("[%s] Claude call failed: %s", self.name, exc)
             return f"[{self.name} analysis unavailable: {exc}]"

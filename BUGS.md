@@ -173,8 +173,8 @@ _PROMPT_INJECTION_PATTERNS = [
 | **Date**        | 2026-02-28                                         |
 | **Reported by** | Remy (log analysis)                                |
 | **Severity**    | High                                               |
-| **Status**      | Open                                               |
-| **Component**   | `remy/memory/database.py`, `remy/memory/injector.py`, `remy/bot/handlers.py` |
+| **Status**      | Fixed                                              |
+| **Component**   | `remy/memory/database.py`, `remy/bot/handlers.py`  |
 | **Related**     | —                                                  |
 
 **Description**

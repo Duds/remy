@@ -59,6 +59,7 @@ async def run_proactive_trigger(
     tool_registry: "ToolRegistry",
     session_manager: SessionManager,
     conv_store: "ConversationStore",
+    db=None,
 ) -> None:
     """
     Run a scheduler-triggered reminder through the full Claude pipeline.
@@ -115,6 +116,13 @@ async def run_proactive_trigger(
         streamer = StreamingReply(sent, session_manager, user_id)
         tool_turns: list[tuple[list[dict], list[dict]]] = []
         in_tool_turn = False
+        
+        import time
+        from ..models import TokenUsage
+        from ..analytics.call_log import log_api_call
+        import asyncio
+        usage = TokenUsage()
+        t0 = time.monotonic()
 
         try:
             async for event in claude_client.stream_with_tools(
@@ -122,6 +130,7 @@ async def run_proactive_trigger(
                 tool_registry=tool_registry,
                 user_id=user_id,
                 system=system_prompt,
+                usage_out=usage,
             ):
                 if isinstance(event, TextChunk):
                     if not in_tool_turn:
@@ -176,7 +185,7 @@ async def run_proactive_trigger(
             asst_serialised = _TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
             await conv_store.append_turn(
                 user_id, session_key,
-                ConversationTurn(role="assistant", content=asst_serialised),
+                ConversationTurn(role="assistant", content=asst_serialised, model_used=f"anthropic:{settings.model_complex}"),
             )
             usr_serialised = _TOOL_TURN_PREFIX + json.dumps(result_blocks)
             await conv_store.append_turn(
@@ -188,7 +197,24 @@ async def run_proactive_trigger(
         if final_text:
             await conv_store.append_turn(
                 user_id, session_key,
-                ConversationTurn(role="assistant", content=final_text),
+                ConversationTurn(role="assistant", content=final_text, model_used=f"anthropic:{settings.model_complex}"),
+            )
+
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if db is not None:
+            asyncio.create_task(
+                log_api_call(
+                    db,
+                    user_id=user_id,
+                    session_key=session_key,
+                    provider="anthropic",
+                    model=settings.model_complex,
+                    category="proactive",
+                    call_site="proactive",
+                    usage=usage,
+                    latency_ms=latency_ms,
+                    fallback=False,
+                )
             )
 
         logger.info(

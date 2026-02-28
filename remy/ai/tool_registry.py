@@ -338,6 +338,19 @@ TOOL_SCHEMAS: list[dict] = [
                         "venues, or instructions."
                     ),
                 },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of label scopes to search within. "
+                        "System labels: INBOX, ALL_MAIL, SENT, TRASH, SPAM, PROMOTIONS, UPDATES, FORUMS. "
+                        "Custom labels: use the exact label name as it appears in Gmail (e.g. 'Hockey'). "
+                        "Multiple labels are searched with OR semantics and results are merged. "
+                        "When omitted, searches all mail (equivalent to ALL_MAIL). "
+                        "Examples: ['PROMOTIONS'] searches only the Promotions tab; "
+                        "['INBOX', 'UPDATES'] searches both Inbox and Updates."
+                    ),
+                },
             },
             "required": ["query"],
         },
@@ -1443,11 +1456,21 @@ class ToolRegistry:
             return "Please provide a search query."
         max_results = min(int(inp.get("max_results", 10)), 20)
         include_body = bool(inp.get("include_body", False))
+        label_names: list[str] | None = inp.get("labels")
+        label_ids = None
+        if label_names:
+            try:
+                label_ids = await self._gmail.resolve_label_ids(label_names)
+            except ValueError as e:
+                return str(e)
         try:
-            emails = await self._gmail.search(query, max_results=max_results, include_body=include_body)
+            emails = await self._gmail.search(
+                query, max_results=max_results, include_body=include_body, label_ids=label_ids
+            )
+            scope = f" in {', '.join(label_names)}" if label_names else ""
             if not emails:
-                return f"No emails found for query: {query}"
-            lines = [f"Search results for '{query}' ({len(emails)} found):"]
+                return f"No emails found for query: {query}{scope}"
+            lines = [f"Search results for '{query}'{scope} ({len(emails)} found):"]
             for m in emails:
                 subj    = sanitize_memory_injection(m.get("subject", "(no subject)"))
                 sender  = sanitize_memory_injection(m.get("from_addr", "unknown"))

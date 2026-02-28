@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 
 _BODY_MAX_CHARS = 3000  # truncation limit for email bodies
 
+# Maps human-readable label names → Gmail API label IDs.
+# None means "no labelIds filter" (i.e. search all mail).
+_SYSTEM_LABELS: dict[str, str | None] = {
+    "INBOX":      "INBOX",
+    "ALL_MAIL":   None,
+    "SENT":       "SENT",
+    "TRASH":      "TRASH",
+    "SPAM":       "SPAM",
+    "PROMOTIONS": "CATEGORY_PROMOTIONS",
+    "UPDATES":    "CATEGORY_UPDATES",
+    "FORUMS":     "CATEGORY_FORUMS",
+    "SOCIAL":     "CATEGORY_SOCIAL",
+    "PERSONAL":   "CATEGORY_PERSONAL",
+}
+
 # Keywords that suggest a promotional / newsletter email
 _PROMO_KEYWORDS = frozenset({
     "unsubscribe", "newsletter", "marketing", "promotion", "sale", "deal",
@@ -110,52 +125,107 @@ class GmailClient:
         senders = list({e["from_addr"] for e in emails})[:10]
         return {"count": count, "senders": senders}
 
+    async def resolve_label_ids(self, names: list[str]) -> list[str | None]:
+        """
+        Resolve human-readable label names to Gmail API label IDs.
+
+        System labels (INBOX, PROMOTIONS, UPDATES, etc.) are resolved via the
+        built-in _SYSTEM_LABELS map.  Custom label names are looked up via the
+        Labels API (case-insensitive match on label name).
+
+        ALL_MAIL resolves to None — the caller should treat a None entry as
+        "no labelIds filter", i.e. search across all mail.
+
+        Raises ValueError if a custom label name is not found.
+        """
+        resolved: list[str | None] = []
+        custom_names: list[str] = []
+
+        for name in names:
+            upper = name.upper()
+            if upper in _SYSTEM_LABELS:
+                resolved.append(_SYSTEM_LABELS[upper])
+            else:
+                custom_names.append(name)
+
+        if custom_names:
+            all_labels = await self.list_labels()
+            label_map = {lbl["name"].lower(): lbl["id"] for lbl in all_labels}
+            for name in custom_names:
+                lid = label_map.get(name.lower())
+                if lid is None:
+                    raise ValueError(f"Label '{name}' not found in Gmail.")
+                resolved.append(lid)
+
+        return resolved
+
     async def search(
         self,
         query: str,
         max_results: int = 10,
         include_body: bool = False,
+        label_ids: list[str | None] | None = None,
     ) -> list[dict]:
         """
         Search Gmail using standard Gmail query syntax (e.g. "from:kate@example.com
         subject:hockey"). Returns up to max_results message summaries.
+
+        label_ids: resolved label IDs from resolve_label_ids().  None in the list
+            (or the parameter being None) means no labelIds filter — search all mail.
+            Multiple non-None IDs are queried separately and results are merged
+            (OR semantics), de-duplicated by message ID.
 
         If include_body=True, fetches the full plain-text body (truncated to
         _BODY_MAX_CHARS). Use sparingly — one API call per message.
         """
         max_results = min(max_results, 20)
 
+        # If ANY entry is None (ALL_MAIL) or the param is absent, do a single
+        # unfiltered call.  Otherwise query each label separately for OR semantics.
+        if label_ids is None or None in label_ids:
+            filter_labels: list[str | None] = [None]
+        else:
+            filter_labels = label_ids if label_ids else [None]
+
         def _sync():
             svc = self._service()
-            resp = svc.users().messages().list(
-                userId="me",
-                q=query,
-                maxResults=max_results,
-            ).execute()
-            items = resp.get("messages", [])
-            results = []
-            for item in items:
-                fmt = "full" if include_body else "metadata"
-                msg = svc.users().messages().get(
-                    userId="me",
-                    id=item["id"],
-                    format=fmt,
-                    **({"metadataHeaders": ["From", "To", "Subject", "Date"]}
-                       if not include_body else {}),
-                ).execute()
-                headers = _parse_headers(msg)
-                entry = {
-                    "id": item["id"],
-                    "from_addr": headers.get("From", ""),
-                    "to": headers.get("To", ""),
-                    "subject": headers.get("Subject", "(no subject)"),
-                    "date": headers.get("Date", ""),
-                    "snippet": msg.get("snippet", ""),
-                    "labels": msg.get("labelIds", []),
-                }
-                if include_body:
-                    entry["body"] = _extract_body(msg)
-                results.append(entry)
+            seen: set[str] = set()
+            results: list[dict] = []
+
+            for label_filter in filter_labels:
+                remaining = max_results - len(results)
+                if remaining <= 0:
+                    break
+                params: dict = {"userId": "me", "q": query, "maxResults": remaining}
+                if label_filter is not None:
+                    params["labelIds"] = [label_filter]
+                resp = svc.users().messages().list(**params).execute()
+                for item in resp.get("messages", []):
+                    if item["id"] in seen:
+                        continue
+                    seen.add(item["id"])
+                    fmt = "full" if include_body else "metadata"
+                    msg = svc.users().messages().get(
+                        userId="me",
+                        id=item["id"],
+                        format=fmt,
+                        **({"metadataHeaders": ["From", "To", "Subject", "Date"]}
+                           if not include_body else {}),
+                    ).execute()
+                    headers = _parse_headers(msg)
+                    entry = {
+                        "id": item["id"],
+                        "from_addr": headers.get("From", ""),
+                        "to": headers.get("To", ""),
+                        "subject": headers.get("Subject", "(no subject)"),
+                        "date": headers.get("Date", ""),
+                        "snippet": msg.get("snippet", ""),
+                        "labels": msg.get("labelIds", []),
+                    }
+                    if include_body:
+                        entry["body"] = _extract_body(msg)
+                    results.append(entry)
+
             return results
 
         return await asyncio.to_thread(_sync)

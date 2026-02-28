@@ -105,7 +105,7 @@ class MessageClassifier:
         # claude_client injected to avoid circular imports; used only for ambiguous cases
         self._claude = claude_client
 
-    async def classify(self, text: str) -> ClassificationResult:
+    async def classify(self, text: str, user_id: int | None = None, db=None) -> ClassificationResult:
         """Return a task category for the given message text."""
         stripped = text.strip()
         key = _cache_key(stripped)
@@ -115,11 +115,11 @@ class MessageClassifier:
             logger.debug("Classifier: %s (cache hit)", cached)
             return cached
 
-        result = await self._classify_uncached(stripped)
+        result = await self._classify_uncached(stripped, user_id=user_id, db=db)
         _cache_set(key, result)
         return result
 
-    async def _classify_uncached(self, stripped: str) -> ClassificationResult:
+    async def _classify_uncached(self, stripped: str, user_id: int | None = None, db=None) -> ClassificationResult:
         # Fast-path: obvious routine cases
         if len(stripped) < 80 and _SIMPLE_PATTERNS.match(stripped):
             logger.debug("Classifier: routine (greeting fast-path)")
@@ -147,6 +147,15 @@ class MessageClassifier:
 
         # Ambiguous: ask Haiku for a granular decision
         if self._claude is not None:
+            import time
+            from ..models import TokenUsage
+            from ..bot.session import SessionManager
+            from ..analytics.call_log import log_api_call
+            import asyncio
+            from ..config import settings
+            
+            t0 = time.monotonic()
+            usage = TokenUsage()
             try:
                 result = await self._claude.complete(
                     messages=[
@@ -168,20 +177,29 @@ class MessageClassifier:
                     model=None,  # uses settings.model_simple (Haiku)
                     system="You are an intent classifier. Reply only with the category name.",
                     max_tokens=10,
+                    usage_out=usage,
                 )
                 classification = result.strip().upper()
+                category = "routine"
                 if "SUMMARIZATION" in classification:
-                    return "summarization"
-                if "REASONING" in classification:
-                    return "reasoning"
-                if "SAFETY" in classification:
-                    return "safety"
-                if "CODING" in classification:
-                    return "coding"
-                if "PERSONA" in classification:
-                    return "persona"
+                    category = "summarization"
+                elif "REASONING" in classification:
+                    category = "reasoning"
+                elif "SAFETY" in classification:
+                    category = "safety"
+                elif "CODING" in classification:
+                    category = "coding"
+                elif "PERSONA" in classification:
+                    category = "persona"
+                
+                if db and user_id is not None:
+                    session_key = SessionManager.get_session_key(user_id)
+                    latency = int((time.monotonic() - t0) * 1000)
+                    asyncio.create_task(
+                        log_api_call(db, user_id=user_id, session_key=session_key, provider="anthropic", model=settings.model_simple, category=category, call_site="classifier", usage=usage, latency_ms=latency)
+                    )
 
-                return "routine"
+                return category
             except Exception as e:
                 logger.warning("Classifier granular call failed: %s", e)
 

@@ -10,6 +10,7 @@ from typing import AsyncIterator
 import httpx
 
 from ..config import settings
+from ..models import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class OllamaClient:
         except Exception:
             return False
 
-    async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
+    async def stream_chat(self, messages: list[dict], usage_out: TokenUsage | None = None) -> AsyncIterator[str]:
         """Stream tokens from Ollama for the configured model using structured chat history."""
         url = f"{self.base_url}/api/chat"
         # Map Anthropic 'assistant' role to Ollama 'assistant' role

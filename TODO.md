@@ -1,6 +1,6 @@
 # Remy Roadmap & Development Plan
 
-**Last Updated:** February 27, 2026 (Phase 7 Step 1 + image support complete)
+**Last Updated:** February 28, 2026 (Phase 7 Step 2 — persistent job tracking complete)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -332,16 +332,16 @@ The minimal, idiomatic change. Fits entirely within the existing asyncio archite
 - [x] The detached task reads `primary_chat_id` (same as proactive scheduler) for the callback send
 - **No new dependencies.** Uses `asyncio.create_task()` already used for fact/goal extraction.
 
-### Step 2 — Persistent Job Tracking ⬜ Next Up
+### Step 2 — Persistent Job Tracking ✅ Complete
 
 Builds on Step 1. Lets the user check status and re-read results after the fact.
 See `docs/backlog/US-persistent-job-tracking.md` for full spec.
 
-- [ ] Add `background_jobs` table to SQLite schema (`remy/memory/database.py`)
-- [ ] Add `BackgroundJobStore` in `remy/memory/background_jobs.py` — CRUD + status updates
-- [ ] Add `/jobs` command → lists recent background jobs with status and truncated result
-- [ ] Add `list_background_jobs` tool → natural language: "is my board analysis done yet?"
-- [ ] On bot restart: jobs still marked `running` are flipped to `failed` with a note
+- [x] Add `background_jobs` table to SQLite schema (`remy/memory/database.py`)
+- [x] Add `BackgroundJobStore` in `remy/memory/background_jobs.py` — CRUD + status updates
+- [x] Add `/jobs` command → lists recent background jobs with status and truncated result
+- [x] Add `list_background_jobs` tool → natural language: "is my board analysis done yet?"
+- [x] On bot restart: jobs still marked `running` are flipped to `failed` with a note
 
 ### Step 3 — Claude Agent SDK Subagents (future, major refactor)
 
@@ -406,8 +406,11 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **M**    | BackgroundTaskRunner (fire-and-forget)                             | US-background-task-runner           | ✅ Done                      |
 | **S**    | Fix tool dispatch exception → corrupts history (bug)               | US-tool-dispatch-exception-recovery | ✅ Done                      |
 | **S**    | Fix final reply duplication (bug)                                  | US-final-reply-duplication          | ✅ Done                      |
-| **S**    | Gmail label/folder search                                          | US-gmail-label-search               | ⬜ P1                        |
-| **S**    | Persistent job tracking + `/jobs`                                  | US-persistent-job-tracking          | ⬜ P1                        |
+| **S**    | Persistent job tracking + `/jobs`                                  | US-persistent-job-tracking          | ✅ Done                      |
+| **S**    | Gmail label/folder search                                          | US-gmail-label-search               | ✅ Done                      |
+| **S**    | Analytics: per-call token capture                                  | US-analytics-token-capture          | ✅ Done                      |
+| **S**    | Analytics: API call log + latency                                  | US-analytics-call-log               | ⬜ P1                        |
+| **S**    | Analytics: `/costs` command                                        | US-analytics-costs-command          | ⬜ P1                        |
 | **S**    | Document image support (PNG/WebP as files)                         | US-document-image-support           | ⬜ P2                        |
 | **S**    | Plan tracking (multi-step, with attempts)                          | US-plan-tracking                    | ⬜ P2                        |
 | **C**    | Privacy audit (`/privacy-audit`)                                   | US-digital-fingerprint-audit        | ⬜ P2 (prompt-only)          |
@@ -432,29 +435,24 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 ### P1 — Immediate (small–medium, clear value)
 
-1. ~~**Multi-Model Orchestration** — complete (mistral_client.py, moonshot_client.py, router.py, classifier.py all shipped)~~
+1. ~~**Multi-Model Orchestration** — complete~~
+1. ~~**Fix tool dispatch exception recovery** — complete~~
+1. ~~**Fix final reply duplication** — complete~~
+1. ~~**Persistent job tracking + `/jobs`** — complete~~
 
-1. **Fix tool dispatch exception recovery** (`US-tool-dispatch-exception-recovery`) ← **start here**
-   - Bug: if any tool call raises (network error, validation), the exception propagates up and
-     conversation history is left inconsistent for the next turn
-   - Fix: wrap `tool_registry.dispatch()` in per-tool try/except; inject error as tool_result so
-     Claude can respond gracefully; `ToolTurnComplete` still fires normally
-   - File: `ai/claude_client.py` — ~10 lines; isolated change, no new dependencies
+1. ~~**Gmail label/folder search** — complete~~
 
-1. **Fix final reply duplication** (`US-final-reply-duplication`)
-   - Bug: after multi-tool flows the final message sometimes appears twice or out of order
-   - Files: `bot/handlers.py`, `bot/streaming.py` — gate on `in_tool_turn` flag (same infrastructure as suppress story)
-   - Implement after #1 (both touch the same event loop)
+1. ~~**Analytics: token capture** (`US-analytics-token-capture`) — complete~~
 
-1. **Gmail label/folder search** (`US-gmail-label-search`)
-   - Gap: emails in Promotions, All Mail, and custom labels are invisible to Remy
-   - Files: `google/gmail_client.py`, `ai/tool_registry.py`
-   - No new dependencies; extends existing Gmail client
+1. **Analytics: API call log** (`US-analytics-call-log`)
+   - Persist every model invocation to `api_calls` table with tokens, latency, provider
+   - Files: `memory/database.py`, `ai/router.py`, `ai/classifier.py`, `bot/handlers.py`, `bot/pipeline.py`, `agents/background.py`
+   - Depends on token capture above
 
-1. **Persistent job tracking + `/jobs`** (`US-persistent-job-tracking`)
-   - Adds SQLite-backed job registry so background task results survive restarts
-   - Files: `memory/database.py` (schema), new `memory/background_jobs.py`, `agents/background.py`, `tool_registry.py`, `bot/handlers.py`
-   - Depends on BackgroundTaskRunner ✅ (complete)
+1. **Analytics: `/costs` command** (`US-analytics-costs-command`)
+   - Show estimated token spend per provider/model for a chosen period
+   - Files: new `analytics/costs.py`, new `analytics/prices.py`, `bot/handlers.py`
+   - Depends on API call log above
 
 ### P2 — Next quarter (moderate, high value)
 
@@ -670,3 +668,17 @@ These are tracked here inline; fix alongside related work rather than as standal
 - **Cause:** `chrome_114` is not a valid impersonation target in the current version of `primp`
 - **Fix:** Update the impersonation string to a valid value (e.g. `chrome_120` or whichever is current) or remove the explicit impersonation and rely on the `random` fallback intentionally
 - **Priority:** Low (non-breaking, but noisy)
+
+---
+
+## 🧠 Memory Persistence Improvements
+
+**Problem:** Things Dale tells Remy during a conversation (events, updates, completions) are lost when the session ends unless explicitly stored as facts. One-time reminders fire and vanish without leaving a trace.
+
+### Tasks
+
+- [ ] **Remy proactively stores conversational facts** — when Dale mentions something happened, something's resolved, or shares new personal info, Remy stores it as a memory fact without being asked. Behavioural change, no code required.
+
+- [ ] **Completed one-time reminders auto-log to memory** — when a one-time reminder fires, write a fact or log entry recording that it fired (e.g. "Tyre collected from Tyrepower, 2026-03-01"). Prevents stale reminders and gives Remy a history of completed tasks.
+
+- [ ] **End-of-day memory consolidation** — scheduled job (or manual `/consolidate` command) that reviews the day's conversation history and extracts anything worth persisting as a fact or goal. Claude-powered summarisation pass over the JSONL session log.

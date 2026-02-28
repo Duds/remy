@@ -245,7 +245,7 @@ async def test_run_board_thread_grows_with_each_agent():
     """Each agent receives the accumulated thread from all prior agents."""
     call_prompts: list[str] = []
 
-    async def mock_complete(messages, system, model, max_tokens):
+    async def mock_complete(messages, system, model, max_tokens, usage_out=None):
         call_prompts.append(messages[0]["content"])
         return f"Agent {len(call_prompts)} response"
 
@@ -270,7 +270,7 @@ async def test_run_board_swallows_agent_error():
     client = MagicMock()
     call_count = 0
 
-    async def mock_complete(messages, system, model, max_tokens):
+    async def mock_complete(messages, system, model, max_tokens, usage_out=None):
         nonlocal call_count
         call_count += 1
         if call_count == 2:  # Content agent fails

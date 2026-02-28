@@ -1621,8 +1621,11 @@ def make_handlers(
         await update.message.reply_text("Started — I'll message you when done 🔄")
 
         async def _collect_board() -> str:
+            session_key = SessionManager.get_session_key(user_id)
             chunks = [f"🏛 *Board of Directors: {topic}*\n\n"]
-            async for chunk in board_orchestrator.run_board_streaming(topic, user_context):
+            async for chunk in board_orchestrator.run_board_streaming(
+                topic, user_context, user_id=user_id, session_key=session_key
+            ):
                 chunks.append(chunk)
             return "".join(chunks)
 
@@ -2068,11 +2071,19 @@ def make_handlers(
 
         try:
             rotator.start()
+            import time
+            from ..models import TokenUsage
+            from ..analytics.call_log import log_api_call
+            import asyncio
+            usage = TokenUsage()
+            t0 = time.monotonic()
+            
             async for event in claude_client.stream_with_tools(
                 messages=messages,
                 tool_registry=tool_registry,
                 user_id=user_id,
                 system=system_prompt,
+                usage_out=usage,
             ):
                 if not rotator_stopped:
                     await rotator.stop()
@@ -2146,7 +2157,7 @@ def make_handlers(
             asst_serialised = _TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
             await conv_store.append_turn(
                 user_id, session_key,
-                ConversationTurn(role="assistant", content=asst_serialised, model_used="claude:sonnet"),
+                ConversationTurn(role="assistant", content=asst_serialised, model_used=f"anthropic:{settings.model_complex}"),
             )
             # User turn with tool_result blocks
             usr_serialised = _TOOL_TURN_PREFIX + json.dumps(result_blocks)
@@ -2163,7 +2174,24 @@ def make_handlers(
         if final_text:
             await conv_store.append_turn(
                 user_id, session_key,
-                ConversationTurn(role="assistant", content=final_text, model_used="claude:sonnet"),
+                ConversationTurn(role="assistant", content=final_text, model_used=f"anthropic:{settings.model_complex}"),
+            )
+            
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if db is not None:
+            asyncio.create_task(
+                log_api_call(
+                    db,
+                    user_id=user_id,
+                    session_key=session_key,
+                    provider="anthropic",
+                    model=settings.model_complex,
+                    category="tool_use",
+                    call_site="tool_use",
+                    usage=usage,
+                    latency_ms=latency_ms,
+                    fallback=False,
+                )
             )
 
     async def _process_text_input(
@@ -2284,7 +2312,7 @@ def make_handlers(
                     # Sanitize injected memory to prevent prompt injection attacks
                     system_prompt = sanitize_memory_injection(system_prompt)
                 except Exception as e:
-                    logger.warning("Memory injection failed, using base prompt: %s", e)
+                    logger.error("Memory injection failed, using base prompt: %s", e)
 
             # Conditional trigger hints (Phase 5 ADHD body-double)
             text_lower = text.lower()
@@ -2524,7 +2552,7 @@ def make_handlers(
                     )
                     system_prompt = sanitize_memory_injection(system_prompt)
                 except Exception as e:
-                    logger.warning("Memory injection failed, using base prompt: %s", e)
+                    logger.error("Memory injection failed, using base prompt: %s", e)
 
             # Send placeholder message to stream into
             sent = await update.message.reply_text("…")

@@ -16,6 +16,7 @@ from typing import AsyncIterator, Union
 import anthropic
 
 from ..config import settings
+from ..models import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class ClaudeClient:
         messages: list[dict],
         model: str | None = None,
         system: str | None = None,
+        usage_out: TokenUsage | None = None,
     ) -> AsyncIterator[str]:
         """
         Stream a response from Claude, yielding text deltas as they arrive.
@@ -95,6 +97,12 @@ class ClaudeClient:
                 ) as stream:
                     async for text in stream.text_stream:
                         yield text
+                    if usage_out is not None:
+                        final_msg = await stream.get_final_message()
+                        usage_out.input_tokens = final_msg.usage.input_tokens
+                        usage_out.output_tokens = final_msg.usage.output_tokens
+                        usage_out.cache_creation_tokens = getattr(final_msg.usage, "cache_creation_input_tokens", 0) or 0
+                        usage_out.cache_read_tokens = getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0
                 return  # success
             except anthropic.RateLimitError as e:
                 delay = _RETRY_BASE_DELAY * (2**attempt)
@@ -127,6 +135,7 @@ class ClaudeClient:
         user_id: int,
         model: str | None = None,
         system: str | None = None,
+        usage_out: TokenUsage | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """
         Agentic tool-use loop: stream Claude's response, handle tool calls,
@@ -148,6 +157,7 @@ class ClaudeClient:
 
         # Working copy of messages — we'll append assistant + tool_result turns
         working_messages = list(messages)
+        accumulated_usage = TokenUsage()
 
         for iteration in range(_MAX_TOOL_ITERATIONS):
             logger.debug(
@@ -203,6 +213,12 @@ class ClaudeClient:
                         # After streaming, get the final message snapshot for tool_use blocks
                         final_msg = await stream.get_final_message()
                         stop_reason = final_msg.stop_reason
+                        accumulated_usage = accumulated_usage + TokenUsage(
+                            input_tokens=final_msg.usage.input_tokens,
+                            output_tokens=final_msg.usage.output_tokens,
+                            cache_creation_tokens=getattr(final_msg.usage, "cache_creation_input_tokens", 0) or 0,
+                            cache_read_tokens=getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0,
+                        )
 
                         # Extract all content blocks for history
                         for block in final_msg.content:
@@ -255,6 +271,11 @@ class ClaudeClient:
 
             # If no tool calls, we're done
             if stop_reason != "tool_use" or not tool_use_blocks:
+                if usage_out is not None:
+                    usage_out.input_tokens = accumulated_usage.input_tokens
+                    usage_out.output_tokens = accumulated_usage.output_tokens
+                    usage_out.cache_creation_tokens = accumulated_usage.cache_creation_tokens
+                    usage_out.cache_read_tokens = accumulated_usage.cache_read_tokens
                 return
 
             # Execute all tool calls and collect results
@@ -306,6 +327,11 @@ class ClaudeClient:
                 "content": tool_result_blocks,
             })
 
+        if usage_out is not None:
+            usage_out.input_tokens = accumulated_usage.input_tokens
+            usage_out.output_tokens = accumulated_usage.output_tokens
+            usage_out.cache_creation_tokens = accumulated_usage.cache_creation_tokens
+            usage_out.cache_read_tokens = accumulated_usage.cache_read_tokens
         logger.warning(
             "stream_with_tools hit max iterations (%d) for user %d",
             _MAX_TOOL_ITERATIONS, user_id,
@@ -317,6 +343,7 @@ class ClaudeClient:
         model: str | None = None,
         system: str | None = None,
         max_tokens: int = 256,
+        usage_out: TokenUsage | None = None,
     ) -> str:
         """
         Non-streaming completion — for classifiers, fact extraction, etc.

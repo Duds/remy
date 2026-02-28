@@ -145,7 +145,26 @@ CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
     content=knowledge,
     content_rowid=id
 );
+
+CREATE TABLE IF NOT EXISTS api_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    session_key TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'unknown',
+    call_site TEXT NOT NULL DEFAULT 'router',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    fallback INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_api_calls_user_ts ON api_calls(user_id, timestamp);
 """
+
 
 # Schema migrations applied after the main DDL.
 # Each entry is attempted once; OperationalError means the column already exists.
@@ -242,13 +261,19 @@ class DatabaseManager:
                 logger.warning("Could not create embeddings_vec table: %s", e)
                 SQLITE_VEC_AVAILABLE = False
 
-        # Run incremental migrations (idempotent — errors mean already applied)
+        # Run incremental migrations (idempotent — OperationalError means already applied)
         for migration_sql in _MIGRATIONS:
             try:
                 await self._conn.execute(migration_sql)
                 await self._conn.commit()
-            except Exception:
-                pass  # Column/index already exists
+            except aiosqlite.OperationalError as e:
+                err = str(e).lower()
+                if "already exists" not in err and "duplicate column" not in err:
+                    logger.error(
+                        "Migration failed unexpectedly (SQL: %.60s): %s",
+                        migration_sql,
+                        e,
+                    )
 
         await self._conn.commit()
         logger.info("Database initialised: %s", self.db_path)

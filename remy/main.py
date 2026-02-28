@@ -79,12 +79,12 @@ def main() -> None:
         settings.data_dir,
     )
 
-    # Initialise AI components
     claude_client = ClaudeClient()
     mistral_client = MistralClient()
     moonshot_client = MoonshotClient()
     ollama_client = OllamaClient()
-    router = ModelRouter(claude_client, mistral_client, moonshot_client, ollama_client)
+    db = DatabaseManager()
+    router = ModelRouter(claude_client, mistral_client, moonshot_client, ollama_client, db=db)
     session_manager = SessionManager()
     conv_store = ConversationStore(settings.sessions_dir)
 
@@ -96,7 +96,6 @@ def main() -> None:
     # (fact_store and goal_store are set up in the next block)
 
     # Initialise memory components (database init is async; done in post_init)
-    db = DatabaseManager()
     embeddings = EmbeddingStore(db)
     fact_store = FactStore(db, embeddings)
     fact_extractor = FactExtractor(claude_client)
@@ -257,6 +256,7 @@ def main() -> None:
             session_manager=session_manager,
             conv_store=conv_store,
             tool_registry=tool_registry,
+            db=db,
         )
         _late["proactive_scheduler"] = sched
         _proactive_ref.append(sched)
