@@ -5,21 +5,39 @@ All slash-command functionality is exposed here so Claude can invoke it from
 natural language without the user needing to type slash commands.
 
 Tools available:
-  Memory / status
-    get_logs          → diagnostics
-    get_goals         → active goals
-    get_facts         → stored facts
-    run_board         → Board of Directors analysis
-    check_status      → backend availability
+  Time
+    get_current_time      → current date/time in Australia/Canberra
 
-  Calendar / email
+  Memory / status
+    get_logs              → diagnostics
+    get_goals             → active goals
+    get_facts             → stored facts
+    run_board             → Board of Directors analysis
+    check_status          → backend availability
+    manage_memory         → add/update/delete memory facts
+    manage_goal           → add/update/complete/abandon goals
+    get_memory_summary    → summary of stored memories
+
+  Calendar
     calendar_events       → list upcoming events
     create_calendar_event → create a new event
-    read_emails           → unread email summary
+
+  Gmail
+    read_emails               → unread email summary
+    search_gmail              → search all Gmail
+    read_email                → read full email body
+    list_gmail_labels         → list all labels
+    label_emails              → apply/remove labels
+    create_gmail_label        → create a new label
+    create_email_draft        → create a draft email
+    classify_promotional_emails → find promotional/newsletter emails
 
   Contacts
     search_contacts       → find a contact by name/email
     upcoming_birthdays    → birthdays in the next N days
+    get_contact_details   → full contact card
+    update_contact_note   → add/update contact note
+    find_sparse_contacts  → find contacts missing email/phone
 
   Web / research
     web_search            → DuckDuckGo search (+ optional Claude synthesis)
@@ -28,12 +46,29 @@ Tools available:
   Files
     read_file             → read a text file from allowed directories
     list_directory        → list files in a directory
+    write_file            → write to a file
+    append_file           → append to a file
+    find_files            → search filenames by glob pattern
+    scan_downloads        → analyse ~/Downloads folder
+    organize_directory    → Claude suggests folder organisation
+    clean_directory       → Claude suggests DELETE/ARCHIVE/KEEP
+    search_files          → semantic search file contents (RAG)
+    index_status          → file index status
 
   Documents
     read_gdoc             → read a Google Doc by URL or ID
+    append_to_gdoc        → append text to a Google Doc
 
   Grocery list
     grocery_list          → show / add / remove / clear items
+
+  Bookmarks
+    save_bookmark         → save a URL with optional note
+    list_bookmarks        → list saved bookmarks
+
+  Projects
+    set_project           → mark a directory as current project
+    get_project_status    → show tracked projects
 
   Automations (Phase 5)
     schedule_reminder     → create a daily or weekly reminder
@@ -42,10 +77,29 @@ Tools available:
     remove_reminder       → remove a reminder by ID
     breakdown_task        → break a task into 5 actionable steps
 
+  Plans
+    create_plan           → create a multi-step plan
+    get_plan              → get plan details
+    list_plans            → list active plans
+    update_plan_step      → update step status/log attempt
+    update_plan_status    → mark plan complete/abandoned
+
   Analytics (Phase 6)
     get_stats             → conversation usage statistics
     get_goal_status       → goal tracking dashboard with age/staleness
     generate_retrospective → Claude-written monthly retrospective
+    get_costs             → AI costs by provider and model
+    consolidate_memory    → extract memories from conversations
+    list_background_jobs  → list recent background jobs
+
+  Session / Privacy
+    compact_conversation  → summarise and compress conversation
+    delete_conversation   → clear conversation history
+    set_proactive_chat    → set chat for morning/evening messages
+
+  Special
+    trigger_reindex       → manually trigger file reindexing
+    start_privacy_audit   → begin guided privacy audit
 """
 
 from __future__ import annotations
@@ -3399,4 +3453,601 @@ class ToolRegistry:
             f"  Total chunks: {status.total_chunks:,}\n"
             f"  Last indexed: {last_run}\n"
             f"  Extensions: {ext_str}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # Session / Privacy executors                                          #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_compact_conversation(self, user_id: int) -> str:
+        return (
+            "Conversation compaction requires access to the conversation store and Claude client, "
+            "which are not available in the tool context. "
+            "Please use the /compact command directly to summarise and compress the conversation."
+        )
+
+    async def _exec_delete_conversation(self, user_id: int) -> str:
+        return (
+            "Conversation deletion requires access to the conversation store, "
+            "which is not available in the tool context. "
+            "Please use the /delete_conversation command directly to clear history."
+        )
+
+    async def _exec_set_proactive_chat(self, user_id: int) -> str:
+        return (
+            "Setting the proactive chat requires access to the Telegram chat context, "
+            "which is not available in the tool context. "
+            "Please use the /setmychat command directly to set this chat for briefings."
+        )
+
+    # ------------------------------------------------------------------ #
+    # Project tracking executors                                           #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_set_project(self, inp: dict, user_id: int) -> str:
+        from ..ai.input_validator import sanitize_file_path
+
+        path_arg = inp.get("path", "").strip()
+        if not path_arg:
+            return "Please provide a project path."
+
+        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        if err or sanitized is None:
+            return f"Invalid path: {err}"
+
+        p = Path(sanitized)
+        if not p.exists():
+            return f"Path does not exist: {sanitized}"
+        if not p.is_dir():
+            return f"Path is not a directory: {sanitized}"
+
+        # Store as a fact
+        if self._fact_store is None and self._knowledge_store is None:
+            return "Memory not available — cannot store project."
+
+        if self._knowledge_store is not None:
+            await self._knowledge_store.add(
+                user_id=user_id,
+                entity_type="fact",
+                content=sanitized,
+                metadata={"category": "project"},
+            )
+        elif self._fact_store is not None:
+            from ..models import Fact
+            fact = Fact(category="project", content=sanitized)
+            await self._fact_store.upsert(user_id, [fact])
+
+        return f"✅ Project set: {sanitized}"
+
+    async def _exec_get_project_status(self, user_id: int) -> str:
+        import time
+        from datetime import datetime as _dt
+
+        if self._fact_store is None and self._knowledge_store is None:
+            return "Memory not available."
+
+        # Get project facts
+        if self._knowledge_store is not None:
+            items = await self._knowledge_store.query(
+                user_id=user_id,
+                entity_type="fact",
+                metadata_filter={"category": "project"},
+                limit=20,
+            )
+            facts = [{"content": i.get("content", "")} for i in items]
+        elif self._fact_store is not None:
+            facts = await self._fact_store.get_by_category(user_id, "project")
+        else:
+            facts = []
+
+        if not facts:
+            return "No projects tracked yet. Tell me about a project to track it."
+
+        lines = ["📁 Tracked projects:\n"]
+        for f in facts:
+            path = f.get("content", "")
+            p = Path(path)
+            if p.is_dir():
+                try:
+                    all_files = [x for x in p.rglob("*") if x.is_file()]
+                    file_count = len(all_files)
+                    if all_files:
+                        latest = max(x.stat().st_mtime for x in all_files)
+                        mod_str = _dt.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M")
+                        lines.append(f"• {path}\n  {file_count} files, last modified {mod_str}")
+                    else:
+                        lines.append(f"• {path}\n  (empty)")
+                except Exception:
+                    lines.append(f"• {path}")
+            else:
+                lines.append(f"• {path} _(not found)_")
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------ #
+    # File management executors                                            #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_scan_downloads(self) -> str:
+        import time
+
+        downloads = Path.home() / "Downloads"
+        if not downloads.exists():
+            return "Downloads folder not found."
+
+        try:
+            files = [f for f in downloads.iterdir() if f.is_file()]
+        except Exception as e:
+            return f"Could not scan Downloads: {e}"
+
+        if not files:
+            return "✅ Downloads folder is empty."
+
+        now = time.time()
+        total_bytes = 0
+
+        _EXTS: list[tuple[frozenset, str, str]] = [
+            (frozenset(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "svg"]), "🖼", "Images"),
+            (frozenset(["mp4", "mov", "avi", "mkv", "m4v", "wmv", "flv"]), "🎥", "Videos"),
+            (frozenset(["mp3", "m4a", "wav", "flac", "aac", "ogg"]), "🎵", "Audio"),
+            (frozenset(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "pages", "numbers", "key"]), "📄", "Documents"),
+            (frozenset(["zip", "tar", "gz", "bz2", "7z", "rar", "dmg", "pkg", "iso"]), "📦", "Archives"),
+            (frozenset(["py", "js", "ts", "java", "cpp", "c", "h", "go", "rs", "sh", "json", "yaml", "yml", "toml"]), "💻", "Code"),
+        ]
+
+        def _classify(ext: str) -> tuple[str, str]:
+            ext = ext.lower().lstrip(".")
+            for exts, icon, label in _EXTS:
+                if ext in exts:
+                    return icon, label
+            return "📁", "Other"
+
+        def _fmt_bytes(b: int) -> str:
+            if b < 1024:
+                return f"{b}B"
+            if b < 1024 * 1024:
+                return f"{b // 1024}KB"
+            if b < 1024 ** 3:
+                return f"{b // (1024 * 1024)}MB"
+            return f"{b / (1024 ** 3):.1f}GB"
+
+        type_counts: dict[str, tuple[str, int, int]] = {}
+        age_buckets = {"Today (<1d)": 0, "This week (<7d)": 0, "This month (<30d)": 0, "Old (>30d)": 0}
+        oldest: list[tuple[float, str, int]] = []
+
+        for f in files:
+            stat = f.stat()
+            total_bytes += stat.st_size
+            icon, label = _classify(f.suffix)
+            prev = type_counts.get(label, (icon, 0, 0))
+            type_counts[label] = (icon, prev[1] + 1, prev[2] + stat.st_size)
+            age = now - stat.st_mtime
+            if age < 86400:
+                age_buckets["Today (<1d)"] += 1
+            elif age < 7 * 86400:
+                age_buckets["This week (<7d)"] += 1
+            elif age < 30 * 86400:
+                age_buckets["This month (<30d)"] += 1
+            else:
+                age_buckets["Old (>30d)"] += 1
+            oldest.append((stat.st_mtime, f.name, stat.st_size))
+
+        lines = [f"📦 Downloads Scan — {len(files)} files ({_fmt_bytes(total_bytes)} total)\n"]
+
+        lines.append("Type breakdown:")
+        for label, (icon, count, nbytes) in sorted(type_counts.items(), key=lambda x: -x[1][2]):
+            lines.append(f"  {icon} {label}: {count} file(s), {_fmt_bytes(nbytes)}")
+
+        lines.append("\nAge breakdown:")
+        for bucket, count in age_buckets.items():
+            if count:
+                suffix = " — consider cleanup" if "Old" in bucket else ""
+                lines.append(f"  • {bucket}: {count} file(s){suffix}")
+
+        oldest_sorted = sorted(oldest, key=lambda x: x[0])[:8]
+        if oldest_sorted:
+            lines.append("\nOldest files:")
+            for mtime, name, nbytes in oldest_sorted:
+                age_days = int((now - mtime) / 86400)
+                lines.append(f"  • {name} ({age_days}d old, {_fmt_bytes(nbytes)})")
+
+        return "\n".join(lines)
+
+    async def _exec_organize_directory(self, inp: dict) -> str:
+        from ..ai.input_validator import sanitize_file_path
+
+        path_arg = inp.get("path", "").strip()
+        if not path_arg:
+            return "Please provide a directory path."
+
+        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        if err or sanitized is None:
+            return f"Invalid path: {err}"
+
+        p = Path(sanitized)
+        if not p.is_dir():
+            return "Not a directory."
+
+        try:
+            entries = sorted([f.name for f in p.iterdir()])
+        except Exception as e:
+            return f"Could not list directory: {e}"
+
+        if not entries:
+            return "Directory is empty."
+
+        if self._claude_client is None:
+            return "Claude not available for organisation suggestions."
+
+        listing = "\n".join(entries[:50])
+        try:
+            suggestions = await self._claude_client.complete(
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Here is the contents of directory '{sanitized}':\n\n{listing}\n\n"
+                        "Suggest how to organise these files. "
+                        "Recommend folder names and which files should go where. "
+                        "Be specific and actionable."
+                    ),
+                }],
+                system="You are a helpful file organisation assistant. Be concise and practical.",
+                max_tokens=1024,
+            )
+            return f"📁 Organisation suggestions for {p.name}:\n\n{suggestions}"
+        except Exception as e:
+            return f"Could not generate suggestions: {e}"
+
+    async def _exec_clean_directory(self, inp: dict) -> str:
+        import time
+        from ..ai.input_validator import sanitize_file_path
+
+        path_arg = inp.get("path", "").strip()
+        if not path_arg:
+            return "Please provide a directory path."
+
+        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        if err or sanitized is None:
+            return f"Invalid path: {err}"
+
+        p = Path(sanitized)
+        if not p.is_dir():
+            return "Not a directory."
+
+        try:
+            files = sorted([f for f in p.iterdir() if f.is_file()], key=lambda x: x.stat().st_mtime)
+        except Exception as e:
+            return f"Could not list directory: {e}"
+
+        if not files:
+            return "No files in directory."
+
+        if self._claude_client is None:
+            return "Claude not available for cleanup suggestions."
+
+        now = time.time()
+        file_lines = []
+        for f in files[:30]:
+            stat = f.stat()
+            age_days = int((now - stat.st_mtime) / 86400)
+            size_kb = stat.st_size // 1024
+            file_lines.append(f"• {f.name} ({size_kb}KB, {age_days}d old)")
+        listing = "\n".join(file_lines)
+
+        try:
+            suggestions = await self._claude_client.complete(
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Review these files from '{sanitized}' and suggest DELETE, ARCHIVE, or KEEP for each:\n\n{listing}\n\n"
+                        "Format your response as:\n"
+                        "• filename.ext — KEEP/ARCHIVE/DELETE — brief reason"
+                    ),
+                }],
+                system="You are a helpful file cleanup assistant. Be decisive and practical.",
+                max_tokens=1024,
+            )
+            return f"🗑 Cleanup suggestions for {p.name}:\n\n{suggestions}"
+        except Exception as e:
+            return f"Could not generate suggestions: {e}"
+
+    async def _exec_find_files(self, inp: dict) -> str:
+        import glob as glob_module
+        from ..ai.input_validator import sanitize_file_path
+
+        pattern = inp.get("pattern", "").strip()
+        if not pattern:
+            return "Please provide a filename pattern (e.g. '*.pdf', 'config*')."
+
+        raw_results = []
+        for base in _ALLOWED_BASE_DIRS:
+            raw_results.extend(glob_module.glob(os.path.join(base, "**", pattern), recursive=True))
+
+        results = []
+        for r in raw_results:
+            safe, err = sanitize_file_path(r, _ALLOWED_BASE_DIRS)
+            if safe and not err:
+                results.append(safe)
+        results = results[:20]
+
+        if not results:
+            return f"No files matching '{pattern}' found."
+
+        return f"📂 Files matching '{pattern}':\n\n" + "\n".join(results)
+
+    # ------------------------------------------------------------------ #
+    # Bookmark executors                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_save_bookmark(self, inp: dict, user_id: int) -> str:
+        url = inp.get("url", "").strip()
+        note = inp.get("note", "").strip()
+
+        if not url:
+            return "Please provide a URL to bookmark."
+
+        if self._fact_store is None and self._knowledge_store is None:
+            return "Memory not available."
+
+        content = f"{url} — {note}" if note else url
+
+        if self._knowledge_store is not None:
+            await self._knowledge_store.add(
+                user_id=user_id,
+                entity_type="fact",
+                content=content,
+                metadata={"category": "bookmark"},
+            )
+        elif self._fact_store is not None:
+            await self._fact_store.add(user_id, "bookmark", content)
+
+        return f"🔖 Bookmark saved: {content}"
+
+    async def _exec_list_bookmarks(self, inp: dict, user_id: int) -> str:
+        if self._fact_store is None and self._knowledge_store is None:
+            return "Memory not available."
+
+        filt = inp.get("filter", "").strip().lower()
+
+        if self._knowledge_store is not None:
+            items = await self._knowledge_store.query(
+                user_id=user_id,
+                entity_type="fact",
+                metadata_filter={"category": "bookmark"},
+                limit=50,
+            )
+            bookmarks = [{"content": i.get("content", "")} for i in items]
+        elif self._fact_store is not None:
+            bookmarks = await self._fact_store.get_by_category(user_id, "bookmark")
+        else:
+            bookmarks = []
+
+        if not bookmarks:
+            return "🔖 No bookmarks saved yet. Use save_bookmark to add one."
+
+        if filt:
+            bookmarks = [b for b in bookmarks if filt in b.get("content", "").lower()]
+
+        if not bookmarks:
+            return f"🔖 No bookmarks matching '{filt}'."
+
+        lines = [f"🔖 Bookmarks{' (filtered)' if filt else ''} — {len(bookmarks)} item(s):\n"]
+        for i, b in enumerate(bookmarks[:20], 1):
+            lines.append(f"{i}. {b.get('content', '')}")
+        if len(bookmarks) > 20:
+            lines.append(f"…and {len(bookmarks) - 20} more")
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------ #
+    # Extended contacts executors                                          #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_get_contact_details(self, inp: dict) -> str:
+        if self._contacts is None:
+            return "Google Contacts not configured."
+
+        name = inp.get("name", "").strip()
+        if not name:
+            return "Please provide a contact name."
+
+        try:
+            people = await self._contacts.search_contacts(name, max_results=5)
+        except Exception as e:
+            return f"Search failed: {e}"
+
+        if not people:
+            return f"No contact found matching '{name}'."
+
+        from ..google.contacts import format_contact, _extract_name
+
+        top = people[0]
+        resource_name = top.get("resourceName", "")
+        try:
+            if resource_name:
+                top = await self._contacts.get_contact(resource_name)
+        except Exception:
+            pass
+
+        lines = ["👤 Contact details:\n", format_contact(top, verbose=True)]
+        if len(people) > 1:
+            others = [_extract_name(p) or "?" for p in people[1:]]
+            lines.append(f"\n_Also matched: {', '.join(others)}_")
+
+        return "\n".join(lines)
+
+    async def _exec_update_contact_note(self, inp: dict) -> str:
+        if self._contacts is None:
+            return "Google Contacts not configured."
+
+        name = inp.get("name", "").strip()
+        note = inp.get("note", "").strip()
+
+        if not name:
+            return "Please provide a contact name."
+        if not note:
+            return "Please provide a note to add."
+
+        try:
+            people = await self._contacts.search_contacts(name, max_results=3)
+        except Exception as e:
+            return f"Search failed: {e}"
+
+        if not people:
+            return f"No contact matching '{name}'."
+
+        from ..google.contacts import _extract_name
+
+        person = people[0]
+        resource_name = person.get("resourceName", "")
+        contact_name = _extract_name(person) or name
+
+        try:
+            await self._contacts.update_note(resource_name, note)
+            return f"✅ Note updated for {contact_name}:\n_{note}_"
+        except Exception as e:
+            return f"Could not update note: {e}"
+
+    async def _exec_find_sparse_contacts(self) -> str:
+        if self._contacts is None:
+            return "Google Contacts not configured."
+
+        try:
+            sparse = await self._contacts.get_sparse_contacts(max_results=300)
+        except Exception as e:
+            return f"Could not scan contacts: {e}"
+
+        if not sparse:
+            return "✅ All contacts have at least an email or phone number."
+
+        from ..google.contacts import _extract_name
+
+        lines = [f"🗑 {len(sparse)} contact(s) with no email or phone:\n"]
+        for p in sparse[:30]:
+            name = _extract_name(p) or "(no name)"
+            lines.append(f"• {name}")
+        if len(sparse) > 30:
+            lines.append(f"…and {len(sparse) - 30} more")
+        lines.append("\nUse get_contact_details to review, or delete in Google Contacts.")
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------ #
+    # Google Docs extended executors                                       #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_append_to_gdoc(self, inp: dict) -> str:
+        if self._docs is None:
+            return "Google Docs not configured."
+
+        doc_id_or_url = inp.get("doc_id_or_url", "").strip()
+        text = inp.get("text", "").strip()
+
+        if not doc_id_or_url:
+            return "Please provide a Google Doc ID or URL."
+        if not text:
+            return "Please provide text to append."
+
+        try:
+            await self._docs.append_text(doc_id_or_url, text)
+            return "✅ Text appended to document."
+        except Exception as e:
+            return f"Could not append to doc: {e}"
+
+    # ------------------------------------------------------------------ #
+    # Gmail extended executors                                             #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_classify_promotional_emails(self, inp: dict) -> str:
+        if self._gmail is None:
+            return "Gmail not configured."
+
+        limit = min(int(inp.get("limit", 30)), 100)
+
+        try:
+            promos = await self._gmail.classify_promotional(limit=limit)
+        except Exception as e:
+            return f"Gmail error: {e}"
+
+        if not promos:
+            return "✅ No promotional emails detected."
+
+        lines = [f"🗑 {len(promos)} promotional email(s) found:\n"]
+        for e in promos[:10]:
+            lines.append(f"• {e['subject'][:80]}\n  _From: {e['from_addr'][:60]}_")
+        if len(promos) > 10:
+            lines.append(f"…and {len(promos) - 10} more")
+        lines.append(
+            f"\nTo archive these, use the /gmail_classify command which offers a confirmation prompt."
+        )
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------ #
+    # Analytics extended executors                                         #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_get_costs(self, inp: dict, user_id: int) -> str:
+        if self._conversation_analyzer is None:
+            return "Analytics not available."
+
+        # Need access to db for CostAnalyzer
+        db = getattr(self._conversation_analyzer, '_db', None)
+        if db is None:
+            return "Cost tracking not available — database not configured."
+
+        from ..analytics.costs import CostAnalyzer
+
+        period = inp.get("period", "30d")
+        valid_periods = {"7d", "30d", "90d", "all"}
+        if period not in valid_periods:
+            period = "30d"
+
+        try:
+            cost_analyzer = CostAnalyzer(db)
+            summary = await cost_analyzer.get_cost_summary(user_id, period)
+            return cost_analyzer.format_cost_message(summary)
+        except Exception as e:
+            return f"Could not calculate costs: {e}"
+
+    # ------------------------------------------------------------------ #
+    # Special tools executors                                              #
+    # ------------------------------------------------------------------ #
+
+    async def _exec_trigger_reindex(self) -> str:
+        sched = self._proactive_scheduler
+        if sched is None:
+            return "Scheduler not available."
+
+        try:
+            stats = await sched.run_file_reindex_now()
+        except Exception as e:
+            return f"Reindex failed: {e}"
+
+        if stats.get("status") == "error":
+            return f"❌ {stats.get('message', 'Reindex failed')}"
+        if stats.get("status") == "disabled":
+            return "File indexing is disabled in configuration."
+
+        return (
+            f"✅ File reindex complete:\n"
+            f"  Files indexed: {stats.get('files_indexed', 0)}\n"
+            f"  Chunks created: {stats.get('chunks_created', 0)}\n"
+            f"  Files removed: {stats.get('files_removed', 0)}\n"
+            f"  Files skipped: {stats.get('files_skipped', 0)}\n"
+            f"  Errors: {stats.get('errors', 0)}"
+        )
+
+    async def _exec_start_privacy_audit(self) -> str:
+        return (
+            "🔒 Privacy Audit\n\n"
+            "I can help you check your digital footprint. To begin, I'll need you to share:\n\n"
+            "1. Your full name (as it appears publicly)\n"
+            "2. Any email addresses you want to check\n"
+            "3. Any usernames you use on social media or forums\n\n"
+            "I'll search for:\n"
+            "• Data broker presence (Whitepages, Spokeo, etc.)\n"
+            "• Breach exposure (Have I Been Pwned style checks)\n"
+            "• Public social media profiles\n\n"
+            "What would you like me to check first? Share a name, email, or username."
         )

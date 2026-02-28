@@ -166,6 +166,45 @@ Introduced `in_tool_turn` boolean flag in `_stream_with_tools_path()`. Set to `T
 
 ## Open Bugs
 
+### BUG-011 — Google auth "No project ID could be determined" warning on startup
+
+| Field           | Value                                              |
+| --------------- | -------------------------------------------------- |
+| **Date**        | 2026-02-28                                         |
+| **Reported by** | Dale                                               |
+| **Severity**    | Low                                                |
+| **Status**      | Open                                               |
+| **Component**   | `remy/google/auth.py`, `.env`                      |
+| **Related**     | —                                                  |
+
+**Description**
+On every container startup, the following warning appears in logs:
+```
+[WARNING] google.auth._default: No project ID could be determined. Consider running `gcloud config set project` or setting the GOOGLE_CLOUD_PROJECT environment variable
+```
+
+The warning is benign — Google Workspace APIs (Calendar, Gmail, Docs, Contacts) work correctly without a project ID because they use OAuth2 user credentials, not service account credentials. However, the warning pollutes logs and may cause confusion.
+
+**Steps to Reproduce**
+1. Start Remy container
+2. Check logs: `docker compose logs remy | grep "No project ID"`
+
+**Expected Behaviour**
+No warning, or warning suppressed if project ID is not required.
+
+**Actual Behaviour**
+Warning logged on every startup.
+
+**Potential Fixes**
+- Set `GOOGLE_CLOUD_PROJECT` env var in `.env` to the GCP project ID used for OAuth consent screen
+- Suppress the specific warning via Python logging filters
+- Set project ID programmatically before Google client initialisation
+
+**Notes**
+Low priority — functionality is not affected. The warning comes from `google-auth` library's default credential detection, which looks for a project ID even when using user OAuth credentials.
+
+---
+
 ### BUG-010 — ONNX runtime workaround reduces embedding parallelism
 
 | Field           | Value                                              |
