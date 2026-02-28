@@ -8,6 +8,8 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+from .base import with_google_resilience
+
 logger = logging.getLogger(__name__)
 
 # Matches YYYY-MM-DD
@@ -55,7 +57,7 @@ class CalendarClient:
                 orderBy="startTime",
             ).execute()
             return result.get("items", [])
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("calendar", lambda: asyncio.to_thread(_sync))
 
     async def create_event(
         self,
@@ -89,7 +91,7 @@ class CalendarClient:
             return self._service().events().insert(
                 calendarId="primary", body=body
             ).execute()
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("calendar", lambda: asyncio.to_thread(_sync))
 
     def format_event(self, event: dict) -> str:
         """Return a single-line summary of a calendar event."""

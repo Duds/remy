@@ -13,6 +13,8 @@ import asyncio
 import base64
 import logging
 
+from .base import with_google_resilience
+
 logger = logging.getLogger(__name__)
 
 _BODY_MAX_CHARS = 3000  # truncation limit for email bodies
@@ -62,8 +64,8 @@ def _extract_body(msg: dict, max_chars: int = _BODY_MAX_CHARS) -> str:
             if data:
                 try:
                     return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to decode email body base64: %s", e)
         # Recurse into multipart
         for subpart in part.get("parts", []):
             result = _get_plain(subpart)
@@ -114,7 +116,7 @@ class GmailClient:
                 userId="me", id="INBOX"
             ).execute()
             return result.get("messagesUnread", 0)
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     async def get_unread_summary(self) -> dict:
         """Return {count, senders} for unread inbox."""
@@ -228,7 +230,7 @@ class GmailClient:
 
             return results
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     async def get_message(self, message_id: str, include_body: bool = True) -> dict:
         """
@@ -257,7 +259,7 @@ class GmailClient:
                 entry["body"] = _extract_body(msg)
             return entry
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     # ------------------------------------------------------------------
     # Labels
@@ -271,7 +273,7 @@ class GmailClient:
                 {"id": lbl["id"], "name": lbl["name"], "type": lbl.get("type", "user")}
                 for lbl in result.get("labels", [])
             ]
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     async def create_label(
         self,
@@ -296,7 +298,7 @@ class GmailClient:
             result = svc.users().labels().create(userId="me", body=body).execute()
             return {"id": result["id"], "name": result["name"]}
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     async def modify_labels(
         self,
@@ -321,7 +323,7 @@ class GmailClient:
                 ).execute()
             return len(message_ids)
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     async def mark_read(self, message_ids: list[str]) -> int:
         """Mark messages as read."""
@@ -366,7 +368,7 @@ class GmailClient:
                 "message_id": draft.get("message", {}).get("id", ""),
             }
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("gmail", lambda: asyncio.to_thread(_sync))
 
     # ------------------------------------------------------------------
     # Classify / archive (existing)

@@ -70,15 +70,26 @@ class TestCircuitBreaker:
             with pytest.raises(ValueError):
                 await breaker.call(fail())
         
-        # Now calls should be blocked
+        # Now calls should be blocked - circuit raises before coroutine is created
+        success_called = False
+        
         async def success():
+            nonlocal success_called
+            success_called = True
             return "ok"
         
         with pytest.raises(CircuitOpenError) as exc_info:
-            await breaker.call(success())
+            # The circuit should raise before we even await the coroutine
+            coro = success()
+            try:
+                await breaker.call(coro)
+            finally:
+                # Ensure coroutine is closed to avoid warning
+                coro.close()
         
         assert exc_info.value.name == "test"
         assert exc_info.value.retry_after > 0
+        assert not success_called  # Verify the function was never actually called
 
     @pytest.mark.asyncio
     async def test_circuit_transitions_to_half_open(self, breaker):

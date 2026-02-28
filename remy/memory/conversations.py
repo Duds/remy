@@ -105,8 +105,8 @@ class ConversationStore:
                     if line:
                         try:
                             turns.append(ConversationTurn.model_validate_json(line))
-                        except Exception:
-                            pass  # skip corrupt lines
+                        except Exception as e:
+                            logger.warning("Skipping corrupt conversation line: %s", e)
                 return turns
             
             # For larger files, read from the end in chunks
@@ -132,8 +132,8 @@ class ConversationStore:
                     if line:  # Non-empty line after the last newline
                         try:
                             lines_found.insert(0, line.decode("utf-8", errors="replace"))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to decode line during reverse read: %s", e)
                     buffer = rest
                     
                     if len(lines_found) >= limit:
@@ -143,8 +143,8 @@ class ConversationStore:
             if buffer and len(lines_found) < limit:
                 try:
                     lines_found.insert(0, buffer.decode("utf-8", errors="replace"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to decode buffer during reverse read: %s", e)
             
             # Parse the lines into turns (take only the last `limit`)
             for line in lines_found[-limit:]:
@@ -152,8 +152,8 @@ class ConversationStore:
                 if line:
                     try:
                         turns.append(ConversationTurn.model_validate_json(line))
-                    except Exception:
-                        pass  # skip corrupt lines
+                    except Exception as e:
+                        logger.warning("Skipping corrupt conversation line: %s", e)
         
         return turns
 

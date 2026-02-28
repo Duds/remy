@@ -2,11 +2,14 @@
 Diagnostic utilities for analyzing bot logs and reporting issues.
 """
 
+import logging
 import re
 from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Log line format: "2026-02-26 14:32:45 [LEVEL] logger.name: message"
 _TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
@@ -66,8 +69,8 @@ def get_session_start_line(data_dir: str) -> int:
             for i, line in enumerate(f):
                 if "Starting remy" in line:
                     result = i  # keep the last (most recent by file position) match
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to read log file for session start line: %s", e)
     return result
 
 
@@ -88,8 +91,8 @@ def get_session_start(data_dir: str) -> Optional[datetime]:
                     ts = _parse_ts(line)
                     if ts is not None:
                         result = ts
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to read log file for session start timestamp: %s", e)
     return result
 
 

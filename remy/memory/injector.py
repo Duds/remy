@@ -289,8 +289,8 @@ class MemoryInjector:
                         "category": "project_context",
                         "content": f"[{path_str}] {content}",
                     })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to read project context file %s: %s", path_str, e)
         return results
 
     async def build_system_prompt(

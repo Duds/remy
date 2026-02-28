@@ -43,6 +43,8 @@ from ..bot.streaming import stream_to_telegram
 from ..config import settings
 from ..diagnostics import get_error_summary, get_recent_logs, is_diagnostics_trigger
 from ..exceptions import ServiceUnavailableError
+from ..hooks import HookEvents, hook_manager
+from ..memory.compaction import get_compaction_service
 from ..memory.conversations import ConversationStore
 from ..memory.facts import FactExtractor, FactStore, extract_and_store_facts
 from ..memory.goals import GoalExtractor, GoalStore, extract_and_store_goals
@@ -56,10 +58,12 @@ if TYPE_CHECKING:
     from ..agents.orchestrator import BoardOrchestrator
     from ..scheduler.proactive import ProactiveScheduler
 
+from ..constants import WORKING_MESSAGES, TOOL_TURN_PREFIX, SHOPPING_KEYWORDS, DEADLINE_KEYWORDS
+
 logger = logging.getLogger(__name__)
 
 # Sentinel prefix used to serialise multi-block tool turns into JSONL conversation store
-_TOOL_TURN_PREFIX = "__TOOL_TURN__:"
+_TOOL_TURN_PREFIX = TOOL_TURN_PREFIX
 
 # Rate limiter: max 10 messages per minute per user
 _rate_limiter = RateLimiter(max_messages_per_minute=10)
@@ -68,13 +72,6 @@ _rate_limiter = RateLimiter(max_messages_per_minute=10)
 _task_start_times: dict[int, float] = {}
 TASK_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours
 
-# Filesystem access controls
-_ALLOWED_BASE_DIRS = [
-    str(Path.home() / "Projects"),
-    str(Path.home() / "Documents"),
-    str(Path.home() / "Downloads"),
-]
-
 # Pending two-step write state: user_id -> sanitized path
 _pending_writes: dict[int, str] = {}
 
@@ -82,7 +79,6 @@ _pending_writes: dict[int, str] = {}
 _pending_archive: dict[int, list[str]] = {}
 
 # Per-user concurrency control: prevents resource exhaustion from rapid messages
-_MAX_CONCURRENT_PER_USER = 2
 _user_active_requests: dict[int, int] = {}
 _user_request_lock = asyncio.Lock()
 
@@ -110,29 +106,9 @@ def _get_history_token_budget() -> int:
     """Calculate history token budget from settings (70% of max input tokens)."""
     return int(settings.max_input_tokens_per_request * 0.7)
 
-# Funny "working" messages for Telegram
-_WORKING_MESSAGES = [
-    "Reticulating splines…",
-    "Homologating girdles…",
-    "Initializing neural pathways…",
-    "Consulting the archives…",
-    "Synthesizing creative juices…",
-    "Parsing the universe…",
-    "Herding digital cats…",
-    "Buffing the bits…",
-    "Aligning the planets…",
-    "Calculating the meaning of life…",
-    "Polishing the protocols…",
-    "Twiddling virtual thumbs…",
-    "Brewing digital coffee…",
-    "Charging flux capacitors…",
-    "Optimizing the optimism…",
-    "Rerouting power to thinking…",
-]
-
 def _get_working_msg() -> str:
     import random
-    return random.choice(_WORKING_MESSAGES)
+    return random.choice(WORKING_MESSAGES)
 
 
 class MessageRotator:
@@ -151,15 +127,14 @@ class MessageRotator:
         last_msg = ""
         while not self._stop_event.is_set():
             # Get a new random message different from the last one
-            pool = [m for m in _WORKING_MESSAGES if m != last_msg]
+            pool = [m for m in WORKING_MESSAGES if m != last_msg]
             msg = random.choice(pool)
             last_msg = msg
             
             try:
                 await self._message.edit_text(msg)
-            except Exception:
-                # Ignore edit errors (rate limits, message deleted, etc)
-                pass
+            except Exception as e:
+                logger.debug("Message edit failed (rate limit or deleted): %s", e)
             
             # Wait for random interval 0.5s - 2.5s
             wait_time = random.uniform(0.5, 2.5)
@@ -525,7 +500,7 @@ def make_handlers(
             await update.message.reply_text("Usage: /read <path>")
             return
         path_arg = " ".join(context.args)
-        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        sanitized, err = sanitize_file_path(path_arg, settings.allowed_base_dirs)
         if err or sanitized is None:
             await update.message.reply_text(f"❌ {err}")
             return
@@ -588,7 +563,7 @@ def make_handlers(
             await update.message.reply_text("Usage: /write <path>")
             return
         path_arg = " ".join(context.args)
-        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        sanitized, err = sanitize_file_path(path_arg, settings.allowed_base_dirs)
         if err or sanitized is None:
             await update.message.reply_text(f"❌ {err}")
             return
@@ -605,7 +580,7 @@ def make_handlers(
             await update.message.reply_text("Usage: /ls <directory>")
             return
         path_arg = " ".join(context.args)
-        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        sanitized, err = sanitize_file_path(path_arg, settings.allowed_base_dirs)
         if err or sanitized is None:
             await update.message.reply_text(f"❌ {err}")
             return
@@ -627,12 +602,12 @@ def make_handlers(
         pattern = context.args[0]
         import glob
         raw_results = []
-        for base in _ALLOWED_BASE_DIRS:
+        for base in settings.allowed_base_dirs:
             raw_results.extend(glob.glob(os.path.join(base, "**", pattern), recursive=True))
         # Validate every result is within an allowed base (guards against crafted patterns)
         results = []
         for r in raw_results:
-            safe, err = sanitize_file_path(r, _ALLOWED_BASE_DIRS)
+            safe, err = sanitize_file_path(r, settings.allowed_base_dirs)
             if safe and not err:
                 results.append(safe)
         results = results[:20]
@@ -649,7 +624,7 @@ def make_handlers(
             await update.message.reply_text("Usage: /set_project <path>")
             return
         path_arg = " ".join(context.args)
-        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        sanitized, err = sanitize_file_path(path_arg, settings.allowed_base_dirs)
         if err or sanitized is None:
             await update.message.reply_text(f"❌ {err}")
             return
@@ -796,7 +771,7 @@ def make_handlers(
             await update.message.reply_text("Usage: /organize <path>")
             return
         path_arg = " ".join(context.args)
-        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        sanitized, err = sanitize_file_path(path_arg, settings.allowed_base_dirs)
         if err or sanitized is None:
             await update.message.reply_text(f"❌ {err}")
             return
@@ -851,7 +826,7 @@ def make_handlers(
             await update.message.reply_text("Usage: /clean <path>")
             return
         path_arg = " ".join(context.args)
-        sanitized, err = sanitize_file_path(path_arg, _ALLOWED_BASE_DIRS)
+        sanitized, err = sanitize_file_path(path_arg, settings.allowed_base_dirs)
         if err or sanitized is None:
             await update.message.reply_text(f"❌ {err}")
             return
@@ -1330,8 +1305,8 @@ def make_handlers(
         try:
             if resource_name:
                 top = await google_contacts.get_contact(resource_name)
-        except Exception:
-            pass  # fall back to search result
+        except Exception as e:
+            logger.debug("Failed to fetch full contact details, using search result: %s", e)
         lines = [f"👤 *Contact details:*\n", format_contact(top, verbose=True)]
         if len(people) > 1:
             others = [_extract_name(p) or "?" for p in people[1:]]
@@ -2490,8 +2465,8 @@ Start by introducing the audit and asking for the first identifier to check."""
                     try:
                         await sent.edit_text(truncated)
                         last_edit_len = len(full)
-                    except Exception:
-                        pass  # Skip failed edits (no-change, flood control, etc.)
+                    except Exception as e:
+                        logger.debug("Message edit failed (flood control): %s", e)
 
         try:
             rotator.start()
@@ -2508,7 +2483,17 @@ Start by introducing the audit and asking for the first identifier to check."""
             ttft_timer.start()
             tool_exec_total_ms = 0
             tool_exec_start: float | None = None
-            
+
+            # HOOK: LLM_INPUT
+            await hook_manager.emit(
+                HookEvents.LLM_INPUT,
+                {
+                    "user_id": user_id,
+                    "message_count": len(messages),
+                    "system_prompt_length": len(system_prompt),
+                },
+            )
+
             async for event in claude_client.stream_with_tools(
                 messages=messages,
                 tool_registry=tool_registry,
@@ -2517,6 +2502,12 @@ Start by introducing the audit and asking for the first identifier to check."""
                 usage_out=usage,
                 chat_id=chat_id,
             ):
+                # Record TTFT on first event of any kind (text, tool, or metadata).
+                # This ensures accurate timing even if Claude returns only tool calls.
+                if not ttft_recorded:
+                    ttft_timer.stop()
+                    ttft_recorded = True
+
                 if not rotator_stopped:
                     await rotator.stop()
                     rotator_stopped = True
@@ -2527,15 +2518,11 @@ Start by introducing the audit and asking for the first identifier to check."""
                             (shown + "\n\n_[cancelled]_").strip(),
                             parse_mode="Markdown",
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to edit cancelled message: %s", e)
                     return
 
                 if isinstance(event, TextChunk):
-                    # Record TTFT on first text chunk
-                    if not ttft_recorded:
-                        ttft_timer.stop()
-                        ttft_recorded = True
                     if in_tool_turn:
                         # Suppress internal monologue emitted while a tool is
                         # executing (between ToolStatusChunk and ToolTurnComplete).
@@ -2554,14 +2541,19 @@ Start by introducing the audit and asking for the first identifier to check."""
                 elif isinstance(event, ToolStatusChunk):
                     in_tool_turn = True
                     tool_exec_start = time.monotonic()
+                    # HOOK: BEFORE_TOOL_CALL
+                    await hook_manager.emit(
+                        HookEvents.BEFORE_TOOL_CALL,
+                        {"user_id": user_id, "tool_name": event.tool_name},
+                    )
                     # Show a clean tool-status indicator (direct edit, no append)
                     try:
                         await sent.edit_text(
                             f"_⚙️ Using {event.tool_name}…_",
                             parse_mode="Markdown",
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to update tool status message: %s", e)
 
                 elif isinstance(event, ToolResultChunk):
                     pass  # tool finished; ToolTurnComplete follows
@@ -2569,9 +2561,16 @@ Start by introducing the audit and asking for the first identifier to check."""
                 elif isinstance(event, ToolTurnComplete):
                     in_tool_turn = False
                     # Accumulate tool execution time
+                    tool_duration_ms = 0
                     if tool_exec_start is not None:
-                        tool_exec_total_ms += int((time.monotonic() - tool_exec_start) * 1000)
+                        tool_duration_ms = int((time.monotonic() - tool_exec_start) * 1000)
+                        tool_exec_total_ms += tool_duration_ms
                         tool_exec_start = None
+                    # HOOK: AFTER_TOOL_CALL
+                    await hook_manager.emit(
+                        HookEvents.AFTER_TOOL_CALL,
+                        {"user_id": user_id, "duration_ms": tool_duration_ms},
+                    )
                     # Store the tool turn for conversation history
                     tool_turns.append(
                         (event.assistant_blocks, event.tool_result_blocks)
@@ -2587,6 +2586,25 @@ Start by introducing the audit and asking for the first identifier to check."""
             logger.error("stream_with_tools error for user %d: %s", user_id, exc)
             await sent.edit_text(f"Sorry, something went wrong: {exc}")
             return
+
+        # HOOK: LLM_OUTPUT
+        await hook_manager.emit(
+            HookEvents.LLM_OUTPUT,
+            {
+                "user_id": user_id,
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "cache_read_tokens": usage.cache_read_tokens,
+                "tool_turns_count": len(tool_turns),
+            },
+        )
+
+        # HOOK: MESSAGE_SENDING
+        final_text_preview = "".join(current_display).strip()[:100]
+        await hook_manager.emit(
+            HookEvents.MESSAGE_SENDING,
+            {"user_id": user_id, "text_preview": final_text_preview},
+        )
 
         # Final flush — show complete response
         await _flush_display(final=True)
@@ -2665,7 +2683,7 @@ Start by introducing the audit and asking for the first identifier to check."""
         # 0. PER-USER CONCURRENCY CHECK
         async with _user_request_lock:
             current_count = _user_active_requests.get(user_id, 0)
-            if current_count >= _MAX_CONCURRENT_PER_USER:
+            if current_count >= settings.max_concurrent_per_user:
                 await update.message.reply_text(
                     "⏳ Please wait — I'm still processing your previous message."
                 )
@@ -2719,6 +2737,12 @@ Start by introducing the audit and asking for the first identifier to check."""
         # 4. RECORD TASK START TIME
         _task_start_times[user_id] = time.time()
 
+        # HOOK: SESSION_START
+        await hook_manager.emit(
+            HookEvents.SESSION_START,
+            {"user_id": user_id, "text": text, "timestamp": time.time()},
+        )
+
         # Ensure user row exists before any FK-dependent writes (facts, goals)
         await _ensure_user(update.effective_user)
         # Acquire per-user lock
@@ -2746,7 +2770,7 @@ Start by introducing the audit and asking for the first identifier to check."""
             # 5b. INTERCEPT PENDING WRITE (inside lock to prevent races between messages)
             if user_id in _pending_writes:
                 pending_path = _pending_writes.pop(user_id)
-                sanitized, err = sanitize_file_path(pending_path, _ALLOWED_BASE_DIRS)
+                sanitized, err = sanitize_file_path(pending_path, settings.allowed_base_dirs)
                 if err or sanitized is None:
                     await update.message.reply_text(f"❌ Write cancelled: {err}")
                 else:
@@ -2803,8 +2827,14 @@ Start by introducing the audit and asking for the first identifier to check."""
                 import zoneinfo
                 tz = zoneinfo.ZoneInfo(settings.scheduler_timezone)
                 local_hour = datetime.now(tz).hour
-            except Exception:
-                pass  # Fall back to None if timezone unavailable
+            except Exception as e:
+                logger.debug("Timezone detection failed, using None: %s", e)
+
+            # HOOK: BEFORE_PROMPT_BUILD
+            await hook_manager.emit(
+                HookEvents.BEFORE_PROMPT_BUILD,
+                {"user_id": user_id, "text": text, "messages": messages},
+            )
 
             # Build system prompt with memory injection and emotional context
             memory_start = time.monotonic()
@@ -2822,10 +2852,7 @@ Start by introducing the audit and asking for the first identifier to check."""
 
             # Conditional trigger hints (Phase 5 ADHD body-double)
             text_lower = text.lower()
-            _SHOPPING_KEYWORDS = {"shopping", "grocery", "groceries", "supermarket", "shops"}
-            _DEADLINE_KEYWORDS = {"deadline", "due date", "due by", "by friday", "by monday",
-                                  "by tomorrow", "by next week", "must finish", "need to finish"}
-            if any(kw in text_lower for kw in _SHOPPING_KEYWORDS):
+            if any(kw in text_lower for kw in SHOPPING_KEYWORDS):
                 try:
                     grocery_file = settings.grocery_list_file
                     if os.path.exists(grocery_file):
@@ -2838,9 +2865,9 @@ Start by introducing the audit and asking for the first identifier to check."""
                                 f"Their current grocery list:\n{item_list}\n"
                                 f"Offer to reference or update it if helpful.</hint>"
                             )
-                except Exception:
-                    pass
-            if any(kw in text_lower for kw in _DEADLINE_KEYWORDS):
+                except Exception as e:
+                    logger.debug("Failed to inject grocery list hint: %s", e)
+            if any(kw in text_lower for kw in DEADLINE_KEYWORDS):
                 system_prompt += (
                     "\n\n<hint>The user may be mentioning a deadline or time-sensitive task. "
                     "If relevant, offer to create a calendar event using /schedule.</hint>"
@@ -2848,6 +2875,16 @@ Start by introducing the audit and asking for the first identifier to check."""
 
             # Send placeholder message to stream into
             sent = await update.message.reply_text(_get_working_msg())
+
+            # HOOK: BEFORE_MODEL_RESOLVE
+            await hook_manager.emit(
+                HookEvents.BEFORE_MODEL_RESOLVE,
+                {
+                    "user_id": user_id,
+                    "text": text,
+                    "has_tool_registry": tool_registry is not None,
+                },
+            )
 
             # ---------------------------------------------------------------- #
             # Path A: Native tool use (preferred when tool_registry available)  #
@@ -2882,6 +2919,17 @@ Start by introducing the audit and asking for the first identifier to check."""
                 if goal_extractor is not None and goal_store is not None:
                     extraction_runner.run_background(
                         extract_and_store_goals(user_id, text, goal_extractor, goal_store)
+                    )
+                # HOOK: SESSION_END (Path A)
+                await hook_manager.emit(
+                    HookEvents.SESSION_END,
+                    {"user_id": user_id, "path": "tool_use", "timing": req_timing},
+                )
+                # Auto-compaction check (background, non-blocking)
+                compaction_service = get_compaction_service(conv_store, claude_client)
+                if compaction_service is not None:
+                    extraction_runner.run_background(
+                        compaction_service.check_and_compact(user_id, session_key)
                     )
                 return
 
@@ -2940,6 +2988,17 @@ Start by introducing the audit and asking for the first identifier to check."""
             if goal_extractor is not None and goal_store is not None:
                 extraction_runner.run_background(
                     extract_and_store_goals(user_id, text, goal_extractor, goal_store)
+                )
+            # HOOK: SESSION_END (Path B)
+            await hook_manager.emit(
+                HookEvents.SESSION_END,
+                {"user_id": user_id, "path": "router_fallback"},
+            )
+            # Auto-compaction check (background, non-blocking)
+            compaction_service = get_compaction_service(conv_store, claude_client)
+            if compaction_service is not None:
+                extraction_runner.run_background(
+                    compaction_service.check_and_compact(user_id, session_key)
                 )
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

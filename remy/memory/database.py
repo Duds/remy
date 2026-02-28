@@ -217,6 +217,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS file_chunks_fts USING fts5(
     content=file_chunks,
     content_rowid=id
 );
+
+-- Outbound message queue for crash-recovery (OpenClaw pattern adoption)
+CREATE TABLE IF NOT EXISTS outbound_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    message_type TEXT NOT NULL DEFAULT 'text',
+    reply_to_message_id INTEGER,
+    parse_mode TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at TEXT,
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_status ON outbound_queue(status);
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_created ON outbound_queue(created_at);
 """
 
 

@@ -104,6 +104,49 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # ── Timeouts (seconds) ──────────────────────────────────────────────────────
+    telegram_timeout: float = 30.0
+    mistral_timeout: float = 60.0
+    moonshot_timeout: float = 120.0
+    diagnostic_timeout: float = 10.0
+
+    # ── Rate limiting ───────────────────────────────────────────────────────────
+    rate_limit_per_minute: int = 10
+    max_concurrent_per_user: int = 2
+    max_message_length: int = 10_000
+    max_command_length: int = 500
+
+    # ── Circuit breaker ─────────────────────────────────────────────────────────
+    cb_failure_threshold: int = 5
+    cb_recovery_timeout: float = 60.0
+
+    # ── Intervals (seconds) ─────────────────────────────────────────────────────
+    health_check_interval: int = 300
+    stale_goal_days: int = 3
+
+    # ── Claude client ───────────────────────────────────────────────────────────
+    claude_max_retries: int = 3
+    claude_retry_base_delay: float = 2.0
+    claude_max_tool_iterations: int = 5
+    claude_min_cache_tokens: int = 1024
+
+    # ── Compaction ──────────────────────────────────────────────────────────────
+    compaction_token_threshold: int = 50_000
+    compaction_keep_recent_messages: int = 20
+
+    # ── File indexing ───────────────────────────────────────────────────────────
+    file_index_chunk_chars: int = 1500
+    file_index_overlap_chars: int = 200
+    file_index_max_file_size: int = 512_000
+
+    # ── Classifier cache ────────────────────────────────────────────────────────
+    classifier_cache_ttl: int = 300
+    classifier_cache_max: int = 256
+
+    # ── Allowed directories (shared constant) ───────────────────────────────────
+    # Comma-separated list of base directories for file operations
+    allowed_base_dirs_raw: str = "~/Projects,~/Documents,~/Downloads"
+
     @property
     def google_token_file(self) -> str:
         return os.path.join(self.data_dir, "google_token.json")
@@ -119,6 +162,14 @@ class Settings(BaseSettings):
         if not raw:
             return []
         return [int(x.strip()) for x in raw.split(",") if x.strip()]
+
+    @property
+    def allowed_base_dirs(self) -> list[str]:
+        """Parse and expand allowed base directories."""
+        raw = self.allowed_base_dirs_raw
+        if not raw:
+            return []
+        return [str(Path(d.strip()).expanduser()) for d in raw.split(",") if d.strip()]
 
     @model_validator(mode="after")
     def configure_data_dir(self) -> "Settings":

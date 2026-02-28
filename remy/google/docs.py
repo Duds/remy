@@ -6,6 +6,8 @@ import asyncio
 import logging
 import re
 
+from .base import with_google_resilience
+
 logger = logging.getLogger(__name__)
 
 _DOC_URL_RE = re.compile(r"/document/d/([a-zA-Z0-9_-]+)")
@@ -54,7 +56,7 @@ class DocsClient:
             text = _extract_text(doc)
             return title, text
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("docs", lambda: asyncio.to_thread(_sync))
 
     async def append_text(self, id_or_url: str, text: str) -> None:
         """
@@ -83,4 +85,4 @@ class DocsClient:
                 }]},
             ).execute()
 
-        await asyncio.to_thread(_sync)
+        await with_google_resilience("docs", lambda: asyncio.to_thread(_sync))

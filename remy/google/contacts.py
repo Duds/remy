@@ -9,6 +9,8 @@ import asyncio
 import logging
 from datetime import date, timedelta
 
+from .base import with_google_resilience
+
 logger = logging.getLogger(__name__)
 
 # Fields to request on every person fetch
@@ -117,7 +119,7 @@ class ContactsClient:
                     break
             return results
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("contacts", lambda: asyncio.to_thread(_sync))
 
     async def search_contacts(self, query: str, max_results: int = 10) -> list[dict]:
         """Search contacts by name or email. Returns matching person dicts."""
@@ -130,7 +132,7 @@ class ContactsClient:
             ).execute()
             return [r.get("person", {}) for r in resp.get("results", [])]
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("contacts", lambda: asyncio.to_thread(_sync))
 
     async def get_contact(self, resource_name: str) -> dict:
         """Fetch full details for a contact by resourceName (e.g. 'people/c123')."""
@@ -140,7 +142,7 @@ class ContactsClient:
                 personFields=_PERSON_FIELDS,
             ).execute()
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("contacts", lambda: asyncio.to_thread(_sync))
 
     async def get_upcoming_birthdays(self, days: int = 14) -> list[tuple[date, dict]]:
         """
@@ -192,7 +194,7 @@ class ContactsClient:
                 body=body,
             ).execute()
 
-        return await asyncio.to_thread(_sync)
+        return await with_google_resilience("contacts", lambda: asyncio.to_thread(_sync))
 
     async def delete_contact(self, resource_name: str) -> None:
         """Permanently delete a contact by resourceName."""
@@ -201,7 +203,7 @@ class ContactsClient:
                 resourceName=resource_name,
             ).execute()
 
-        await asyncio.to_thread(_sync)
+        await with_google_resilience("contacts", lambda: asyncio.to_thread(_sync))
 
     async def get_sparse_contacts(self, max_results: int = 200) -> list[dict]:
         """

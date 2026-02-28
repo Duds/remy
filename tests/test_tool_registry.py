@@ -176,7 +176,7 @@ async def test_dispatch_get_logs_summary():
         get_session_start_line, get_session_start, get_error_summary, get_recent_logs
     """
     reg = make_registry(logs_dir="/tmp")
-    with patch("remy.ai.tool_registry.asyncio.to_thread") as mock_thread:
+    with patch("remy.ai.tools.memory.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [
             0,              # get_session_start_line → int
             None,           # get_session_start → None (no timestamp found)
@@ -190,7 +190,7 @@ async def test_dispatch_get_logs_summary():
 @pytest.mark.asyncio
 async def test_dispatch_get_logs_tail():
     reg = make_registry(logs_dir="/tmp")
-    with patch("remy.ai.tool_registry.asyncio.to_thread", return_value="log lines") as mock_thread:
+    with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="log lines") as mock_thread:
         result = await reg.dispatch("get_logs", {"mode": "tail", "lines": 10}, USER_ID)
     assert "log lines" in result
 
@@ -201,7 +201,7 @@ async def test_dispatch_get_logs_errors():
         get_session_start_line, get_session_start, get_error_summary
     """
     reg = make_registry(logs_dir="/tmp")
-    with patch("remy.ai.tool_registry.asyncio.to_thread") as mock_thread:
+    with patch("remy.ai.tools.memory.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [
             0,             # get_session_start_line → int
             None,          # get_session_start → None

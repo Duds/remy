@@ -1,5 +1,11 @@
 """
 DiagnosticsRunner — orchestrates health checks across all Remy subsystems.
+
+Enhanced with performance monitoring for:
+- Circuit breaker states (API resilience)
+- Concurrency controls (extraction runners, per-user limits)
+- Token usage and cache hit rate statistics
+- Database retention and cleanup status
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -118,6 +124,11 @@ class DiagnosticsRunner:
             ("Scheduler", self._check_scheduler),
             ("Configuration", self._check_config),
             ("File System", self._check_filesystem),
+            # New performance monitoring checks
+            ("Circuit Breakers", self._check_circuit_breakers),
+            ("Concurrency Controls", self._check_concurrency),
+            ("Token Usage (24h)", self._check_token_usage),
+            ("Cache Performance", self._check_cache_performance),
         ]
         
         for name, check_fn in checks:
@@ -793,6 +804,379 @@ class DiagnosticsRunner:
                 duration_ms=(time.perf_counter() - start) * 1000,
             )
 
+    async def _check_circuit_breakers(self) -> CheckResult:
+        """Check circuit breaker states for API resilience."""
+        start = time.perf_counter()
+        
+        try:
+            from ..utils.circuit_breaker import _circuit_breakers, CircuitState
+            
+            if not _circuit_breakers:
+                return CheckResult(
+                    name="Circuit Breakers",
+                    status=CheckStatus.PASS,
+                    message="No circuits registered (first request pending)",
+                    duration_ms=(time.perf_counter() - start) * 1000,
+                )
+            
+            states = {}
+            open_circuits = []
+            half_open_circuits = []
+            
+            for name, breaker in _circuit_breakers.items():
+                states[name] = breaker.state.value
+                if breaker.state == CircuitState.OPEN:
+                    open_circuits.append(name)
+                elif breaker.state == CircuitState.HALF_OPEN:
+                    half_open_circuits.append(name)
+            
+            duration_ms = (time.perf_counter() - start) * 1000
+            
+            if open_circuits:
+                return CheckResult(
+                    name="Circuit Breakers",
+                    status=CheckStatus.FAIL,
+                    message=f"OPEN: {', '.join(open_circuits)}",
+                    duration_ms=duration_ms,
+                    details={"states": states, "open": open_circuits},
+                )
+            
+            if half_open_circuits:
+                return CheckResult(
+                    name="Circuit Breakers",
+                    status=CheckStatus.WARN,
+                    message=f"HALF_OPEN: {', '.join(half_open_circuits)}",
+                    duration_ms=duration_ms,
+                    details={"states": states, "half_open": half_open_circuits},
+                )
+            
+            return CheckResult(
+                name="Circuit Breakers",
+                status=CheckStatus.PASS,
+                message=f"{len(_circuit_breakers)} circuits, all closed",
+                duration_ms=duration_ms,
+                details={"states": states},
+            )
+            
+        except ImportError:
+            return CheckResult(
+                name="Circuit Breakers",
+                status=CheckStatus.WARN,
+                message="Module not available",
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
+        except Exception as e:
+            return CheckResult(
+                name="Circuit Breakers",
+                status=CheckStatus.FAIL,
+                message=str(e),
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
+
+    async def _check_concurrency(self) -> CheckResult:
+        """Check concurrency control status (extraction runners, per-user limits)."""
+        start = time.perf_counter()
+        
+        try:
+            from ..utils.concurrency import (
+                _extraction_runner,
+                _per_user_extraction_runner,
+            )
+            from ..bot.handlers.base import _user_active_requests
+            from ..config import settings
+            _MAX_CONCURRENT_PER_USER = settings.max_concurrent_per_user
+            
+            details = {}
+            warnings = []
+            
+            # Check extraction runner
+            if _extraction_runner is not None:
+                details["extraction_active"] = _extraction_runner.active_count
+                details["extraction_total"] = _extraction_runner.total_count
+                if _extraction_runner.active_count >= 4:
+                    warnings.append(f"Extraction runner near capacity ({_extraction_runner.active_count}/5)")
+            
+            # Check per-user extraction runner
+            if _per_user_extraction_runner is not None:
+                details["per_user_extraction_active"] = _per_user_extraction_runner.active_count
+            
+            # Check per-user active requests
+            active_users = len(_user_active_requests)
+            total_active = sum(_user_active_requests.values())
+            details["users_with_active_requests"] = active_users
+            details["total_active_requests"] = total_active
+            details["max_per_user"] = _MAX_CONCURRENT_PER_USER
+            
+            # Check for users at limit
+            users_at_limit = [
+                uid for uid, count in _user_active_requests.items()
+                if count >= _MAX_CONCURRENT_PER_USER
+            ]
+            if users_at_limit:
+                warnings.append(f"{len(users_at_limit)} user(s) at concurrency limit")
+                details["users_at_limit"] = len(users_at_limit)
+            
+            duration_ms = (time.perf_counter() - start) * 1000
+            
+            if warnings:
+                return CheckResult(
+                    name="Concurrency Controls",
+                    status=CheckStatus.WARN,
+                    message="; ".join(warnings),
+                    duration_ms=duration_ms,
+                    details=details,
+                )
+            
+            msg_parts = []
+            if total_active > 0:
+                msg_parts.append(f"{total_active} active request(s)")
+            if details.get("extraction_total", 0) > 0:
+                msg_parts.append(f"{details['extraction_total']} extractions total")
+            
+            message = ", ".join(msg_parts) if msg_parts else "Idle"
+            
+            return CheckResult(
+                name="Concurrency Controls",
+                status=CheckStatus.PASS,
+                message=message,
+                duration_ms=duration_ms,
+                details=details,
+            )
+            
+        except ImportError as e:
+            return CheckResult(
+                name="Concurrency Controls",
+                status=CheckStatus.WARN,
+                message=f"Module not loaded: {e}",
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
+        except Exception as e:
+            return CheckResult(
+                name="Concurrency Controls",
+                status=CheckStatus.FAIL,
+                message=str(e),
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
+
+    async def _check_token_usage(self) -> CheckResult:
+        """Check token usage statistics for the last 24 hours."""
+        start = time.perf_counter()
+        
+        if self._db is None:
+            return CheckResult(
+                name="Token Usage (24h)",
+                status=CheckStatus.WARN,
+                message="Database not configured",
+                duration_ms=0,
+            )
+        
+        try:
+            async with self._db.get_connection() as conn:
+                # Get token usage for last 24 hours
+                cursor = await conn.execute(
+                    """
+                    SELECT 
+                        COUNT(*) as call_count,
+                        SUM(input_tokens) as total_input,
+                        SUM(output_tokens) as total_output,
+                        SUM(cache_creation_tokens) as cache_created,
+                        SUM(cache_read_tokens) as cache_read,
+                        AVG(latency_ms) as avg_latency,
+                        SUM(fallback) as fallback_count
+                    FROM api_calls
+                    WHERE timestamp >= datetime('now', '-24 hours')
+                    """
+                )
+                row = await cursor.fetchone()
+                
+                if row is None or row[0] == 0:
+                    return CheckResult(
+                        name="Token Usage (24h)",
+                        status=CheckStatus.PASS,
+                        message="No API calls in last 24h",
+                        duration_ms=(time.perf_counter() - start) * 1000,
+                    )
+                
+                call_count = row[0] or 0
+                total_input = row[1] or 0
+                total_output = row[2] or 0
+                cache_created = row[3] or 0
+                cache_read = row[4] or 0
+                avg_latency = row[5] or 0
+                fallback_count = row[6] or 0
+                
+                total_tokens = total_input + total_output
+                
+                # Estimate cost (rough: $3/M input, $15/M output for Sonnet)
+                estimated_cost = (total_input * 3 + total_output * 15) / 1_000_000
+                
+                # Check against daily budget if configured
+                daily_budget = 10.0  # Default $10/day
+                if self._settings:
+                    daily_budget = getattr(self._settings, 'max_cost_per_user_per_day_usd', 10.0)
+                
+                details = {
+                    "calls": call_count,
+                    "input_tokens": total_input,
+                    "output_tokens": total_output,
+                    "cache_created": cache_created,
+                    "cache_read": cache_read,
+                    "total_tokens": total_tokens,
+                    "avg_latency_ms": round(avg_latency, 1),
+                    "fallbacks": fallback_count,
+                    "estimated_cost_usd": round(estimated_cost, 2),
+                }
+                
+                duration_ms = (time.perf_counter() - start) * 1000
+                
+                # Format token count
+                if total_tokens >= 1_000_000:
+                    token_str = f"{total_tokens/1_000_000:.1f}M"
+                elif total_tokens >= 1_000:
+                    token_str = f"{total_tokens/1_000:.1f}K"
+                else:
+                    token_str = str(total_tokens)
+                
+                message = f"{call_count} calls, {token_str} tokens, ~${estimated_cost:.2f}"
+                
+                if estimated_cost > daily_budget * 0.8:
+                    return CheckResult(
+                        name="Token Usage (24h)",
+                        status=CheckStatus.WARN,
+                        message=f"{message} (>{int(daily_budget*0.8*100/daily_budget)}% of budget)",
+                        duration_ms=duration_ms,
+                        details=details,
+                    )
+                
+                if fallback_count > call_count * 0.1:
+                    return CheckResult(
+                        name="Token Usage (24h)",
+                        status=CheckStatus.WARN,
+                        message=f"{message}, {fallback_count} fallbacks",
+                        duration_ms=duration_ms,
+                        details=details,
+                    )
+                
+                return CheckResult(
+                    name="Token Usage (24h)",
+                    status=CheckStatus.PASS,
+                    message=message,
+                    duration_ms=duration_ms,
+                    details=details,
+                )
+                
+        except Exception as e:
+            return CheckResult(
+                name="Token Usage (24h)",
+                status=CheckStatus.FAIL,
+                message=str(e),
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
+
+    async def _check_cache_performance(self) -> CheckResult:
+        """Check prompt cache hit rate and effectiveness."""
+        start = time.perf_counter()
+        
+        if self._db is None:
+            return CheckResult(
+                name="Cache Performance",
+                status=CheckStatus.WARN,
+                message="Database not configured",
+                duration_ms=0,
+            )
+        
+        try:
+            async with self._db.get_connection() as conn:
+                # Get cache statistics for last 24 hours
+                cursor = await conn.execute(
+                    """
+                    SELECT 
+                        COUNT(*) as call_count,
+                        SUM(input_tokens) as total_input,
+                        SUM(cache_read_tokens) as cache_read,
+                        SUM(cache_creation_tokens) as cache_created
+                    FROM api_calls
+                    WHERE timestamp >= datetime('now', '-24 hours')
+                      AND provider = 'anthropic'
+                    """
+                )
+                row = await cursor.fetchone()
+                
+                if row is None or row[0] == 0:
+                    return CheckResult(
+                        name="Cache Performance",
+                        status=CheckStatus.PASS,
+                        message="No Anthropic calls in last 24h",
+                        duration_ms=(time.perf_counter() - start) * 1000,
+                    )
+                
+                call_count = row[0] or 0
+                total_input = row[1] or 0
+                cache_read = row[2] or 0
+                cache_created = row[3] or 0
+                
+                # Calculate cache hit rate
+                total_cacheable = total_input + cache_read
+                if total_cacheable > 0:
+                    hit_rate = cache_read / total_cacheable
+                else:
+                    hit_rate = 0.0
+                
+                # Estimate savings (cache reads are 90% cheaper)
+                tokens_saved = int(cache_read * 0.9)
+                cost_saved = tokens_saved * 3 / 1_000_000  # $3/M input tokens
+                
+                details = {
+                    "calls": call_count,
+                    "cache_read_tokens": cache_read,
+                    "cache_created_tokens": cache_created,
+                    "hit_rate_percent": round(hit_rate * 100, 1),
+                    "tokens_saved": tokens_saved,
+                    "estimated_savings_usd": round(cost_saved, 2),
+                }
+                
+                duration_ms = (time.perf_counter() - start) * 1000
+                
+                hit_rate_pct = hit_rate * 100
+                
+                if cache_read == 0 and call_count > 10:
+                    return CheckResult(
+                        name="Cache Performance",
+                        status=CheckStatus.WARN,
+                        message=f"0% cache hits across {call_count} calls",
+                        duration_ms=duration_ms,
+                        details=details,
+                    )
+                
+                if hit_rate_pct < 30 and call_count > 20:
+                    return CheckResult(
+                        name="Cache Performance",
+                        status=CheckStatus.WARN,
+                        message=f"{hit_rate_pct:.0f}% hit rate (expected >50%)",
+                        duration_ms=duration_ms,
+                        details=details,
+                    )
+                
+                message = f"{hit_rate_pct:.0f}% hit rate"
+                if cost_saved > 0.01:
+                    message += f", ~${cost_saved:.2f} saved"
+                
+                return CheckResult(
+                    name="Cache Performance",
+                    status=CheckStatus.PASS,
+                    message=message,
+                    duration_ms=duration_ms,
+                    details=details,
+                )
+                
+        except Exception as e:
+            return CheckResult(
+                name="Cache Performance",
+                status=CheckStatus.FAIL,
+                message=str(e),
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
+
 
 def format_diagnostics_output(result: DiagnosticsResult, timezone_str: str = "Australia/Sydney") -> str:
     """
@@ -819,10 +1203,14 @@ def format_diagnostics_output(result: DiagnosticsResult, timezone_str: str = "Au
     
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("")
     
-    # Individual check results
-    for check in result.checks:
+    # Group checks by category
+    core_checks = ["Database", "Memory/Embeddings", "Knowledge Store", "Conversation History", "File System"]
+    ai_checks = ["Anthropic", "Mistral", "Moonshot", "Ollama"]
+    system_checks = ["Tool Registry", "Scheduler", "Configuration"]
+    perf_checks = ["Circuit Breakers", "Concurrency Controls", "Token Usage (24h)", "Cache Performance"]
+    
+    def format_check(check: CheckResult) -> str:
         if check.status == CheckStatus.PASS:
             icon = "✅"
         elif check.status == CheckStatus.WARN:
@@ -830,7 +1218,6 @@ def format_diagnostics_output(result: DiagnosticsResult, timezone_str: str = "Au
         else:
             icon = "❌"
         
-        # Format duration
         if check.duration_ms < 1:
             duration_str = "<1ms"
         elif check.duration_ms < 1000:
@@ -838,7 +1225,46 @@ def format_diagnostics_output(result: DiagnosticsResult, timezone_str: str = "Au
         else:
             duration_str = f"{check.duration_ms/1000:.1f}s"
         
-        lines.append(f"{icon} *{check.name}* — {check.message} _({duration_str})_")
+        return f"{icon} *{check.name}* — {check.message} _({duration_str})_"
+    
+    checks_by_name = {c.name: c for c in result.checks}
+    
+    # Core Infrastructure
+    lines.append("")
+    lines.append("*Core Infrastructure*")
+    for name in core_checks:
+        if name in checks_by_name:
+            lines.append(format_check(checks_by_name[name]))
+    
+    # AI Providers
+    lines.append("")
+    lines.append("*AI Providers*")
+    for name in ai_checks:
+        if name in checks_by_name:
+            lines.append(format_check(checks_by_name[name]))
+    
+    # System Components
+    lines.append("")
+    lines.append("*System Components*")
+    for name in system_checks:
+        if name in checks_by_name:
+            lines.append(format_check(checks_by_name[name]))
+    
+    # Performance & Resilience
+    lines.append("")
+    lines.append("*Performance & Resilience*")
+    for name in perf_checks:
+        if name in checks_by_name:
+            lines.append(format_check(checks_by_name[name]))
+    
+    # Any remaining checks not in categories
+    shown_names = set(core_checks + ai_checks + system_checks + perf_checks)
+    remaining = [c for c in result.checks if c.name not in shown_names]
+    if remaining:
+        lines.append("")
+        lines.append("*Other*")
+        for check in remaining:
+            lines.append(format_check(check))
     
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

@@ -143,8 +143,8 @@ async def run_proactive_trigger(
                             f"_⚙️ Using {event.tool_name}…_",
                             parse_mode="Markdown",
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to update tool status in pipeline: %s", e)
 
                 elif isinstance(event, ToolResultChunk):
                     pass  # ToolTurnComplete follows with the blocks we need
@@ -164,8 +164,8 @@ async def run_proactive_trigger(
             )
             try:
                 await sent.edit_text(f"⏰ Reminder: {label}\n\n_(Error generating response: {exc})_")
-            except Exception:
-                pass
+            except Exception as edit_err:
+                logger.debug("Failed to edit error message in pipeline: %s", edit_err)
             return
 
         await streamer.finalize()

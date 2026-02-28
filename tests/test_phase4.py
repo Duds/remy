@@ -188,9 +188,11 @@ def test_bookmarks_list():
 def test_grocery_list_show_empty(tmp_path):
     from remy.bot.handlers import make_handlers
 
-    with patch("remy.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.web.settings") as mock_settings, \
+         patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = str(tmp_path / "grocery.txt")
+        mock_base_settings.telegram_allowed_users = [12345]
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
         update = make_update()
         asyncio.run(handlers["grocery-list"](update, make_context()))
@@ -201,9 +203,11 @@ def test_grocery_list_add_and_show(tmp_path):
     from remy.bot.handlers import make_handlers
 
     grocery_file = str(tmp_path / "grocery.txt")
-    with patch("remy.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.web.settings") as mock_settings, \
+         patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = grocery_file
+        mock_base_settings.telegram_allowed_users = [12345]
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
         update = make_update()
 
@@ -222,9 +226,11 @@ def test_grocery_list_done(tmp_path):
     grocery_file = str(tmp_path / "grocery.txt")
     Path(grocery_file).write_text("milk\neggs\nbread\n")
 
-    with patch("remy.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.web.settings") as mock_settings, \
+         patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = grocery_file
+        mock_base_settings.telegram_allowed_users = [12345]
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
         update = make_update()
         asyncio.run(handlers["grocery-list"](update, make_context(["done", "eggs"])))
@@ -241,9 +247,11 @@ def test_grocery_list_clear(tmp_path):
     grocery_file = str(tmp_path / "grocery.txt")
     Path(grocery_file).write_text("milk\neggs\n")
 
-    with patch("remy.bot.handlers.settings") as mock_settings:
+    with patch("remy.bot.handlers.web.settings") as mock_settings, \
+         patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_settings.telegram_allowed_users = [12345]
         mock_settings.grocery_list_file = grocery_file
+        mock_base_settings.telegram_allowed_users = [12345]
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
         update = make_update()
         asyncio.run(handlers["grocery-list"](update, make_context(["clear"])))

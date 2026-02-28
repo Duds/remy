@@ -14,6 +14,8 @@ import time
 from collections import defaultdict
 from typing import Optional
 
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 
 # Tags that MemoryInjector adds as structural wrappers — preserve these exactly.
@@ -51,10 +53,8 @@ _PROMPT_INJECTION_PATTERNS = [
     re.compile(r"(?:you.*are.*now|act.*as|pretend.*to.*be).*(?:admin|root|unrestricted|uncensored|jailbroken)", re.IGNORECASE),
 ]
 
-# Max reasonable input sizes
-MAX_MESSAGE_LENGTH = 10_000  # chars
-MAX_COMMAND_LENGTH = 500     # chars
-MAX_TOPIC_LENGTH = 500       # chars
+# Max reasonable input sizes (defaults, can be overridden via config)
+MAX_TOPIC_LENGTH = 500  # chars
 
 # ---------------------------------------------------------------------------
 # Sensitive path denylist — enforced inside sanitize_file_path regardless of
@@ -91,8 +91,8 @@ class RateLimiter:
     Tracks last N seconds of messages per user.
     """
 
-    def __init__(self, max_messages_per_minute: int = 10):
-        self.max_per_minute = max_messages_per_minute
+    def __init__(self, max_messages_per_minute: int | None = None):
+        self.max_per_minute = max_messages_per_minute or settings.rate_limit_per_minute
         self.user_messages: dict[int, list[float]] = defaultdict(list)
 
     def is_allowed(self, user_id: int) -> tuple[bool, Optional[str]]:
@@ -120,7 +120,7 @@ class RateLimiter:
         return True, None
 
 
-def validate_message_input(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> tuple[bool, Optional[str]]:
+def validate_message_input(text: str, max_length: int | None = None) -> tuple[bool, Optional[str]]:
     """
     Validate a regular message for safety.
     Returns (valid: bool, reason_if_invalid: str | None)
@@ -128,8 +128,9 @@ def validate_message_input(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> t
     if not text or not text.strip():
         return False, "Empty message"
 
-    if len(text) > max_length:
-        return False, f"Message too long ({len(text)} > {max_length} chars)"
+    effective_max = max_length or settings.max_message_length
+    if len(text) > effective_max:
+        return False, f"Message too long ({len(text)} > {effective_max} chars)"
 
     # Flag but don't block shell injection — user might be asking about shell commands
     if _SHELL_INJECTION_PATTERN.search(text):
@@ -149,7 +150,7 @@ def validate_command_input(command: str, arg: str = "") -> tuple[bool, Optional[
     Validate command and arguments for safety.
     Returns (valid: bool, reason_if_invalid: str | None)
     """
-    if len(command) > MAX_COMMAND_LENGTH:
+    if len(command) > settings.max_command_length:
         return False, "Command too long"
 
     if len(arg) > MAX_TOPIC_LENGTH:

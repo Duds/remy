@@ -19,7 +19,13 @@ from .bot.handlers import make_handlers
 from .bot.session import SessionManager
 from .bot.telegram_bot import TelegramBot
 from .config import settings
-from .health import run_health_server, set_ready
+from .health import (
+    run_health_server,
+    set_diagnostics_runner,
+    set_hook_manager,
+    set_outbound_queue,
+    set_ready,
+)
 from .logging_config import setup_logging
 from .memory.automations import AutomationStore
 from .memory.background_jobs import BackgroundJobStore
@@ -34,6 +40,8 @@ from .memory.injector import MemoryInjector
 from .memory.knowledge import KnowledgeExtractor, KnowledgeStore
 from .memory.file_index import FileIndexer
 from .analytics.analyzer import ConversationAnalyzer
+from .config_audit import get_auditor, log_startup_config
+from .delivery import OutboundQueue
 from .diagnostics import DiagnosticsRunner
 from .scheduler.proactive import ProactiveScheduler
 from .voice.transcriber import VoiceTranscriber
@@ -82,6 +90,9 @@ def main() -> None:
         settings.data_dir,
     )
 
+    # Log startup configuration to audit trail
+    log_startup_config()
+
     claude_client = ClaudeClient()
     mistral_client = MistralClient()
     moonshot_client = MoonshotClient()
@@ -90,6 +101,10 @@ def main() -> None:
     router = ModelRouter(claude_client, mistral_client, moonshot_client, ollama_client, db=db)
     session_manager = SessionManager()
     conv_store = ConversationStore(settings.sessions_dir)
+
+    # Outbound message queue for crash-safe delivery (OpenClaw pattern)
+    # Bot reference is set in post_init once PTB application is ready
+    outbound_queue = OutboundQueue(db_path=db.db_path, bot=None)
 
     # Board of Directors orchestrator (Phase 5)
     board_orchestrator = BoardOrchestrator(claude_client)
@@ -172,10 +187,10 @@ def main() -> None:
     except Exception as e:
         logger.warning("Google Workspace init failed: %s", e)
 
-    # Mutable container for late-binding the proactive scheduler.
+    # Mutable container for late-binding the proactive scheduler and outbound queue.
     # Must be defined before ToolRegistry so it can be passed in as scheduler_ref.
     # The /briefing proxy and tool executors read from this dict at call time.
-    _late: dict = {"proactive_scheduler": None}
+    _late: dict = {"proactive_scheduler": None, "outbound_queue": outbound_queue}
 
     # Tool registry — all tools wired in for natural language invocation.
     # Google Workspace clients may be None if not configured; tools degrade gracefully.
@@ -183,8 +198,6 @@ def main() -> None:
         logs_dir=settings.logs_dir,
         knowledge_store=knowledge_store,
         knowledge_extractor=knowledge_extractor,
-        goal_store=goal_store,       # legacy fallback during transition
-        fact_store=fact_store,       # legacy fallback during transition
         board_orchestrator=board_orchestrator,
         claude_client=claude_client,
         mistral_client=mistral_client,
@@ -227,6 +240,13 @@ def main() -> None:
         settings=settings,
     )
     _late["diagnostics_runner"] = diagnostics_runner
+
+    # Wire diagnostics runner and queue to health server for /diagnostics endpoint
+    set_diagnostics_runner(diagnostics_runner)
+    set_outbound_queue(outbound_queue)
+    # Hook manager is wired after import to avoid circular dependency
+    from .hooks import hook_manager
+    set_hook_manager(hook_manager)
 
     async def _briefing_proxy(update, context):
         """Late-bound /briefing handler — delegates to scheduler once available."""
@@ -277,6 +297,10 @@ def main() -> None:
         logger.info("SIGTERM received — shutting down")
         if _proactive_ref:
             _proactive_ref[0].stop()
+        # Stop outbound queue processor (sync wrapper for async stop)
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(outbound_queue.stop_processor())
         for task in _health_task:
             task.cancel()
         raise SystemExit(0)
@@ -297,6 +321,13 @@ def main() -> None:
         await db.init()
         await job_store.mark_interrupted()  # crash recovery: flip stale 'running' → 'failed'
         logger.info("Database initialised")
+
+        # Initialise outbound queue with bot reference and replay pending messages
+        outbound_queue.bot = app.bot
+        replayed = await outbound_queue.replay_on_startup()
+        if replayed > 0:
+            logger.info("Outbound queue: replaying %d pending messages", replayed)
+        outbound_queue.start_processor()
 
         # Wire proactive scheduler (requires live bot reference from PTB)
         sched = ProactiveScheduler(

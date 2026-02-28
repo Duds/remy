@@ -17,7 +17,6 @@ If that file doesn't exist, the scheduler runs silently.
 
 import logging
 import os
-import time
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -28,6 +27,12 @@ from apscheduler.triggers.date import DateTrigger
 from ..config import settings
 from ..memory.facts import FactStore
 from ..memory.goals import GoalStore
+from .briefings import (
+    MorningBriefingGenerator,
+    AfternoonFocusGenerator,
+    EveningCheckinGenerator,
+    MonthlyRetrospectiveGenerator,
+)
 
 if TYPE_CHECKING:
     from telegram import Bot
@@ -254,8 +259,8 @@ class ProactiveScheduler:
         try:
             self._scheduler.remove_job(job_id)
             logger.info("Removed automation job %s", job_id)
-        except Exception:
-            pass  # Job may not exist in scheduler (e.g. if scheduler was restarted)
+        except Exception as e:
+            logger.debug("Job %s not found in scheduler (may have been restarted): %s", job_id, e)
 
     def _register_automation_job(
         self, automation_id: int, user_id: int, label: str, cron: str,
@@ -406,84 +411,25 @@ class ProactiveScheduler:
             logger.debug("Morning briefing skipped — no primary chat ID set")
             return
 
-        logger.info("Sending morning briefing to chat %d", chat_id)
-
         user_ids = settings.telegram_allowed_users
         if not user_ids:
             logger.debug("Morning briefing skipped — no allowed users configured")
             return
 
-        all_goal_lines: list[str] = []
-        for uid in user_ids:
-            goals = await self._goal_store.get_active(uid, limit=10)
-            for g in goals:
-                line = f"• *{g['title']}*"
-                if g.get("description"):
-                    line += f" — {g['description']}"
-                all_goal_lines.append(line)
+        logger.info("Sending morning briefing to chat %d", chat_id)
 
-        now = datetime.now(timezone.utc).strftime("%A, %d %B")
-        extras = []
-        extras.append(f"☀️ *Good morning, Dale!* — {now}")
-
-        if all_goal_lines:
-            goals_text = "\n".join(all_goal_lines)
-            extras.append(f"Here's what you're working on:\n{goals_text}\n\nMake it count today. 💪")
-        else:
-            extras.append(
-                "You have no active goals tracked yet. "
-                "Tell me what you're working on and I'll help you stay on track."
-            )
-
-        # Today's calendar events
-        if self._calendar is not None:
-            try:
-                events = await self._calendar.list_events(days=1)
-                if events:
-                    event_lines = [self._calendar.format_event(e) for e in events[:5]]
-                    suffix = f"\n_({len(events) - 5} more)_" if len(events) > 5 else ""
-                    extras.append("📅 *Today's calendar:*\n" + "\n".join(event_lines) + suffix)
-                else:
-                    extras.append("📅 *Today's calendar:* Nothing scheduled.")
-            except Exception as e:
-                logger.debug("Could not load calendar for briefing: %s", e)
-
-        # Include tracked projects (personal bot — use first user's facts)
-        if self._fact_store is not None and user_ids:
-            try:
-                project_facts = await self._fact_store.get_by_category(user_ids[0], "project")
-                if project_facts:
-                    project_lines = [f"• `{pf['content']}`" for pf in project_facts[:3]]
-                    extras.append("📁 *Tracked projects:*\n" + "\n".join(project_lines))
-            except Exception as e:
-                logger.debug("Could not load project facts for briefing: %s", e)
-
-        # Upcoming birthdays (next 7 days)
-        if self._contacts is not None:
-            try:
-                from ..google.contacts import _extract_name
-                upcoming = await self._contacts.get_upcoming_birthdays(days=7)
-                if upcoming:
-                    bday_lines = []
-                    for bday_date, person in upcoming[:5]:
-                        name = _extract_name(person) or "Someone"
-                        bday_lines.append(f"• 🎂 *{name}* — {bday_date.strftime('%d %b')}")
-                    extras.append("*Upcoming birthdays:*\n" + "\n".join(bday_lines))
-            except Exception as e:
-                logger.debug("Could not load birthdays for briefing: %s", e)
-
-        # Downloads cleanup suggestion
-        downloads_msg = await self._downloads_suggestion()
-        if downloads_msg:
-            extras.append("\n" + downloads_msg)
-
-        # Stale plan steps needing attention
-        stale_steps_msg = await self._stale_plan_steps(user_ids[0] if user_ids else 0)
-        if stale_steps_msg:
-            extras.append(stale_steps_msg)
-
-        message = "\n\n".join(extras)
-        await self._send(chat_id, message)
+        generator = MorningBriefingGenerator(
+            user_id=user_ids[0],
+            goal_store=self._goal_store,
+            plan_store=self._plan_store,
+            fact_store=self._fact_store,
+            calendar=self._calendar,
+            contacts=self._contacts,
+            file_indexer=self._file_indexer,
+            claude=self._claude_client,
+        )
+        content = await generator.generate()
+        await self._send(chat_id, content)
 
     async def _afternoon_focus(self) -> None:
         """
@@ -501,89 +447,13 @@ class ProactiveScheduler:
         if not user_ids:
             return
 
-        # Grab top active goal
-        top_goal: str | None = None
-        try:
-            goals = await self._goal_store.get_active(user_ids[0], limit=5)
-            if goals:
-                top_goal = goals[0]["title"]
-        except Exception as e:
-            logger.debug("Could not load goals for afternoon focus: %s", e)
-
-        extras = ["🎯 *Afternoon focus check-in*"]
-
-        if top_goal:
-            extras.append(f"Your top priority right now: *{top_goal}*\nHow's it going?")
-        else:
-            extras.append(
-                "You haven't set any goals yet — tell me what you're working on "
-                "and I'll help you stay focused."
-            )
-
-        # Remaining calendar events today
-        if self._calendar is not None:
-            try:
-                events = await self._calendar.list_events(days=1)
-                now_utc = datetime.now(timezone.utc)
-                # Filter to events that haven't started yet (basic heuristic: check title)
-                remaining = events[:3] if events else []
-                if remaining:
-                    lines = [self._calendar.format_event(e) for e in remaining]
-                    extras.append("📅 *Still on today's schedule:*\n" + "\n".join(lines))
-            except Exception as e:
-                logger.debug("Could not load calendar for afternoon focus: %s", e)
-
-        extras.append("_3 focused hours before end of day — you've got this._")
-        await self._send(chat_id, "\n\n".join(extras))
-
-    async def _downloads_suggestion(self) -> str:
-        """Return a short message suggesting cleanup of ~/Downloads."""
-        from pathlib import Path
-        downloads = Path.home() / "Downloads"
-        if not downloads.exists():
-            return ""
-        old = [
-            f.name for f in downloads.iterdir()
-            if f.is_file() and f.stat().st_mtime < time.time() - 7 * 86400
-        ]
-        if not old:
-            return ""
-        lines = "\n".join(old[:10])
-        if len(old) > 10:
-            lines += f"\n…and {len(old) - 10} more files"
-        return f"🧹 *Downloads cleanup suggestion*\nThese files are older than a week:\n{lines}"
-
-    async def _stale_plan_steps(self, user_id: int) -> str:
-        """Return a message about plan steps that need attention."""
-        if self._plan_store is None or not user_id:
-            return ""
-        try:
-            stale = await self._plan_store.stale_steps(user_id, days=7)
-        except Exception as e:
-            logger.debug("Could not load stale plan steps: %s", e)
-            return ""
-        if not stale:
-            return ""
-
-        lines = ["📋 *Plans needing attention:*"]
-        for step in stale[:5]:
-            days_stale = 7
-            try:
-                updated = datetime.fromisoformat(step["step_updated_at"]).replace(tzinfo=timezone.utc)
-                days_stale = (datetime.now(timezone.utc) - updated).days
-            except (ValueError, KeyError):
-                pass
-
-            line = f"• *{step['plan_title']}* — Step {step.get('step_title', '?')}"
-            if step.get("last_attempt_outcome"):
-                line += f" (last attempt: {step['last_attempt_outcome']})"
-            line += f" — {days_stale} days since activity"
-            lines.append(line)
-
-        if len(stale) > 5:
-            lines.append(f"_…and {len(stale) - 5} more steps_")
-
-        return "\n".join(lines)
+        generator = AfternoonFocusGenerator(
+            user_id=user_ids[0],
+            goal_store=self._goal_store,
+            calendar=self._calendar,
+        )
+        content = await generator.generate()
+        await self._send(chat_id, content)
 
     async def _evening_checkin(self) -> None:
         """19:00 job — nudge about goals that haven't been mentioned recently."""
@@ -596,37 +466,17 @@ class ProactiveScheduler:
         if not user_ids:
             return
 
-        stale_lines: list[str] = []
-        cutoff = datetime.now(timezone.utc) - timedelta(days=_STALE_GOAL_DAYS)
-
-        for uid in user_ids:
-            goals = await self._goal_store.get_active(uid, limit=10)
-            for g in goals:
-                ts_str = g.get("updated_at") or g.get("created_at", "")
-                if not ts_str:
-                    continue
-                try:
-                    ts = datetime.fromisoformat(ts_str).replace(tzinfo=timezone.utc)
-                    if ts < cutoff:
-                        stale_lines.append(f"• *{g['title']}*")
-                except ValueError:
-                    continue
-
-        if not stale_lines:
-            logger.debug("Evening check-in: no stale goals, skipping send")
+        generator = EveningCheckinGenerator(
+            user_id=user_ids[0],
+            goal_store=self._goal_store,
+            stale_days=_STALE_GOAL_DAYS,
+        )
+        content = await generator.generate()
+        if not content:
             return
 
-        goals_text = "\n".join(stale_lines)
-        message = (
-            f"🌙 *Evening check-in*\n\n"
-            f"You haven't mentioned these goals in a while:\n{goals_text}\n\n"
-            f"Still working on them? Let me know how it's going."
-        )
-        logger.info(
-            "Sending evening check-in to chat %d (%d stale goals)",
-            chat_id, len(stale_lines),
-        )
-        await self._send(chat_id, message)
+        logger.info("Sending evening check-in to chat %d", chat_id)
+        await self._send(chat_id, content)
 
     async def _monthly_retrospective(self) -> None:
         """Last-day-of-month job — generate and send a monthly retrospective."""
@@ -634,24 +484,22 @@ class ProactiveScheduler:
         if chat_id is None:
             logger.debug("Monthly retrospective skipped — no primary chat ID set")
             return
-        if self._conversation_analyzer is None or self._claude_client is None:
-            logger.debug("Monthly retrospective skipped — analytics or Claude not configured")
-            return
 
         user_ids = settings.telegram_allowed_users
         if not user_ids:
             return
 
+        generator = MonthlyRetrospectiveGenerator(
+            user_id=user_ids[0],
+            claude=self._claude_client,
+            conversation_analyzer=self._conversation_analyzer,
+        )
+        content = await generator.generate()
+        if not content:
+            return
+
         logger.info("Sending monthly retrospective to chat %d", chat_id)
-        try:
-            retro = await self._conversation_analyzer.generate_retrospective(
-                user_ids[0], "month", self._claude_client
-            )
-            if len(retro) > 4000:
-                retro = retro[:4000] + "…"
-            await self._send(chat_id, retro)
-        except Exception as e:
-            logger.error("Monthly retrospective job failed: %s", e)
+        await self._send(chat_id, content)
 
     async def _reindex_files(self) -> None:
         """Nightly job — run incremental file indexing for home directory RAG."""

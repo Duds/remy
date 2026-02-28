@@ -84,8 +84,8 @@ async def log_api_call(
             if timing is not None:
                 _prom_observe_timing(timing)
             _prom_observe_cache_hit_rate(provider, model, cache_hit_rate, usage.cache_read_tokens)
-        except Exception:
-            pass  # Metrics are best-effort
+        except Exception as e:
+            logger.debug("Metrics recording failed (best-effort): %s", e)
 
     try:
         async with db.get_connection() as conn:
