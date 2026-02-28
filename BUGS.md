@@ -128,4 +128,179 @@ Introduced `in_tool_turn` boolean flag in `_stream_with_tools_path()`. Set to `T
 
 ## Open Bugs
 
-_(none)_
+### BUG-008 — Input validator false-positives on `&&` and "system prompt" in normal messages
+
+| Field           | Value                                              |
+| --------------- | -------------------------------------------------- |
+| **Date**        | 2026-02-28                                         |
+| **Reported by** | Remy (log analysis)                                |
+| **Severity**    | Low                                                |
+| **Status**      | Open                                               |
+| **Component**   | `remy/ai/input_validator.py`                       |
+| **Related**     | —                                                  |
+
+**Description**
+The validator fires WARNING-level "Potential shell injection" and "Potential prompt injection" alerts on legitimate messages from Dale. The alerts do not block anything (they are flag-only), but they pollute the log with false positives that make it harder to spot real incidents.
+
+**Observed false triggers (from logs):**
+- `Potential shell injection` on commit summaries pasted into chat — because they contain `&&` (e.g. `"Fixed two bugs && added feature"`)
+- `Potential prompt injection` on messages discussing the system prompt, e.g. `"Here's a summary of what landed in this commit: classifier.py…"` triggered by the `system.*prompt` pattern matching substrings in unrelated text.
+
+**Root Cause**
+
+In `input_validator.py`:
+
+```python
+_SHELL_INJECTION_PATTERN = re.compile(r"... &&|;;|& ...")  # && matches any text
+_PROMPT_INJECTION_PATTERNS = [
+    re.compile(r"system.*override|system.*prompt|administrator|root.*access", re.IGNORECASE),
+    ...
+]
+```
+
+`&&` is a common English usage (commit messages, code examples, prose) and should require more context to flag. `system.*prompt` matches any sentence that mentions "system" and "prompt" together, which is frequent in technical conversation with a developer-user.
+
+**Fix**
+- For `&&`: require it to be preceded or followed by a command-like token (e.g. `\w+\s*&&\s*\w+` where the surrounding words look like shell commands), or remove `&&` from the pattern entirely since `;;` already covers the meaningful shell-specific case.
+- For `system.*prompt`: tighten to require the phrase to appear in a clearly adversarial framing (e.g. `"ignore your system prompt"`, `"override the system prompt"`). Use a more specific pattern like `r"ignore.*system.*prompt|override.*system.*prompt"`.
+
+---
+
+### BUG-007 — `no such column: confidence` degrades all memory injection silently
+
+| Field           | Value                                              |
+| --------------- | -------------------------------------------------- |
+| **Date**        | 2026-02-28                                         |
+| **Reported by** | Remy (log analysis)                                |
+| **Severity**    | High                                               |
+| **Status**      | Open                                               |
+| **Component**   | `remy/memory/database.py`, `remy/memory/injector.py`, `remy/bot/handlers.py` |
+| **Related**     | —                                                  |
+
+**Description**
+Logs show repeated `Memory injection failed, using base prompt: no such column: confidence` warnings. When this occurs, `MemoryInjector.build_system_prompt()` falls back to the bare SOUL.md prompt — Remy has no access to facts, goals, or knowledge context for the session.
+
+**Root Cause**
+Migration 002 in `database.py` adds the `confidence` column to the `knowledge` table:
+
+```python
+"ALTER TABLE knowledge ADD COLUMN confidence REAL DEFAULT 1.0;",
+```
+
+The migration runner swallows all exceptions with a bare `except Exception: pass`:
+
+```python
+for migration_sql in _MIGRATIONS:
+    try:
+        await self._conn.execute(migration_sql)
+        await self._conn.commit()
+    except Exception:
+        pass  # Column/index already exists
+```
+
+If the migration fails for any reason other than "column already exists" (e.g. a locked DB on the Azure Files mount, a transient I/O error, or a prior connection issue during startup), the exception is silently discarded. The app starts normally, but every subsequent query against `knowledge` that references `confidence` raises `OperationalError: no such column: confidence`, which `handlers.py` catches and logs as a WARNING — falling back to the base prompt for the entire session.
+
+**Steps to Reproduce**
+1. Deploy with a `remy.db` that predates migration 002 (i.e. has `knowledge` table without `confidence` column).
+2. Arrange for the migration to fail silently (e.g. DB locked at startup under Azure Files).
+3. Observe: bot starts cleanly, no ERROR logged. Every message silently uses base prompt.
+
+**Expected Behaviour**
+Migration failures for any reason other than "already applied" should be logged at ERROR level with the SQL and the exception, so the issue is immediately visible. Memory injection should not silently degrade without a clear alert.
+
+**Actual Behaviour**
+Migration failure is swallowed. `no such column: confidence` surfaces only as a WARNING inside `build_context`, making the root cause (failed migration) invisible in the logs.
+
+**Fix**
+1. In the migration runner, distinguish "already applied" from unexpected failure:
+   ```python
+   for migration_sql in _MIGRATIONS:
+       try:
+           await self._conn.execute(migration_sql)
+           await self._conn.commit()
+       except aiosqlite.OperationalError as e:
+           if "already exists" not in str(e) and "duplicate column" not in str(e):
+               logger.error("Migration failed (SQL: %s): %s", migration_sql[:60], e)
+   ```
+2. In `handlers.py`, upgrade the memory injection fallback from WARNING to ERROR so operator is alerted when it happens.
+
+---
+
+### BUG-006 — `test_web_search_error_returns_empty` mock patch misses DDGS import
+
+| Field           | Value                                              |
+| --------------- | -------------------------------------------------- |
+| **Date**        | 2026-02-28                                         |
+| **Reported by** | test suite                                         |
+| **Severity**    | Low                                                |
+| **Status**      | Open                                               |
+| **Component**   | `tests/test_phase4.py`, `remy/web/search.py`       |
+| **Related**     | —                                                  |
+
+**Description**
+`test_web_search_error_returns_empty` patches `remy.web.search.DDGS` to raise a `RuntimeError`, expecting `web_search()` to swallow the error and return `[]`. Instead, the real DuckDuckGo library is called and returns real results, so the assertion `assert results == []` fails.
+
+**Root Cause**
+`DDGS` is imported *inside* the `_sync` closure (`from ddgs import DDGS`), not at module level. `patch("remy.web.search.DDGS", create=True)` injects a name into the `remy.web.search` module namespace, but because the local `from ddgs import DDGS` runs *after* the patch is in place it resolves `ddgs.DDGS` directly from the `ddgs` package — bypassing the module-level mock entirely.
+
+**Steps to Reproduce**
+```
+pytest tests/test_phase4.py::test_web_search_error_returns_empty -v
+```
+
+**Expected Behaviour**
+Test passes: mock intercepts the DDGS call, `RuntimeError` is raised inside `_sync`, `web_search` catches it, returns `[]`.
+
+**Actual Behaviour**
+Mock is ignored. Real DDGS is used. Real results returned. `AssertionError: assert [{'body': ...}] == []`.
+
+**Fix**
+Two options:
+1. Patch at the source: `patch("ddgs.DDGS", ...)` so all imports of `DDGS` from the `ddgs` package see the mock.
+2. (Preferred) Follow the same pattern as `test_web_search_returns_results` — patch `remy.web.search.asyncio.to_thread` with an `AsyncMock(side_effect=RuntimeError("rate limited"))` so the error is injected at the thread boundary, which is simpler and avoids chasing import paths.
+
+---
+
+### BUG-005 — `test_memory_injector` tests fail with stale `MemoryInjector` constructor signature
+
+| Field           | Value                                                                            |
+| --------------- | -------------------------------------------------------------------------------- |
+| **Date**        | 2026-02-28                                                                       |
+| **Reported by** | test suite                                                                       |
+| **Severity**    | Medium                                                                           |
+| **Status**      | Open                                                                             |
+| **Component**   | `tests/test_memory_injector.py`, `tests/test_memory_injector_extra.py`          |
+| **Related**     | —                                                                                |
+
+**Description**
+14 tests in `test_memory_injector.py` and `test_memory_injector_extra.py` error at setup with:
+
+```
+TypeError: MemoryInjector.__init__() takes 5 positional arguments but 6 were given
+```
+
+**Root Cause**
+A prior refactor replaced `fact_store` + `goal_store` with a unified `knowledge_store` in `MemoryInjector.__init__`. The current signature is:
+
+```python
+def __init__(self, db, embeddings, knowledge_store: KnowledgeStore, fts: FTSSearch)
+```
+
+Both test files still construct `MemoryInjector` using the old 5-arg signature:
+
+```python
+injector = MemoryInjector(db, embeddings, fact_store, goal_store, fts)  # wrong
+```
+
+**Fix**
+Update the `components` fixture in both test files to instantiate `KnowledgeStore` and pass it as the third argument:
+
+```python
+from remy.memory.knowledge import KnowledgeStore
+knowledge_store = KnowledgeStore(db, embeddings)
+injector = MemoryInjector(db, embeddings, knowledge_store, fts)
+```
+
+Remove the `FactStore` and `GoalStore` imports from the fixture if they are no longer needed. Verify that the existing test assertions still make sense against `KnowledgeStore` behaviour (facts and goals are now stored there).
+
+---
