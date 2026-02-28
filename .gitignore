@@ -1,20 +1,8 @@
 # Secrets & credentials
 .env
-data/client_secrets.json
-data/google_token.json
 
 # Runtime data (personal / generated)
-data/drbot.db
-data/drbot.db-wal
-data/drbot.db-shm
-data/remy.db
-data/remy.db-wal
-data/remy.db-shm
-data/sessions/
-data/logs/
-data/primary_chat_id.txt
-data/grocery_list.txt
-data/*.bak
+data/
 
 # Python
 __pycache__/
