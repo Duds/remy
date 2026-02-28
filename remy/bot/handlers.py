@@ -2034,14 +2034,13 @@ Start by introducing the audit and asking for the first identifier to check."""
 
                 try:
                     response_parts = []
+                    from ..ai.claude_client import TextChunk
                     async for event in claude_client.stream_with_tools(
                         messages=[{"role": "user", "content": initial_message}],
+                        tool_registry=tool_registry,
+                        user_id=user_id,
                         system=privacy_audit_system,
-                        tools=tool_registry.get_tool_schemas(),
-                        tool_executor=tool_registry.execute,
-                        max_tokens=1500,
                     ):
-                        from ..ai.claude_client import TextChunk
                         if isinstance(event, TextChunk):
                             response_parts.append(event.text)
 
@@ -2405,6 +2404,7 @@ Start by introducing the audit and asking for the first identifier to check."""
         system_prompt: str,
         session_key: str,
         sent,  # Initial Telegram message to stream into
+        chat_id: int | None = None,
     ) -> None:
         """
         Tool-aware streaming path using native Anthropic function calling.
@@ -2465,6 +2465,7 @@ Start by introducing the audit and asking for the first identifier to check."""
                 user_id=user_id,
                 system=system_prompt,
                 usage_out=usage,
+                chat_id=chat_id,
             ):
                 if not rotator_stopped:
                     await rotator.stop()
@@ -2692,12 +2693,21 @@ Start by introducing the audit and asking for the first identifier to check."""
             user_turn = ConversationTurn(role="user", content=text)
             await conv_store.append_turn(user_id, session_key, user_turn)
 
-            # Build system prompt with memory injection
+            # Get local hour for tone detection (time-of-day signals)
+            local_hour: int | None = None
+            try:
+                import zoneinfo
+                tz = zoneinfo.ZoneInfo(settings.scheduler_timezone)
+                local_hour = datetime.now(tz).hour
+            except Exception:
+                pass  # Fall back to None if timezone unavailable
+
+            # Build system prompt with memory injection and emotional context
             system_prompt = settings.soul_md
             if memory_injector is not None:
                 try:
                     system_prompt = await memory_injector.build_system_prompt(
-                        user_id, text, settings.soul_md
+                        user_id, text, settings.soul_md, local_hour=local_hour
                     )
                     # Sanitize injected memory to prevent prompt injection attacks
                     system_prompt = sanitize_memory_injection(system_prompt)
@@ -2744,6 +2754,7 @@ Start by introducing the audit and asking for the first identifier to check."""
                     system_prompt=system_prompt,
                     session_key=session_key,
                     sent=sent,
+                    chat_id=update.effective_chat.id if update.effective_chat else None,
                 )
                 # Clear task timer on completion (path A)
                 _task_start_times.pop(user_id, None)
@@ -2957,6 +2968,7 @@ Start by introducing the audit and asking for the first identifier to check."""
                     system_prompt=system_prompt,
                     session_key=session_key,
                     sent=sent,
+                    chat_id=update.effective_chat.id if update.effective_chat else None,
                 )
             else:
                 # Path B fallback: router (won't use image block but won't crash)
@@ -3102,6 +3114,7 @@ Start by introducing the audit and asking for the first identifier to check."""
                     system_prompt=system_prompt,
                     session_key=session_key,
                     sent=sent,
+                    chat_id=update.effective_chat.id if update.effective_chat else None,
                 )
             else:
                 # Path B fallback: router (won't use image block but won't crash)

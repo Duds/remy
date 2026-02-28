@@ -1713,10 +1713,18 @@ class ToolRegistry:
         """Return the proactive scheduler from the scheduler_ref dict."""
         return self._scheduler_ref.get("proactive_scheduler")
 
-    async def dispatch(self, tool_name: str, tool_input: dict, user_id: int) -> str:
+    async def dispatch(
+        self, tool_name: str, tool_input: dict, user_id: int, chat_id: int | None = None
+    ) -> str:
         """
         Execute the named tool with the given input.
         Returns a string result suitable for feeding back as a tool_result block.
+        
+        Args:
+            tool_name: Name of the tool to execute
+            tool_input: Tool parameters
+            user_id: Telegram user ID
+            chat_id: Optional Telegram chat ID (for tools that need chat context)
         """
         try:
             # Time
@@ -1829,7 +1837,7 @@ class ToolRegistry:
             elif tool_name == "delete_conversation":
                 return await self._exec_delete_conversation(user_id)
             elif tool_name == "set_proactive_chat":
-                return await self._exec_set_proactive_chat(user_id)
+                return await self._exec_set_proactive_chat(user_id, chat_id)
             # Project tracking
             elif tool_name == "set_project":
                 return await self._exec_set_project(tool_input, user_id)
@@ -3473,12 +3481,25 @@ class ToolRegistry:
             "Please use the /delete_conversation command directly to clear history."
         )
 
-    async def _exec_set_proactive_chat(self, user_id: int) -> str:
-        return (
-            "Setting the proactive chat requires access to the Telegram chat context, "
-            "which is not available in the tool context. "
-            "Please use the /setmychat command directly to set this chat for briefings."
-        )
+    async def _exec_set_proactive_chat(self, user_id: int, chat_id: int | None = None) -> str:
+        if chat_id is None:
+            return (
+                "Setting the proactive chat requires access to the Telegram chat context, "
+                "which is not available in the tool context. "
+                "Please use the /setmychat command directly to set this chat for briefings."
+            )
+        
+        from ..config import settings
+        import os
+        
+        path = settings.primary_chat_file
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        try:
+            with open(path, "w") as f:
+                f.write(str(chat_id))
+            return f"✅ This chat is now set for proactive messages (ID: {chat_id})"
+        except OSError as e:
+            return f"❌ Could not save chat setting: {e}"
 
     # ------------------------------------------------------------------ #
     # Project tracking executors                                           #

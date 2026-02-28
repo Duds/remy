@@ -342,7 +342,7 @@ class DiagnosticsRunner:
         
         try:
             # Count conversation files
-            sessions_dir = self._conv_store._sessions_dir
+            sessions_dir = self._conv_store.sessions_dir
             if os.path.exists(sessions_dir):
                 files = [f for f in os.listdir(sessions_dir) if f.endswith(".jsonl")]
                 count = len(files)

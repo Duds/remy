@@ -4,6 +4,7 @@ Memory injector — builds the <memory> XML block injected into Claude's system 
 Retrieves:
   - Top-5 semantically similar facts (ANN) or top-5 FTS keyword matches (fallback)
   - Top-3 active goals
+  - Emotional context (health issues, stressors, deadlines) for tone-aware responses
   - Formats as XML block appended after SOUL.md
 """
 
@@ -11,13 +12,16 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .database import DatabaseManager
 from .embeddings import EmbeddingStore
 from .fts import FTSSearch
 from .knowledge import KnowledgeStore
-from ..models import KnowledgeItem
+from ..models import EmotionalTone, KnowledgeItem
+
+if TYPE_CHECKING:
+    from ..ai.tone import ToneDetector
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +35,21 @@ class MemoryInjector:
         embeddings: EmbeddingStore,
         knowledge_store: KnowledgeStore,
         fts: FTSSearch,
+        tone_detector: "ToneDetector | None" = None,
     ) -> None:
         self._db = db
         self._embeddings = embeddings
         self._knowledge = knowledge_store
         self._fts = fts
+        self._tone_detector = tone_detector
 
     async def build_context(
-        self, user_id: int, current_message: str, min_confidence: float = 0.5
+        self,
+        user_id: int,
+        current_message: str,
+        min_confidence: float = 0.5,
+        emotional_tone: EmotionalTone | None = None,
+        local_hour: int | None = None,
     ) -> str:
         """
         Return a memory XML block to append to the system prompt.
@@ -47,6 +58,8 @@ class MemoryInjector:
         Args:
             min_confidence: Only include knowledge items at or above this threshold.
                             Defaults to 0.5 to exclude speculative extractions.
+            emotional_tone: Pre-detected emotional tone (if None, will detect)
+            local_hour: Hour in user's local timezone for tone detection
         """
         # Fetch relevant items from the unified store
         facts = await self._get_relevant_knowledge(user_id, current_message, "fact", limit=5, min_confidence=min_confidence)
@@ -54,8 +67,18 @@ class MemoryInjector:
         shopping = await self._get_relevant_knowledge(user_id, current_message, "shopping_item", limit=5, min_confidence=min_confidence)
         
         project_ctx = await self._get_project_context(user_id)
+        
+        # Detect emotional tone if not provided
+        detected_tone = emotional_tone
+        if detected_tone is None and self._tone_detector:
+            detected_tone = await self._tone_detector.detect_tone(
+                user_id, current_message, local_hour=local_hour
+            )
+        
+        # Get emotional context for tone-aware responses
+        emotional_ctx = await self._get_emotional_context(user_id, detected_tone)
 
-        if not facts and not goals and not shopping and not project_ctx:
+        if not facts and not goals and not shopping and not project_ctx and not emotional_ctx:
             return ""
 
         parts = ["<memory>"]
@@ -87,8 +110,94 @@ class MemoryInjector:
                 parts.append(f"    <item{id_attr}>{i.content}</item>")
             parts.append("  </shopping_list>")
 
+        # Add emotional context block
+        if emotional_ctx:
+            parts.append("  <emotional_context>")
+            if detected_tone:
+                parts.append(f"    <detected_tone>{detected_tone.value}</detected_tone>")
+            if emotional_ctx.get("health_issues"):
+                parts.append("    <health_context>")
+                for h in emotional_ctx["health_issues"][:3]:
+                    parts.append(f"      <issue>{h['content']}</issue>")
+                parts.append("    </health_context>")
+            if emotional_ctx.get("upcoming_deadlines"):
+                parts.append("    <deadline_pressure>")
+                for d in emotional_ctx["upcoming_deadlines"][:3]:
+                    parts.append(f"      <deadline>{d['content']}</deadline>")
+                parts.append("    </deadline_pressure>")
+            if emotional_ctx.get("recent_stressors"):
+                parts.append("    <recent_stressors>")
+                for s in emotional_ctx["recent_stressors"][:3]:
+                    parts.append(f"      <stressor>{s}</stressor>")
+                parts.append("    </recent_stressors>")
+            parts.append("  </emotional_context>")
+
         parts.append("</memory>")
         return "\n".join(parts)
+
+    async def _get_emotional_context(
+        self, user_id: int, tone: EmotionalTone | None
+    ) -> dict[str, Any]:
+        """
+        Retrieve emotional context relevant to the detected tone.
+        
+        Only fetches context when tone suggests it's relevant:
+        - STRESSED/VULNERABLE: health issues, deadlines, stressors
+        - TIRED: health issues
+        - NEUTRAL/PLAYFUL/CELEBRATORY: minimal context
+        """
+        result: dict[str, Any] = {}
+        
+        # Only fetch detailed context for emotionally charged tones
+        if tone not in (EmotionalTone.STRESSED, EmotionalTone.VULNERABLE, 
+                        EmotionalTone.TIRED, EmotionalTone.FRUSTRATED):
+            return result
+        
+        try:
+            facts = await self._knowledge.get_by_type(
+                user_id, "fact", limit=100, min_confidence=0.5
+            )
+            
+            # Health issues (relevant for stressed, vulnerable, tired)
+            health_facts = [
+                {"content": f.content, "category": f.metadata.get("category")}
+                for f in facts
+                if f.metadata.get("category") in ("health", "medical")
+            ]
+            if health_facts:
+                result["health_issues"] = health_facts
+            
+            # Deadlines (relevant for stressed, frustrated)
+            if tone in (EmotionalTone.STRESSED, EmotionalTone.FRUSTRATED):
+                deadline_facts = [
+                    {"content": f.content}
+                    for f in facts
+                    if f.metadata.get("category") == "deadline"
+                ]
+                if deadline_facts:
+                    result["upcoming_deadlines"] = deadline_facts
+            
+            # Semantic search for recent stressors
+            if tone == EmotionalTone.STRESSED and self._embeddings:
+                stress_results = await self._embeddings.search_similar_for_type(
+                    user_id,
+                    query="stress problem difficulty worry concern",
+                    source_type="knowledge_fact",
+                    limit=5,
+                    recency_boost=True,
+                )
+                recent_stressors = [
+                    r.get("content", "")
+                    for r in stress_results
+                    if r.get("distance", 1.0) < 0.4 and r.get("content")
+                ]
+                if recent_stressors:
+                    result["recent_stressors"] = recent_stressors
+                    
+        except Exception as e:
+            logger.debug("Failed to get emotional context: %s", e)
+        
+        return result
 
     async def _get_relevant_knowledge(
         self, user_id: int, query: str, entity_type: str, limit: int = 5, min_confidence: float = 0.5
@@ -176,12 +285,24 @@ class MemoryInjector:
         return results
 
     async def build_system_prompt(
-        self, user_id: int, current_message: str, soul_md: str, min_confidence: float = 0.5
+        self,
+        user_id: int,
+        current_message: str,
+        soul_md: str,
+        min_confidence: float = 0.5,
+        emotional_tone: EmotionalTone | None = None,
+        local_hour: int | None = None,
     ) -> str:
         """Return the full system prompt: SOUL.md + memory block."""
         from ..utils.tokens import estimate_tokens
 
-        memory_block = await self.build_context(user_id, current_message, min_confidence=min_confidence)
+        memory_block = await self.build_context(
+            user_id,
+            current_message,
+            min_confidence=min_confidence,
+            emotional_tone=emotional_tone,
+            local_hour=local_hour,
+        )
 
         if memory_block:
             full_prompt = f"{soul_md}\n\n{memory_block}"

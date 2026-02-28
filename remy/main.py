@@ -108,7 +108,16 @@ def main() -> None:
     # Unified Knowledge Store (supersedes fact_store + goal_store for new data)
     knowledge_store = KnowledgeStore(db, embeddings)
     knowledge_extractor = KnowledgeExtractor(claude_client)
-    memory_injector = MemoryInjector(db, embeddings, knowledge_store, fts)
+    
+    # Tone detector for affectionate language selection (Option A + C)
+    from .ai.tone import ToneDetector
+    tone_detector = ToneDetector(
+        knowledge_store=knowledge_store,
+        embeddings=embeddings,
+        claude_client=claude_client,
+    )
+    
+    memory_injector = MemoryInjector(db, embeddings, knowledge_store, fts, tone_detector)
     automation_store = AutomationStore(db)
     job_store = BackgroundJobStore(db)
     plan_store = PlanStore(db)

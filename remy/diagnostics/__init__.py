@@ -16,6 +16,7 @@ from .logs import (
     get_session_start,
     get_session_start_line,
     since_dt,
+    _since_dt,
 )
 
 # Trigger phrase regex — case-insensitive, punctuation-flexible
@@ -44,4 +45,5 @@ __all__ = [
     "get_session_start",
     "get_session_start_line",
     "since_dt",
+    "_since_dt",
 ]

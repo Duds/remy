@@ -3,9 +3,22 @@ Pydantic v2 data models for remy.
 """
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+class EmotionalTone(str, Enum):
+    """Detected emotional tone of a conversation, used for affectionate language selection."""
+    NEUTRAL = "neutral"
+    WARM = "warm"
+    PLAYFUL = "playful"
+    STRESSED = "stressed"
+    CELEBRATORY = "celebratory"
+    VULNERABLE = "vulnerable"
+    FRUSTRATED = "frustrated"
+    TIRED = "tired"
 
 
 class ConversationTurn(BaseModel):
@@ -13,6 +26,7 @@ class ConversationTurn(BaseModel):
     content: str
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     model_used: Optional[str] = None
+    emotional_tone: Optional[EmotionalTone] = None
 
 
 class SessionContext(BaseModel):
