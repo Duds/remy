@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from .base import reject_unauthorized
 from ...config import settings
+from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...memory.facts import FactStore
@@ -55,7 +56,7 @@ def make_web_handlers(
         msg = f"🔍 *Results for \"{query}\":*\n\n" + format_results(results)
         if len(msg) > 4000:
             msg = msg[:4000] + "…"
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await update.message.reply_text(format_telegram_message(msg), parse_mode="MarkdownV2")
 
     async def research_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/research <topic> — web search + Claude synthesis of findings."""
@@ -108,7 +109,7 @@ def make_web_handlers(
             msg = f"📚 *Research: {topic}*\n\n{synthesis}"
             if len(msg) > 4000:
                 msg = msg[:4000] + "…"
-            await update.message.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(format_telegram_message(msg), parse_mode="MarkdownV2")
         except Exception as e:
             await wm.stop()
             await update.message.reply_text(f"❌ Could not synthesise results: {e}")
@@ -264,7 +265,7 @@ def make_web_handlers(
             msg = f"🏷 *Price check: {item}*\n\n{analysis}"
             if len(msg) > 4000:
                 msg = msg[:4000] + "…"
-            await update.message.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(format_telegram_message(msg), parse_mode="MarkdownV2")
         except Exception as e:
             await update.message.reply_text(f"❌ Could not analyse prices: {e}")
 

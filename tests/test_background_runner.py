@@ -42,7 +42,7 @@ async def test_run_sends_result_to_chat():
     bot = make_bot()
     runner = BackgroundTaskRunner(bot, chat_id=42)
     await runner.run(ok_coro("hello"), label="test")
-    bot.send_message.assert_awaited_once_with(42, "hello", parse_mode="Markdown")
+    bot.send_message.assert_awaited_once_with(42, "hello", parse_mode="MarkdownV2")
 
 
 @pytest.mark.asyncio
@@ -98,4 +98,4 @@ async def test_create_task_integration():
     runner = BackgroundTaskRunner(bot, chat_id=5)
     task = asyncio.create_task(runner.run(ok_coro("result"), label="integration"))
     await task
-    bot.send_message.assert_awaited_once_with(5, "result", parse_mode="Markdown")
+    bot.send_message.assert_awaited_once_with(5, "result", parse_mode="MarkdownV2")

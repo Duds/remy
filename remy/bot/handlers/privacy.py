@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 from .base import reject_unauthorized
 from ..session import SessionManager
 from ...models import ConversationTurn
+from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...memory.conversations import ConversationStore
@@ -123,14 +124,16 @@ Start by introducing the audit and asking for the first identifier to check."""
 
                 if response:
                     await sent.edit_text(
-                        f"🔒 *Privacy Audit*\n\n{response}",
-                        parse_mode="Markdown",
+                        format_telegram_message(f"🔒 *Privacy Audit*\n\n{response}"),
+                        parse_mode="MarkdownV2",
                     )
                 else:
                     await sent.edit_text(
-                        "🔒 *Privacy Audit*\n\nReady to begin. What name, email, or username "
-                        "would you like me to check first?",
-                        parse_mode="Markdown",
+                        format_telegram_message(
+                            "🔒 *Privacy Audit*\n\nReady to begin. What name, email, or username "
+                            "would you like me to check first?"
+                        ),
+                        parse_mode="MarkdownV2",
                     )
             else:
                 try:
@@ -150,8 +153,8 @@ Start by introducing the audit and asking for the first identifier to check."""
                 )
 
                 await update.message.reply_text(
-                    f"🔒 *Privacy Audit*\n\n{response}",
-                    parse_mode="Markdown",
+                    format_telegram_message(f"🔒 *Privacy Audit*\n\n{response}"),
+                    parse_mode="MarkdownV2",
                 )
 
     return {

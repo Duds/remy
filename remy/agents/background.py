@@ -30,6 +30,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ..utils.telegram_formatting import format_telegram_message
+
 if TYPE_CHECKING:
     from ..bot.working_message import WorkingMessage
 
@@ -81,11 +83,15 @@ class BackgroundTaskRunner:
                 return
             # Split long results into multiple messages
             for i in range(0, len(result), _MAX_MESSAGE_LENGTH):
-                await self._bot.send_message(
-                    self._chat_id,
-                    result[i : i + _MAX_MESSAGE_LENGTH],
-                    parse_mode="Markdown",
-                )
+                chunk = result[i : i + _MAX_MESSAGE_LENGTH]
+                try:
+                    await self._bot.send_message(
+                        self._chat_id,
+                        format_telegram_message(chunk),
+                        parse_mode="MarkdownV2",
+                    )
+                except Exception:
+                    await self._bot.send_message(self._chat_id, chunk)
         except Exception:
             logger.exception("Background task %r failed", label)
 

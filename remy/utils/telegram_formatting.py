@@ -346,36 +346,61 @@ def _fix_markdown_formatting(text: str) -> str:
     return text
 
 
+def _normalize_commonmark_to_telegram(text: str) -> str:
+    """
+    Convert Claude's CommonMark/GFM formatting to Telegram MarkdownV2 syntax.
+
+    Claude outputs:
+      **bold**   (double asterisk bold — CommonMark)
+      *italic*   (single asterisk italic — CommonMark, but rare in Claude output)
+      _italic_   (underscore italic — same in both, no change needed)
+
+    Telegram MarkdownV2 uses:
+      *bold*     (single asterisk bold)
+      _italic_   (underscore italic)
+
+    This must run AFTER code block extraction so we don't mangle code content.
+    """
+    # **bold** → *bold*  (CommonMark double-asterisk → Telegram single-asterisk)
+    # Non-greedy, single-line match (don't span across blank lines)
+    text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
+    return text
+
+
 def format_telegram_message(text: str) -> str:
     """
     Format text for Telegram MarkdownV2 compliance.
-    
+
     Processing order:
     1. Extract code blocks (preserve them untouched)
-    2. Convert tables to lists
-    3. Convert headers to bold/italic hierarchy
-    4. Escape special characters (preserving our formatting markers)
-    5. Restore code blocks
-    
+    2. Normalise CommonMark → Telegram syntax (**bold** → *bold*)
+    3. Convert tables to lists
+    4. Convert headers to bold/italic hierarchy
+    5. Escape special characters (preserving our formatting markers)
+    6. Restore code blocks
+
     Args:
         text: Raw Markdown text from Claude or other source
-        
+
     Returns:
         MarkdownV2-compliant text safe for Telegram
     """
     if not text:
         return ""
-    
+
     # 1. Extract code blocks to protect them from processing
     text, placeholders = _extract_code_blocks(text)
-    
-    # 2. Convert tables to lists (before escaping, so we can use * for bold)
+
+    # 2. Normalise CommonMark formatting (Claude uses **bold**, Telegram wants *bold*)
+    text = _normalize_commonmark_to_telegram(text)
+
+    # 3. Convert tables to lists (before escaping, so we can use * for bold)
     text = _convert_tables_to_lists(text)
-    
-    # 3. Convert headers (before escaping, so we can use * and _)
+
+    # 4. Convert headers (before escaping, so we can use * and _)
     text = _convert_headers(text)
-    
-    # 4. Now escape special characters in non-code portions
+
+    # 5. Now escape special characters in non-code portions
     # Split by placeholders, escape the non-placeholder parts
     parts = re.split(r'(CODEBLOCK\d+CODEBLOCK)', text)
     escaped_parts = []
@@ -385,11 +410,11 @@ def format_telegram_message(text: str) -> str:
         else:
             escaped_parts.append(_escape_text_content(part))
     text = ''.join(escaped_parts)
-    
-    # 5. Restore code blocks
+
+    # 6. Restore code blocks
     text = _restore_code_blocks(text, placeholders)
-    
-    # 6. Final fixes for edge cases
+
+    # 7. Final fixes for edge cases
     text = _fix_markdown_formatting(text)
-    
+
     return text

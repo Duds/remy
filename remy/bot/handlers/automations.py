@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from .base import reject_unauthorized
 from ..session import SessionManager
+from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...agents.orchestrator import BoardOrchestrator
@@ -266,8 +267,8 @@ def make_automation_handlers(
 
         plan_text = response if isinstance(response, str) else str(response)
         await sent.edit_text(
-            f"📋 *Breaking down:* _{task}_\n\n{plan_text}",
-            parse_mode="Markdown",
+            format_telegram_message(f"📋 *Breaking down:* _{task}_\n\n{plan_text}"),
+            parse_mode="MarkdownV2",
         )
 
     async def board_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
