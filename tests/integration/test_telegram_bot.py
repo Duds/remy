@@ -84,6 +84,7 @@ def sample_handlers():
         "voice": AsyncMock(),
         "photo": AsyncMock(),
         "document": AsyncMock(),
+        "reaction": AsyncMock(),
     }
 
 

@@ -201,3 +201,78 @@ async def test_build_context_uses_fts_fallback_when_ann_unavailable(db, componen
     # ANN is disabled (no sqlite-vec), so this exercises the fallback path
     result = await injector.build_context(1, "dark mode")
     assert "dark mode" in result.lower() or "Uses dark" in result
+
+
+# --------------------------------------------------------------------------- #
+# _get_project_context path validation                                         #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_get_project_context_skips_non_path_content(db, components):
+    """Project facts with descriptions (not paths) should be skipped, not cause errors."""
+    knowledge_store = components["knowledge_store"]
+    injector = components["injector"]
+
+    # Store a project fact that contains a description, not a path
+    long_description = (
+        "Dale is working with DCCEEW on the Environment Regulation Division AI "
+        "Modern Front Door project. It's the first in a full range of EPBC Act "
+        "end-to-end digital transformation."
+    )
+    await knowledge_store.upsert(1, [
+        KnowledgeItem(
+            entity_type="fact",
+            content=long_description,
+            metadata={"category": "project"}
+        )
+    ])
+
+    # This should NOT raise an error (previously caused [Errno 36] File name too long)
+    result = await injector._get_project_context(1)
+    assert result == []  # No valid project paths, so empty list
+
+
+@pytest.mark.asyncio
+async def test_get_project_context_skips_content_over_255_chars(db, components):
+    """Project facts longer than 255 chars should be skipped (OS filename limit)."""
+    knowledge_store = components["knowledge_store"]
+    injector = components["injector"]
+
+    # Create a path-like string that exceeds 255 characters
+    long_path = "/Users/test/" + "a" * 250  # ~262 chars total
+    await knowledge_store.upsert(1, [
+        KnowledgeItem(
+            entity_type="fact",
+            content=long_path,
+            metadata={"category": "project"}
+        )
+    ])
+
+    result = await injector._get_project_context(1)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_project_context_accepts_valid_paths(db, components, tmp_path):
+    """Valid project paths with README.md should be processed."""
+    knowledge_store = components["knowledge_store"]
+    injector = components["injector"]
+
+    # Create a real directory with README.md
+    project_dir = tmp_path / "my_project"
+    project_dir.mkdir()
+    readme = project_dir / "README.md"
+    readme.write_text("# My Project\n\nThis is a test project.")
+
+    await knowledge_store.upsert(1, [
+        KnowledgeItem(
+            entity_type="fact",
+            content=str(project_dir),
+            metadata={"category": "project"}
+        )
+    ])
+
+    result = await injector._get_project_context(1)
+    assert len(result) == 1
+    assert "project_context" in result[0]["category"]
+    assert "My Project" in result[0]["content"]

@@ -196,7 +196,7 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Filter by category: name, location, occupation, health, medical, "
-                        "finance, hobby, relationship, preference, deadline, project, other. "
+                        "finance, hobby, relationship, preference, deadline, project, workflow, other. "
                         "Omit for all categories."
                     ),
                 },
@@ -891,7 +891,8 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Fact category: name, location, occupation, health, medical, "
-                        "finance, hobby, relationship, preference, deadline, project, other. "
+                        "finance, hobby, relationship, preference, deadline, project, workflow, other. "
+                        "Use 'workflow' for multi-step process state (onboarding, audits, reviews). "
                         "Required for add; optional for update (keeps existing if omitted)."
                     ),
                 },

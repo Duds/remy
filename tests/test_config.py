@@ -43,7 +43,11 @@ def test_azure_data_dir(monkeypatch):
 
 
 def test_soul_md_fallback(monkeypatch, tmp_path):
-    s = make_settings(monkeypatch, SOUL_MD_PATH=str(tmp_path / "nonexistent.md"))
+    s = make_settings(
+        monkeypatch,
+        SOUL_MD_PATH=str(tmp_path / "nonexistent.md"),
+        SOUL_PREFER_COMPACT="false",
+    )
     soul = s.soul_md
     assert "remy" in soul.lower() or "assistant" in soul.lower()
 
@@ -51,7 +55,11 @@ def test_soul_md_fallback(monkeypatch, tmp_path):
 def test_soul_md_loads_file(monkeypatch, tmp_path):
     soul_file = tmp_path / "SOUL.md"
     soul_file.write_text("You are the test bot.")
-    s = make_settings(monkeypatch, SOUL_MD_PATH=str(soul_file))
+    s = make_settings(
+        monkeypatch,
+        SOUL_MD_PATH=str(soul_file),
+        SOUL_PREFER_COMPACT="false",
+    )
     assert s.soul_md == "You are the test bot."
 
 

@@ -70,6 +70,11 @@ class StreamingReply:
     async def finalize(self) -> None:
         """Send the final accumulated text without the '…' suffix."""
         await self._flush(in_progress=False)
+        # If the final edit failed (e.g. transient Telegram disconnect), the in-progress
+        # " …" suffix may still be showing in the message. Retry once after a short delay.
+        if self._last_sent and self._last_sent.endswith(" …"):
+            await asyncio.sleep(0.5)
+            await self._flush(in_progress=False)
 
     async def _flush(self, in_progress: bool) -> None:
         """Edit the current Telegram message with accumulated text."""

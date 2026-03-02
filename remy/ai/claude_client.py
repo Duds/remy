@@ -29,7 +29,8 @@ _RETRY_BASE_DELAY = 2.0  # seconds
 # Rate-limit retries use longer delays since the window resets every 60s
 _RATE_LIMIT_RETRY_DELAYS = [30.0, 60.0]  # seconds between attempts 1→2 and 2→3
 # Maximum tool-call iterations before breaking the agentic loop
-_MAX_TOOL_ITERATIONS = 5
+# Increased from 5 to 8 to support multi-step research tasks (directory crawls, etc.)
+_MAX_TOOL_ITERATIONS = 8
 
 # Minimum system prompt length to enable caching (Anthropic requires 1024+ tokens)
 _MIN_CACHE_TOKENS = 1024

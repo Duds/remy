@@ -197,6 +197,16 @@ _Last updated: see file history_
 
 ---
 
+## Bug 16: primp impersonation header warning
+
+- **Symptom:** `[WARNING] primp.impersonate: Impersonate 'chrome_114' does not exist, using 'random'` — logged repeatedly during web requests.
+- **Cause:** `chrome_114` is not a valid impersonation target in the current version of `primp`.
+- **Fix:** Update the impersonation string to a valid value (e.g. `chrome_120`) or remove the explicit impersonation and rely on the `random` fallback intentionally.
+- **Priority:** Low
+- **Status:** Open
+
+---
+
 ## Bug 17: Final message edit strips MarkdownV2 rendering
 
 - **Symptom:** During streaming, markdown renders correctly (bold, italic etc.) in Telegram. When the final message is settled, the text reverts to raw markdown symbols (e.g. `*bold*` instead of **bold**).
@@ -209,10 +219,73 @@ _Last updated: see file history_
 
 ---
 
-## Bug 16: primp impersonation header warning
+## Bug 18: Bot responses re-ingested as user input — infinite loop
 
-- **Symptom:** `[WARNING] primp.impersonate: Impersonate 'chrome_114' does not exist, using 'random'` — logged repeatedly during web requests.
-- **Cause:** `chrome_114` is not a valid impersonation target in the current version of `primp`.
-- **Fix:** Update the impersonation string to a valid value (e.g. `chrome_120`) or remove the explicit impersonation and rely on the `random` fallback intentionally.
-- **Priority:** Low
+- **Symptom:** Remy's own responses are fed back into the message handler as new user messages. Each response triggers another response, which is again re-ingested, creating an exponentially deepening loop. User sees Remy apparently "repeating the question" and then asking why the question is being repeated, recursively.
+- **Impact:** Bot becomes completely unusable until restarted. Loop continues indefinitely.
+- **Root cause:** Telegram `RemoteProtocolError` disconnects (see Bug 6) cause the bot to retry message delivery. During retry, the message origin check is not filtering outbound messages sent by the bot itself — likely because the bot's own `user_id` is not being checked against `message.from_user.id` before dispatching to the message handler.
+- **Evidence:**
+  - Two `RemoteProtocolError` warnings logged this session
+  - Input validator flagged one of Remy's own outbound messages as a shell injection attempt — confirms outbound messages are passing through the inbound validation pipeline
+- **Likely location:** `remy/bot/telegram_bot.py` or `remy/bot/handlers.py` — message dispatch / update handler
+- **Fix:** Before dispatching any incoming `Message` update to the handler, check `message.from_user.id == context.bot.id` and discard if true. Bot messages should never be treated as user input.
+- **Priority:** Critical
+- **Status:** 🔴 Open
+- **Reported:** 2026-03-02
+
+---
+
+## Bug 19: Morning briefing uses stale date when scheduler fires late
+
+- **Symptom:** Morning briefing greets the user with yesterday's date when the scheduled job misfires and fires late.
+- **Evidence:** `apscheduler` warning logged: `Run time of job "ProactiveScheduler._morning_briefing" was missed by [N]` — when the catch-up fires, the date string had already been computed at schedule time (the previous day).
+- **Root cause:** The date/day string passed into the briefing message is computed eagerly when the job is *registered* or *built*, not lazily at the moment the message is *sent*. When APScheduler catches up a missed job, the pre-baked date is stale.
+- **Related:** Bug 7 (missed jobs / coalesce). Bug 7's fix prevents multiple catch-up fires, but doesn't fix the stale date on the single catch-up fire that does run.
+- **Fix:** Compute the current date inside `_morning_briefing()` (and any other proactive message that includes a date) at the moment of execution — not at registration time. Use `datetime.now(tz)` inside the function body, not outside it.
+- **Priority:** Medium
+- **Status:** 🔴 Open
+- **Reported:** 2026-03-02
+
+---
+
+## Bug 12: Reaction handler silently drops reply — orphaned `tool_use_id`
+
+- **Symptom:** Remy executes a tool (e.g. `manage_memory`) and stores the result successfully, but no reply is sent to the user. The conversation appears to go silent.
+- **Impact:** User receives no confirmation or response after tool use. High confusion — task appears to have failed when it succeeded.
+- **Root cause:** The reaction handler calls Claude with a message that contains a `tool_result` block whose `tool_use_id` has no corresponding `tool_use` block in the preceding message. Claude returns `400 invalid_request_error: unexpected tool_use_id found in tool_result blocks`. The exception is caught but the reply is never delivered.
+- **Error:** `messages.0.content.0: unexpected tool_use_id found in tool_result blocks: toolu_01JWHGfpNBhZDx4w8. Each tool_result block must have a corresponding tool_use block in the previous message.`
+- **Location:** `remy/bot/handlers/reactions.py` — reaction handler Claude call
+- **Priority:** High
 - **Status:** Open
+- **Reported:** 2026-03-02
+
+---
+
+## Bug 13: Incomplete chunked read from Claude API causes dropped response
+
+- **Symptom:** Response takes an unusually long time, then either arrives late or is missing entirely. Logged as `stream_with_tools error`.
+- **Impact:** User experiences slow or silent Remy. Compounds with Telegram disconnections (see Bug 6) to create multi-second dead periods.
+- **Root cause:** Claude API closes the streaming connection before the full response body is sent — `peer closed connection without sending complete message body (incomplete chunked read)`. No retry logic exists for mid-stream connection drops.
+- **Error:** `remy.bot.handlers.chat: stream_with_tools error for user 8138498165: peer closed connection without sending complete message body (incomplete chunked read)`
+- **Location:** `remy/bot/handlers/chat.py` — `stream_with_tools` error handler
+- **Priority:** Medium
+- **Status:** Open
+- **Reported:** 2026-03-02
+
+---
+
+## Bug 12 — Amendment (2026-03-02)
+
+**Additional requirement for fix:** The reaction handler must also handle the case where no reaction is needed. Currently the handler always attempts to call Claude to decide on a reaction, which means every message triggers a Claude call and risks the orphaned `tool_use_id` error. The fix should include a no-op / early-exit path so that when Claude determines no reaction is warranted, the handler exits cleanly without making a tool call at all. This avoids unnecessary API calls and eliminates the surface area for the malformed message bug.
+
+---
+
+## Bug 14: Reaction handler always attempts a reaction — no no-op path
+
+- **Symptom:** Every user message triggers a Claude call in the reaction handler, even for messages that warrant no reaction (e.g. simple thumbs-up acknowledgements from the user, confirmations, or reactions to reactions).
+- **Impact:** Unnecessary API calls on every message; compounds Bug 12 by increasing the frequency of the malformed `tool_use_id` error.
+- **Root cause:** The reaction handler has no early-exit or no-op path. Claude is always called and always expected to emit a `react_to_message` tool call. There is no supported return path for "no reaction needed."
+- **Location:** `remy/bot/handlers/reactions.py`
+- **Priority:** Medium
+- **Status:** Open
+- **Reported:** 2026-03-02
