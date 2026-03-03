@@ -190,7 +190,7 @@ class ProactiveScheduler:
                     trigger=reindex_trigger,
                     id="reindex_files",
                     replace_existing=True,
-                    misfire_grace_time=3600,
+                    misfire_grace_time=7200,
                     coalesce=True,
                 )
                 logger.info("File reindex job scheduled: %s", reindex_cron)

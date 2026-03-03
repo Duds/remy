@@ -383,13 +383,26 @@ _Last updated: see file history_
 
 ---
 
-## Bug 19: Anthropic `overloaded_error` drops message with no retry and no user feedback
+## Bug 30: Anthropic `overloaded_error` drops message with no retry and no user feedback
 
 - **Symptom:** `stream_with_tools error for user 8138498165: {'type': 'error', 'error': {'details': None, 'type': 'overloaded_error', 'message': 'Overloaded'}}` — user's message silently dropped.
 - **Impact:** User gets no response at all. No error message, no retry attempt. From Dale's perspective, Remy just went quiet.
 - **Root cause:** `stream_with_tools` catches the exception and logs it, but does not: (a) retry with exponential backoff, or (b) send a user-facing fallback message indicating the service is temporarily unavailable.
 - **Priority:** High
-- **Status:** 🔍 Investigating
+- **Status:** ✅ Fixed
 - **Location:** `remy/bot/handlers/chat.py` — exception handler in `stream_with_tools`
-- **Suggested fix:** On `overloaded_error`: wait 5–10s and retry once. If the retry also fails, send a plain-text message: "Anthropic is overloaded right now — please try again in a moment." Log the event at WARNING not ERROR (it's transient, not a bug in our code). Consider implementing a shared retry wrapper for all Anthropic transient errors (`overloaded_error`, `api_error` 529) alongside the existing chunked-read handling from Bug 17.
+- **Fix:** Added `overloaded_error` detection in the chat.py error handler. Now shows friendly message "I'm briefly overloaded on my end — please try again in a moment. 🙏" and logs at WARNING (not ERROR) since this is a transient Anthropic service issue. Retry logic was already present in `claude_client.py` for `APIStatusError 5xx`.
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 31: Calendar briefing shows raw past start date for ongoing multi-day all-day events
+
+- **Symptom:** Morning briefing shows `• 2026-02-27 — Alex Care` on a March 3rd briefing — the date is 4 days old.
+- **Impact:** Confusing briefing — looks like stale data or a past event rather than an ongoing event block.
+- **Root cause:** `CalendarClient.format_event()` calls `_parse_event_start()` which unconditionally returns `start.date` for all-day events. For multi-day events (e.g. "Alex Care" spanning Feb 27–Mar 4), the API correctly returns the event because it's ongoing, but the formatter shows the raw start date even when it's in the past.
+- **Priority:** Low
+- **Status:** ✅ Fixed
+- **Location:** `remy/google/calendar.py` — `_parse_event_start()` and `format_event()`
+- **Fix:** Added `today` parameter to `_parse_event_start()`. When an all-day event's start date is before today, returns `"(ongoing)"` instead of the raw past date. `format_event()` now passes `datetime.now(timezone.utc).date()` as `today`.
 - **Reported:** 2026-03-03

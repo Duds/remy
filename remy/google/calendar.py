@@ -6,7 +6,9 @@ Thin async wrapper around the synchronous google-api-python-client.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
 
 from .base import with_google_resilience
 
@@ -18,8 +20,12 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
 
-def _parse_event_start(start: dict) -> str:
-    """Return a human-readable time string from an event start dict."""
+def _parse_event_start(start: dict, today: date | None = None) -> str:
+    """Return a human-readable time string from an event start dict.
+
+    For all-day events that started before `today`, returns "(ongoing)" so the
+    briefing doesn't display a stale past date for multi-day spanning events.
+    """
     dt_str = start.get("dateTime")
     if dt_str:
         try:
@@ -28,7 +34,15 @@ def _parse_event_start(start: dict) -> str:
         except Exception:
             return dt_str
     # All-day event
-    return start.get("date", "")
+    date_str = start.get("date", "")
+    if today and date_str:
+        try:
+            event_date = date.fromisoformat(date_str)
+            if event_date < today:
+                return "(ongoing)"
+        except ValueError:
+            pass
+    return date_str
 
 
 class CalendarClient:
@@ -96,7 +110,8 @@ class CalendarClient:
     def format_event(self, event: dict) -> str:
         """Return a single-line summary of a calendar event."""
         title = event.get("summary", "(no title)")
-        start = _parse_event_start(event.get("start", {}))
+        today = datetime.now(timezone.utc).date()
+        start = _parse_event_start(event.get("start", {}), today=today)
         location = event.get("location", "")
         loc_suffix = f" @ {location}" if location else ""
         return f"• {start} — {title}{loc_suffix}"

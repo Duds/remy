@@ -329,9 +329,15 @@ def make_chat_handlers(
                     continue
                 if not rotator_stopped:
                     await rotator.stop()
-                logger.error("stream_with_tools error for user %d: %s", user_id, exc)
+                err_str = str(exc)
+                if "overloaded_error" in err_str or "overloaded" in err_str.lower():
+                    logger.warning("stream_with_tools overloaded for user %d: %s", user_id, exc)
+                    user_msg = "I'm briefly overloaded on my end — please try again in a moment. 🙏"
+                else:
+                    logger.error("stream_with_tools error for user %d: %s", user_id, exc)
+                    user_msg = f"Sorry, something went wrong: {exc}"
                 try:
-                    await sent.edit_text(f"Sorry, something went wrong: {exc}")
+                    await sent.edit_text(user_msg)
                 except Exception:
                     pass
                 return
