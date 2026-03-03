@@ -16,10 +16,7 @@ logger = logging.getLogger(__name__)
 async def exec_read_emails(registry: ToolRegistry, inp: dict) -> str:
     """Fetch unread emails from Gmail."""
     if registry._gmail is None:
-        return (
-            "Gmail not configured. "
-            "Run scripts/setup_google_auth.py to set it up."
-        )
+        return "Gmail not configured. Run scripts/setup_google_auth.py to set it up."
     summary_only = bool(inp.get("summary_only", False))
     limit = min(int(inp.get("limit", 5)), 20)
 
@@ -65,7 +62,10 @@ async def exec_search_gmail(registry: ToolRegistry, inp: dict) -> str:
             return str(e)
     try:
         emails = await registry._gmail.search(
-            query, max_results=max_results, include_body=include_body, label_ids=label_ids
+            query,
+            max_results=max_results,
+            include_body=include_body,
+            label_ids=label_ids,
         )
         scope = f" in {', '.join(label_names)}" if label_names else ""
         if not emails:
@@ -77,7 +77,9 @@ async def exec_search_gmail(registry: ToolRegistry, inp: dict) -> str:
             date = m.get("date", "")
             mid = m.get("id", "")
             snippet = sanitize_memory_injection((m.get("snippet") or "")[:150])
-            entry = f"• [{mid}] {date}\n  From: {sender}\n  Subject: {subj}\n  {snippet}"
+            entry = (
+                f"• [{mid}] {date}\n  From: {sender}\n  Subject: {subj}\n  {snippet}"
+            )
             if include_body and m.get("body"):
                 body = sanitize_memory_injection(m["body"])
                 entry += f"\n\n  [Body]\n{body}"
@@ -121,17 +123,17 @@ async def exec_list_gmail_labels(registry: ToolRegistry, inp: dict) -> str:
         return "Gmail not configured. Run scripts/setup_google_auth.py to set it up."
     try:
         labels = await registry._gmail.list_labels()
-        system = [l for l in labels if l["type"] == "system"]
-        user = [l for l in labels if l["type"] != "system"]
+        system = [lb for lb in labels if lb["type"] == "system"]
+        user = [lb for lb in labels if lb["type"] != "system"]
         lines = ["Gmail labels:"]
         if system:
             lines.append("\nSystem labels:")
-            for l in sorted(system, key=lambda x: x["name"]):
-                lines.append(f"  {l['id']:20s}  {l['name']}")
+            for lb in sorted(system, key=lambda x: x["name"]):
+                lines.append(f"  {lb['id']:20s}  {lb['name']}")
         if user:
             lines.append("\nUser labels:")
-            for l in sorted(user, key=lambda x: x["name"]):
-                lines.append(f"  {l['id']:20s}  {l['name']}")
+            for lb in sorted(user, key=lambda x: x["name"]):
+                lines.append(f"  {lb['id']:20s}  {lb['name']}")
         return "\n".join(lines)
     except Exception as e:
         return f"Could not list labels: {e}"
@@ -192,7 +194,9 @@ async def exec_create_email_draft(registry: ToolRegistry, inp: dict) -> str:
     if not to or not subject or not body:
         return "Draft requires 'to', 'subject', and 'body'."
     try:
-        result = await registry._gmail.create_draft(to=to, subject=subject, body=body, cc=cc)
+        result = await registry._gmail.create_draft(
+            to=to, subject=subject, body=body, cc=cc
+        )
         return (
             f"✅ Draft saved to Gmail Drafts.\n"
             f"To: {to}\n"
@@ -225,7 +229,7 @@ async def exec_classify_promotional_emails(registry: ToolRegistry, inp: dict) ->
     if len(promos) > 10:
         lines.append(f"…and {len(promos) - 10} more")
     lines.append(
-        f"\nTo archive these, use the /gmail_classify command which offers a confirmation prompt."
+        "\nTo archive these, use the /gmail_classify command which offers a confirmation prompt."
     )
 
     return "\n".join(lines)

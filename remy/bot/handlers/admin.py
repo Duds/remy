@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -297,7 +296,7 @@ async def _run_diagnostics(
     scheduler_ref: dict | None = None,
 ) -> None:
     """Run comprehensive self-diagnostics and send results to user."""
-    from ...diagnostics import DiagnosticsRunner, format_diagnostics_output
+    from ...diagnostics import format_diagnostics_output
     
     await update.message.chat.send_action(ChatAction.TYPING)
     

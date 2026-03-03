@@ -4,7 +4,6 @@ All Google API calls are mocked — no network access required.
 """
 
 import asyncio
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -357,7 +356,6 @@ def test_extract_emails():
 
 def test_extract_birthday_with_date():
     from remy.google.contacts import _extract_birthday
-    from datetime import date
 
     person = _make_person(bday=(3, 15))
     bday = _extract_birthday(person)

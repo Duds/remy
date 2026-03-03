@@ -16,10 +16,8 @@ For full end-to-end testing, use the Telegram test client.
 """
 
 import asyncio
-import json
 import random
 import time
-from typing import Any
 
 from locust import User, task, between, events
 from locust.runners import MasterRunner
@@ -65,13 +63,13 @@ SUMMARIZATION_MESSAGES = [
 class RemyUser(User):
     """
     Simulates a Telegram user interacting with Remy.
-    
+
     Uses internal component testing rather than HTTP endpoints,
     since Remy is a Telegram bot, not a web service.
     """
-    
+
     wait_time = between(1, 5)  # 1-5 seconds between messages
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.user_id = random.randint(100000, 999999)
@@ -79,69 +77,68 @@ class RemyUser(User):
         self._classifier = None
         self._conv_store = None
         self._injector = None
-    
+
     def on_start(self):
         """Set up test fixtures."""
         # Import here to avoid issues when locust parses the file
         try:
             from remy.ai.classifier import MessageClassifier
             from remy.memory.conversations import ConversationStore
-            from remy.memory.injector import MemoryInjector
-            
+
             self._classifier = MessageClassifier()
             # Use a temp directory for conversation store
             import tempfile
+
             self._temp_dir = tempfile.mkdtemp()
             self._conv_store = ConversationStore(self._temp_dir)
         except ImportError:
             pass  # Running without remy installed
-    
+
     def on_stop(self):
         """Clean up test fixtures."""
         import shutil
-        if hasattr(self, '_temp_dir'):
+
+        if hasattr(self, "_temp_dir"):
             shutil.rmtree(self._temp_dir, ignore_errors=True)
-    
+
     @task(5)
     def send_simple_message(self):
         """Send a simple greeting/acknowledgment message."""
         message = random.choice(SIMPLE_MESSAGES)
         self._process_message(message, "simple")
-    
+
     @task(3)
     def send_routine_message(self):
         """Send a routine conversational message."""
         message = random.choice(ROUTINE_MESSAGES)
         self._process_message(message, "routine")
-    
+
     @task(2)
     def send_complex_message(self):
         """Send a complex coding/reasoning message."""
         message = random.choice(COMPLEX_MESSAGES)
         self._process_message(message, "complex")
-    
+
     @task(1)
     def send_summarization_message(self):
         """Send a summarization request."""
         message = random.choice(SUMMARIZATION_MESSAGES)
         self._process_message(message, "summarization")
-    
+
     def _process_message(self, message: str, message_type: str):
         """Process a message and record timing metrics."""
         start_time = time.time()
-        
+
         try:
             # Run classification
             if self._classifier:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    category = loop.run_until_complete(
-                        self._classifier.classify(message)
-                    )
+                    loop.run_until_complete(self._classifier.classify(message))
                 finally:
                     loop.close()
-            
+
             # Record success
             total_time = (time.time() - start_time) * 1000  # ms
             events.request.fire(
@@ -152,7 +149,7 @@ class RemyUser(User):
                 exception=None,
                 context={},
             )
-            
+
         except Exception as e:
             total_time = (time.time() - start_time) * 1000
             events.request.fire(
@@ -168,29 +165,29 @@ class RemyUser(User):
 class BurstUser(User):
     """
     Simulates a user sending rapid-fire messages.
-    
+
     Tests the per-user concurrency limiting and rate limiting.
     """
-    
+
     wait_time = between(0.1, 0.5)  # Very fast messages
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.user_id = random.randint(100000, 999999)
         self.message_count = 0
-    
+
     @task
     def send_burst_message(self):
         """Send messages in rapid succession."""
         self.message_count += 1
         message = f"Burst message {self.message_count}"
-        
+
         start_time = time.time()
-        
+
         # Simulate the concurrency check
         # In real testing, this would hit the actual handlers
         time.sleep(random.uniform(0.01, 0.05))
-        
+
         total_time = (time.time() - start_time) * 1000
         events.request.fire(
             request_type="BURST",
@@ -205,13 +202,13 @@ class BurstUser(User):
 class ConversationHistoryUser(User):
     """
     Tests conversation history loading performance.
-    
+
     Simulates users with varying session lengths to test
     the reverse file reading optimisation.
     """
-    
+
     wait_time = between(2, 5)
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.user_id = random.randint(100000, 999999)
@@ -219,17 +216,18 @@ class ConversationHistoryUser(User):
         self._temp_dir = None
         self._session_key = f"user_{self.user_id}_2024-01-01"
         self._turns_written = 0
-    
+
     def on_start(self):
         """Set up conversation store with pre-populated history."""
         try:
             from remy.memory.conversations import ConversationStore
             from remy.models import ConversationTurn
-            
+
             import tempfile
+
             self._temp_dir = tempfile.mkdtemp()
             self._conv_store = ConversationStore(self._temp_dir)
-            
+
             # Pre-populate with varying amounts of history
             num_turns = random.choice([10, 50, 100, 500])
             loop = asyncio.new_event_loop()
@@ -250,21 +248,22 @@ class ConversationHistoryUser(User):
                 loop.close()
         except ImportError:
             pass
-    
+
     def on_stop(self):
         """Clean up."""
         import shutil
+
         if self._temp_dir:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
-    
+
     @task
     def load_recent_history(self):
         """Load recent conversation history."""
         if not self._conv_store:
             return
-        
+
         start_time = time.time()
-        
+
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -276,7 +275,7 @@ class ConversationHistoryUser(User):
                 )
             finally:
                 loop.close()
-            
+
             total_time = (time.time() - start_time) * 1000
             events.request.fire(
                 request_type="HISTORY",
@@ -286,7 +285,7 @@ class ConversationHistoryUser(User):
                 exception=None,
                 context={},
             )
-            
+
         except Exception as e:
             total_time = (time.time() - start_time) * 1000
             events.request.fire(

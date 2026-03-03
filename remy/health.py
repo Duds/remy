@@ -1,5 +1,4 @@
-"""
-Lightweight HTTP health check server with Prometheus metrics.
+"""Lightweight HTTP health check server with Prometheus metrics.
 
 Runs an aiohttp server on HEALTH_PORT (default 8080) alongside the Telegram bot
 in the same asyncio event loop. Used by:
@@ -22,12 +21,18 @@ Endpoints:
                      Query params: window (1h|6h|24h|7d, default 24h)
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import aiohttp
+
 import asyncio
 import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ _OUTBOUND_QUEUE = None
 _HOOK_MANAGER = None
 
 # Late-bound references for /logs and /telemetry
-_DB = None        # DatabaseManager — set via set_db()
+_DB = None  # DatabaseManager — set via set_db()
 _DATA_DIR = "./data"  # path to data directory — set via set_data_dir()
 
 
@@ -103,12 +108,14 @@ def set_ready() -> None:
 
 async def _handle_health(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
+
     uptime = int(time.monotonic() - _START_TIME)
     return web.json_response({"status": "ok", "uptime_s": uptime})
 
 
 async def _handle_ready(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
+
     if _READY:
         return web.json_response({"status": "ready"})
     return web.json_response({"status": "starting"}, status=503)
@@ -116,14 +123,17 @@ async def _handle_ready(request) -> "aiohttp.web.Response":
 
 async def _handle_root(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
+
     return web.json_response({"service": "remy", "version": "1.0"})
 
 
 async def _handle_metrics(request) -> "aiohttp.web.Response":
     """Serve Prometheus metrics in text format."""
     from aiohttp import web  # type: ignore[import]
+
     try:
         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+
         metrics_output = generate_latest()
         return web.Response(body=metrics_output, content_type=CONTENT_TYPE_LATEST)
     except ImportError:
@@ -216,9 +226,17 @@ async def _handle_logs(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
 
     if not _check_token(request):
-        return web.Response(status=401, text="401 Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>")
+        return web.Response(
+            status=401,
+            text="401 Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>",
+        )
 
-    from .diagnostics.logs import get_recent_logs, get_error_summary, since_dt, get_session_start_line
+    from .diagnostics.logs import (
+        get_recent_logs,
+        get_error_summary,
+        since_dt,
+        get_session_start_line,
+    )
 
     try:
         lines = min(int(request.rel_url.query.get("lines", "100")), 500)
@@ -236,9 +254,13 @@ async def _handle_logs(request) -> "aiohttp.web.Response":
         since_ts = since_dt(since_param)
 
     if level == "ERROR":
-        text = get_error_summary(_DATA_DIR, max_items=lines, since=since_ts, since_line=since_line)
+        text = get_error_summary(
+            _DATA_DIR, max_items=lines, since=since_ts, since_line=since_line
+        )
     else:
-        text = get_recent_logs(_DATA_DIR, lines=lines, level=level, since=since_ts, since_line=since_line)
+        text = get_recent_logs(
+            _DATA_DIR, lines=lines, level=level, since=since_ts, since_line=since_line
+        )
 
     return web.Response(text=text, content_type="text/plain")
 
@@ -253,7 +275,10 @@ async def _handle_telemetry(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
 
     if not _check_token(request):
-        return web.json_response({"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"}, status=401)
+        return web.json_response(
+            {"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"},
+            status=401,
+        )
 
     if _DB is None:
         return web.json_response({"error": "Database not available"}, status=503)
@@ -307,15 +332,24 @@ async def _handle_telemetry(request) -> "aiohttp.web.Response":
 
     # Cache hit rate: cache_read / (cache_read + input)
     total_effective_input = total_input + total_cache_read
-    cache_hit_rate = round(total_cache_read / total_effective_input, 3) if total_effective_input else 0.0
+    cache_hit_rate = (
+        round(total_cache_read / total_effective_input, 3)
+        if total_effective_input
+        else 0.0
+    )
 
     # Per-model breakdown
     by_model: dict = {}
     for r in rows:
         key = r["model"] or "unknown"
         if key not in by_model:
-            by_model[key] = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
-                             "cache_read_tokens": 0, "latencies": []}
+            by_model[key] = {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "latencies": [],
+            }
         m = by_model[key]
         m["calls"] += 1
         m["input_tokens"] += r["input_tokens"] or 0
@@ -330,7 +364,9 @@ async def _handle_telemetry(request) -> "aiohttp.web.Response":
             "input_tokens": v["input_tokens"],
             "output_tokens": v["output_tokens"],
             "cache_read_tokens": v["cache_read_tokens"],
-            "avg_latency_ms": int(sum(v["latencies"]) / len(v["latencies"])) if v["latencies"] else 0,
+            "avg_latency_ms": int(sum(v["latencies"]) / len(v["latencies"]))
+            if v["latencies"]
+            else 0,
         }
         for k, v in sorted(by_model.items(), key=lambda x: -x[1]["calls"])
     }
@@ -353,26 +389,28 @@ async def _handle_telemetry(request) -> "aiohttp.web.Response":
         for r in rows[:20]
     ]
 
-    return web.json_response({
-        "window": window_param,
-        "since": since.isoformat(),
-        "total_calls": total_calls,
-        "fallback_calls": fallback_calls,
-        "tokens": {
-            "input": total_input,
-            "output": total_output,
-            "cache_read": total_cache_read,
-            "cache_write": total_cache_write,
-        },
-        "latency_ms": {
-            "avg": avg_latency,
-            "p95": p95_latency,
-        },
-        "avg_ttft_ms": avg_ttft,
-        "cache_hit_rate": cache_hit_rate,
-        "by_model": by_model_clean,
-        "recent_calls": recent,
-    })
+    return web.json_response(
+        {
+            "window": window_param,
+            "since": since.isoformat(),
+            "total_calls": total_calls,
+            "fallback_calls": fallback_calls,
+            "tokens": {
+                "input": total_input,
+                "output": total_output,
+                "cache_read": total_cache_read,
+                "cache_write": total_cache_write,
+            },
+            "latency_ms": {
+                "avg": avg_latency,
+                "p95": p95_latency,
+            },
+            "avg_ttft_ms": avg_ttft,
+            "cache_hit_rate": cache_hit_rate,
+            "by_model": by_model_clean,
+            "recent_calls": recent,
+        }
+    )
 
 
 async def run_health_server(port: int | None = None) -> None:
@@ -394,6 +432,7 @@ async def run_health_server(port: int | None = None) -> None:
     # Initialise service info for Prometheus
     try:
         from .analytics.metrics import set_service_info
+
         environment = "azure" if os.environ.get("AZURE_ENVIRONMENT") else "local"
         set_service_info(version="1.0", environment=environment)
     except ImportError:

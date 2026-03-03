@@ -418,7 +418,6 @@ async def test_moonshot_payload_includes_stream_options():
 @pytest.mark.asyncio
 async def test_ollama_usage_out_stays_zero():
     from remy.ai.ollama_client import OllamaClient
-    import httpx
 
     async def _aiter_text():
         yield '{"message": {"content": "hi"}, "done": true}\n'

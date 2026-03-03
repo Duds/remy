@@ -8,9 +8,7 @@ Covers:
 - consolidate_memory tool schema and dispatch
 """
 
-import asyncio
 import json
-import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch

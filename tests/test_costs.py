@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 
-from remy.analytics.costs import CostAnalyzer, CostSummary, ModelUsage, ProviderUsage
+from remy.analytics.costs import CostAnalyzer, ModelUsage, ProviderUsage
 from remy.analytics.prices import (
     PRICES,
     PRICE_TABLE_DATE,

@@ -2,8 +2,7 @@
 Tests for Anthropic prompt caching implementation.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestPromptCachingHelpers:

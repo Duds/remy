@@ -4,7 +4,6 @@ Tests for the circuit breaker pattern implementation.
 
 import asyncio
 import pytest
-from unittest.mock import AsyncMock
 
 from remy.utils.circuit_breaker import (
     CircuitBreaker,

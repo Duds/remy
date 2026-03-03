@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from ...memory.goals import GoalStore
     from ...memory.plans import PlanStore
     from ...memory.background_jobs import BackgroundJobStore
-    from ..working_message import WorkingMessage
 
 logger = logging.getLogger(__name__)
 

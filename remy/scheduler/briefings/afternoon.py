@@ -6,7 +6,6 @@ and remaining calendar events.
 """
 
 import logging
-from datetime import datetime, timezone
 
 from .base import BriefingGenerator
 

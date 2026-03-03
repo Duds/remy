@@ -29,8 +29,8 @@ _RETRY_BASE_DELAY = 2.0  # seconds
 # Rate-limit retries use longer delays since the window resets every 60s
 _RATE_LIMIT_RETRY_DELAYS = [30.0, 60.0]  # seconds between attempts 1→2 and 2→3
 # Maximum tool-call iterations before breaking the agentic loop
-# Increased from 5 to 8 to support multi-step research tasks (directory crawls, etc.)
-_MAX_TOOL_ITERATIONS = 8
+# Increased from 8 to 12 to support complex multi-step workflows (Bug 38)
+_MAX_TOOL_ITERATIONS = 12
 
 # Minimum system prompt length to enable caching (Anthropic requires 1024+ tokens)
 _MIN_CACHE_TOKENS = 1024
@@ -41,15 +41,18 @@ _CHARS_PER_TOKEN_ESTIMATE = 4
 # StreamEvent tagged union (tool-aware streaming)                             #
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class TextChunk:
     """A partial text delta from Claude."""
+
     text: str
 
 
 @dataclass
 class ToolStatusChunk:
     """Emitted when Claude decides to call a tool (before execution)."""
+
     tool_name: str
     tool_use_id: str
     tool_input: dict = field(default_factory=dict)
@@ -58,6 +61,7 @@ class ToolStatusChunk:
 @dataclass
 class ToolResultChunk:
     """Emitted after a tool has been executed with its result."""
+
     tool_name: str
     tool_use_id: str
     result: str
@@ -69,8 +73,9 @@ class ToolTurnComplete:
     Emitted after a full tool-use round trip is complete.
     Contains the raw blocks needed to reconstruct conversation history.
     """
-    assistant_blocks: list[dict]   # The assistant message content blocks
-    tool_result_blocks: list[dict] # The user message content blocks (tool results)
+
+    assistant_blocks: list[dict]  # The assistant message content blocks
+    tool_result_blocks: list[dict]  # The user message content blocks (tool results)
 
 
 # The StreamEvent union type
@@ -93,7 +98,7 @@ class ClaudeClient:
                 {
                     "type": "text",
                     "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"}
+                    "cache_control": {"type": "ephemeral"},
                 }
             ]
         return system_prompt
@@ -117,7 +122,7 @@ class ClaudeClient:
         """
         Stream a response from Claude, yielding text deltas as they arrive.
         `system` overrides SOUL.md if provided; otherwise SOUL.md is used.
-        
+
         Uses prompt caching for system prompts >= 1024 tokens to reduce costs.
         """
         model = model or settings.model_complex
@@ -138,14 +143,21 @@ class ClaudeClient:
                         final_msg = await stream.get_final_message()
                         usage_out.input_tokens = final_msg.usage.input_tokens
                         usage_out.output_tokens = final_msg.usage.output_tokens
-                        usage_out.cache_creation_tokens = getattr(final_msg.usage, "cache_creation_input_tokens", 0) or 0
-                        usage_out.cache_read_tokens = getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0
+                        usage_out.cache_creation_tokens = (
+                            getattr(final_msg.usage, "cache_creation_input_tokens", 0)
+                            or 0
+                        )
+                        usage_out.cache_read_tokens = (
+                            getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0
+                        )
                 return  # success
-            except anthropic.RateLimitError as e:
+            except anthropic.RateLimitError:
                 delay = _RETRY_BASE_DELAY * (2**attempt)
                 logger.warning(
                     "Rate limited (attempt %d/%d). Retrying in %.1fs",
-                    attempt + 1, _MAX_RETRIES, delay,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    delay,
                 )
                 if attempt < _MAX_RETRIES - 1:
                     await asyncio.sleep(delay)
@@ -156,7 +168,10 @@ class ClaudeClient:
                     delay = _RETRY_BASE_DELAY * (2**attempt)
                     logger.warning(
                         "Anthropic overload %d (attempt %d/%d). Retrying in %.1fs",
-                        e.status_code, attempt + 1, _MAX_RETRIES, delay,
+                        e.status_code,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        delay,
                     )
                     if attempt < _MAX_RETRIES - 1:
                         await asyncio.sleep(delay)
@@ -189,7 +204,7 @@ class ClaudeClient:
         IMPORTANT: We iterate raw stream events (not text_stream) to avoid
         exhausting the underlying generator before calling get_final_message().
         Instead we use stream.current_message_snapshot after the loop.
-        
+
         Uses prompt caching for system prompts and tool schemas to reduce costs.
         """
         model = model or settings.model_complex
@@ -207,7 +222,9 @@ class ClaudeClient:
         for iteration in range(_MAX_TOOL_ITERATIONS):
             logger.debug(
                 "stream_with_tools iteration %d/%d, messages=%d",
-                iteration + 1, _MAX_TOOL_ITERATIONS, len(working_messages),
+                iteration + 1,
+                _MAX_TOOL_ITERATIONS,
+                len(working_messages),
             )
 
             # Collect text and tool_use blocks from this iteration
@@ -240,7 +257,10 @@ class ClaudeClient:
                             # Text delta
                             if event_type == "RawContentBlockDeltaEvent":
                                 delta = getattr(event, "delta", None)
-                                if delta and getattr(delta, "type", None) == "text_delta":
+                                if (
+                                    delta
+                                    and getattr(delta, "type", None) == "text_delta"
+                                ):
                                     chunk = delta.text
                                     text_buffer.append(chunk)
                                     yield TextChunk(text=chunk)
@@ -261,38 +281,56 @@ class ClaudeClient:
                         accumulated_usage = accumulated_usage + TokenUsage(
                             input_tokens=final_msg.usage.input_tokens,
                             output_tokens=final_msg.usage.output_tokens,
-                            cache_creation_tokens=getattr(final_msg.usage, "cache_creation_input_tokens", 0) or 0,
-                            cache_read_tokens=getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0,
+                            cache_creation_tokens=getattr(
+                                final_msg.usage, "cache_creation_input_tokens", 0
+                            )
+                            or 0,
+                            cache_read_tokens=getattr(
+                                final_msg.usage, "cache_read_input_tokens", 0
+                            )
+                            or 0,
                         )
 
                         # Extract all content blocks for history
                         for block in final_msg.content:
                             if block.type == "text":
-                                assistant_content_blocks.append({
-                                    "type": "text",
-                                    "text": block.text,
-                                })
+                                assistant_content_blocks.append(
+                                    {
+                                        "type": "text",
+                                        "text": block.text,
+                                    }
+                                )
                             elif block.type == "tool_use":
-                                tool_use_blocks.append({
-                                    "type": "tool_use",
-                                    "id": block.id,
-                                    "name": block.name,
-                                    "input": block.input,
-                                })
-                                assistant_content_blocks.append({
-                                    "type": "tool_use",
-                                    "id": block.id,
-                                    "name": block.name,
-                                    "input": block.input,
-                                })
+                                tool_use_blocks.append(
+                                    {
+                                        "type": "tool_use",
+                                        "id": block.id,
+                                        "name": block.name,
+                                        "input": block.input,
+                                    }
+                                )
+                                assistant_content_blocks.append(
+                                    {
+                                        "type": "tool_use",
+                                        "id": block.id,
+                                        "name": block.name,
+                                        "input": block.input,
+                                    }
+                                )
                     break  # stream completed successfully — exit retry loop
 
-                except anthropic.RateLimitError as e:
-                    delay = _RATE_LIMIT_RETRY_DELAYS[attempt] if attempt < len(_RATE_LIMIT_RETRY_DELAYS) else 60.0
+                except anthropic.RateLimitError:
+                    delay = (
+                        _RATE_LIMIT_RETRY_DELAYS[attempt]
+                        if attempt < len(_RATE_LIMIT_RETRY_DELAYS)
+                        else 60.0
+                    )
                     logger.warning(
                         "Rate limited in stream_with_tools (attempt %d/%d). "
                         "Retrying in %.0fs",
-                        attempt + 1, _MAX_RETRIES, delay,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        delay,
                     )
                     if attempt < _MAX_RETRIES - 1:
                         await asyncio.sleep(delay)
@@ -305,7 +343,10 @@ class ClaudeClient:
                         logger.warning(
                             "Anthropic overload %d in stream_with_tools (attempt %d/%d). "
                             "Retrying in %.1fs",
-                            e.status_code, attempt + 1, _MAX_RETRIES, delay,
+                            e.status_code,
+                            attempt + 1,
+                            _MAX_RETRIES,
+                            delay,
                         )
                         if attempt < _MAX_RETRIES - 1:
                             await asyncio.sleep(delay)
@@ -319,7 +360,9 @@ class ClaudeClient:
                 if usage_out is not None:
                     usage_out.input_tokens = accumulated_usage.input_tokens
                     usage_out.output_tokens = accumulated_usage.output_tokens
-                    usage_out.cache_creation_tokens = accumulated_usage.cache_creation_tokens
+                    usage_out.cache_creation_tokens = (
+                        accumulated_usage.cache_creation_tokens
+                    )
                     usage_out.cache_read_tokens = accumulated_usage.cache_read_tokens
                 return
 
@@ -332,15 +375,22 @@ class ClaudeClient:
 
                 logger.info(
                     "Executing tool %s (id=%s) for user %d",
-                    tool_name, tool_use_id, user_id,
+                    tool_name,
+                    tool_use_id,
+                    user_id,
                 )
 
                 try:
-                    result = await tool_registry.dispatch(tool_name, tool_input, user_id, chat_id, message_id)
+                    result = await tool_registry.dispatch(
+                        tool_name, tool_input, user_id, chat_id, message_id
+                    )
                 except Exception as exc:
                     logger.error(
                         "Tool dispatch failed for %s (id=%s): %s",
-                        tool_name, tool_use_id, exc, exc_info=True,
+                        tool_name,
+                        tool_use_id,
+                        exc,
+                        exc_info=True,
                     )
                     result = f"Tool '{tool_name}' encountered an error: {exc}"
 
@@ -350,11 +400,13 @@ class ClaudeClient:
                     result=result,
                 )
 
-                tool_result_blocks.append({
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": result,
-                })
+                tool_result_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": result,
+                    }
+                )
 
             # Emit ToolTurnComplete with raw blocks for conversation history
             yield ToolTurnComplete(
@@ -363,14 +415,18 @@ class ClaudeClient:
             )
 
             # Append assistant turn + tool results to working messages, then loop
-            working_messages.append({
-                "role": "assistant",
-                "content": assistant_content_blocks,
-            })
-            working_messages.append({
-                "role": "user",
-                "content": tool_result_blocks,
-            })
+            working_messages.append(
+                {
+                    "role": "assistant",
+                    "content": assistant_content_blocks,
+                }
+            )
+            working_messages.append(
+                {
+                    "role": "user",
+                    "content": tool_result_blocks,
+                }
+            )
 
         if usage_out is not None:
             usage_out.input_tokens = accumulated_usage.input_tokens
@@ -379,7 +435,12 @@ class ClaudeClient:
             usage_out.cache_read_tokens = accumulated_usage.cache_read_tokens
         logger.warning(
             "stream_with_tools hit max iterations (%d) for user %d",
-            _MAX_TOOL_ITERATIONS, user_id,
+            _MAX_TOOL_ITERATIONS,
+            user_id,
+        )
+        # Yield a truncation note so the user knows the response was limited (Bug 38)
+        yield TextChunk(
+            text="\n\n_I reached my step limit for this turn. Ask me to continue or break this into smaller tasks._"
         )
 
     async def complete(
@@ -393,7 +454,7 @@ class ClaudeClient:
         """
         Non-streaming completion — for classifiers, fact extraction, etc.
         Returns the full response text.
-        
+
         Uses prompt caching for system prompts >= 1024 tokens to reduce costs.
         """
         model = model or settings.model_simple
@@ -409,16 +470,22 @@ class ClaudeClient:
                     messages=messages,
                 )
 
-                if not hasattr(response, 'content'):
-                    logger.error("Invalid response type: %s, value: %s", type(response), response)
+                if not hasattr(response, "content"):
+                    logger.error(
+                        "Invalid response type: %s, value: %s", type(response), response
+                    )
                     return ""
                 if not response.content:
                     return ""
                 if usage_out is not None:
                     usage_out.input_tokens = response.usage.input_tokens
                     usage_out.output_tokens = response.usage.output_tokens
-                    usage_out.cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-                    usage_out.cache_read_tokens = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                    usage_out.cache_creation_tokens = (
+                        getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                    )
+                    usage_out.cache_read_tokens = (
+                        getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                    )
                 return response.content[0].text
             except (anthropic.RateLimitError, anthropic.APIStatusError) as e:
                 if isinstance(e, anthropic.APIStatusError) and e.status_code < 500:
@@ -429,7 +496,13 @@ class ClaudeClient:
                 else:
                     raise
             except Exception as e:
-                logger.error("Unexpected error in complete() with model=%s: %s (type: %s)", model, e, type(e).__name__, exc_info=True)
+                logger.error(
+                    "Unexpected error in complete() with model=%s: %s (type: %s)",
+                    model,
+                    e,
+                    type(e).__name__,
+                    exc_info=True,
+                )
                 raise
 
         return ""

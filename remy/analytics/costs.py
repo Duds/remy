@@ -7,7 +7,6 @@ Queries the api_calls table and computes estimated costs using the price table.
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from ..memory.database import DatabaseManager
 from .prices import PRICE_TABLE_DATE, PRICES, estimate_cache_savings, estimate_cost

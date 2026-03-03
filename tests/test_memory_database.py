@@ -90,7 +90,7 @@ async def test_get_connection_raises_if_not_initialised(tmp_path):
     """Calling get_connection before init should raise RuntimeError."""
     manager = DatabaseManager(db_path=str(tmp_path / "noinit.db"))
     with pytest.raises(RuntimeError, match="not initialised"):
-        async with manager.get_connection() as conn:
+        async with manager.get_connection():
             pass
 
 

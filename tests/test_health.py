@@ -4,8 +4,8 @@ Tests for remy/health.py — HTTP health endpoint.
 Uses aiohttp's TestClient so no real TCP socket is needed.
 """
 
+import os
 import pytest
-import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import remy.health as health_module
@@ -13,7 +13,6 @@ from remy.health import (
     run_health_server,
     set_ready,
     set_db,
-    set_data_dir,
     _handle_health,
     _handle_ready,
     _handle_root,
@@ -27,6 +26,7 @@ from remy.health import (
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture(autouse=True)
 def reset_ready_flag():
     """Ensure _READY is reset to False between tests."""
@@ -38,6 +38,7 @@ def reset_ready_flag():
 # --------------------------------------------------------------------------- #
 # Unit tests for handler functions (via aiohttp TestClient)                    #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_health_endpoint_returns_200():
@@ -152,6 +153,7 @@ async def test_set_ready_is_idempotent():
 # run_health_server cancellation test                                          #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_run_health_server_starts_and_cancels():
     """run_health_server should start and shut down cleanly on cancellation."""
@@ -178,6 +180,7 @@ async def test_run_health_server_starts_and_cancels():
 # run_health_server graceful degradation without aiohttp                      #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_run_health_server_graceful_without_aiohttp():
     """If aiohttp is not importable, run_health_server should return quietly."""
@@ -194,13 +197,19 @@ async def test_run_health_server_graceful_without_aiohttp():
 # _check_token unit tests                                                      #
 # --------------------------------------------------------------------------- #
 
+
 def test_check_token_passes_when_no_token_configured():
     """_check_token returns True when HEALTH_API_TOKEN is not set."""
     mock_request = MagicMock()
     with patch.dict("os.environ", {}, clear=False):
         os_env = os.environ.copy()
         os_env.pop("HEALTH_API_TOKEN", None)
-        with patch("os.environ.get", side_effect=lambda k, d="": "" if k == "HEALTH_API_TOKEN" else os.environ.get(k, d)):
+        with patch(
+            "os.environ.get",
+            side_effect=lambda k, d="": (
+                "" if k == "HEALTH_API_TOKEN" else os.environ.get(k, d)
+            ),
+        ):
             assert _check_token(mock_request) is True
 
 
@@ -217,7 +226,9 @@ def test_check_token_passes_with_correct_query_param():
     """_check_token returns True when ?token= query param matches."""
     mock_request = MagicMock()
     mock_request.headers.get.return_value = ""
-    mock_request.rel_url.query.get.side_effect = lambda k, d="": "secret123" if k == "token" else d
+    mock_request.rel_url.query.get.side_effect = lambda k, d="": (
+        "secret123" if k == "token" else d
+    )
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
         assert _check_token(mock_request) is True
 
@@ -243,8 +254,6 @@ def test_check_token_fails_with_no_credentials():
 # --------------------------------------------------------------------------- #
 # /logs endpoint tests                                                         #
 # --------------------------------------------------------------------------- #
-
-import os
 
 
 @pytest.mark.asyncio
@@ -282,8 +291,13 @@ async def test_logs_returns_200_with_no_token_required():
         env = {k: v for k, v in os.environ.items() if k != "HEALTH_API_TOKEN"}
         with patch.dict("os.environ", env, clear=True):
             with patch("remy.health._check_token", return_value=True):
-                with patch("remy.diagnostics.logs.get_recent_logs", return_value="log line 1\nlog line 2") as _mock:
-                    with patch("remy.diagnostics.logs.get_session_start_line", return_value=0):
+                with patch(
+                    "remy.diagnostics.logs.get_recent_logs",
+                    return_value="log line 1\nlog line 2",
+                ) as _mock:
+                    with patch(
+                        "remy.diagnostics.logs.get_session_start_line", return_value=0
+                    ):
                         async with TestClient(TestServer(app)) as client:
                             resp = await client.get("/logs")
                             assert resp.status == 200
@@ -308,13 +322,16 @@ async def test_logs_passes_with_correct_token_in_header():
         with patch("remy.diagnostics.logs.get_recent_logs", return_value="some logs"):
             with patch("remy.diagnostics.logs.get_session_start_line", return_value=0):
                 async with TestClient(TestServer(app)) as client:
-                    resp = await client.get("/logs", headers={"Authorization": "Bearer mytoken"})
+                    resp = await client.get(
+                        "/logs", headers={"Authorization": "Bearer mytoken"}
+                    )
                     assert resp.status == 200
 
 
 # --------------------------------------------------------------------------- #
 # /telemetry endpoint tests                                                    #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_telemetry_returns_503_when_db_not_set():

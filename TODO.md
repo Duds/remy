@@ -1,6 +1,6 @@
 # Remy Roadmap & Development Plan
 
-**Last Updated:** March 3, 2026 (Telegram + Claude UX roadmap added)
+**Last Updated:** March 4, 2026 (Bug fixes 35–38, docs refresh)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -563,6 +563,18 @@ These were in my-agent and caused bloat. **Do not implement.**
 1. **Claude Agent SDK subagents** (`US-claude-agent-sdk-subagents`) — major refactor; only revisit if BackgroundTaskRunner + persistent jobs prove insufficient
 2. **Gmail send** — security risk; draft creation is sufficient
 3. **Research alternative** (`US-research-alternative`) — no code needed; tune `web_research` tool description if quality is poor in practice
+
+---
+
+## 🔧 Recent Fixes (March 2026)
+
+See [BUGS.md](./BUGS.md) for full details. Key fixes:
+
+- **Bug 35:** `react_to_message` — delete status message when reaction is sole response (no extra ✅ text)
+- **Bug 34:** Self-diagnostics trigger — "Are you there God, it's me, Dale" runs check_status + get_logs
+- **Bug 36:** Orphaned tool_use_id — message sanitizer prevents 400 errors from trimmed history
+- **Bug 37:** Compaction — `complete()` now receives `[{"role":"user","content":...}]` not raw string
+- **Bug 38:** Max tool iterations — limit 8→12, truncation message when limit hit
 
 ---
 

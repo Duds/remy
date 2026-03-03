@@ -1,6 +1,5 @@
 """Tests for the diagnostics runner, including new performance checks."""
 
-import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,7 +50,11 @@ class TestDiagnosticsRunner:
     async def test_run_all_returns_result(self, runner):
         result = await runner.run_all()
         assert isinstance(result, DiagnosticsResult)
-        assert result.overall_status in [CheckStatus.PASS, CheckStatus.WARN, CheckStatus.FAIL]
+        assert result.overall_status in [
+            CheckStatus.PASS,
+            CheckStatus.WARN,
+            CheckStatus.FAIL,
+        ]
         assert len(result.checks) > 0
 
     @pytest.mark.asyncio
@@ -153,10 +156,12 @@ class TestConcurrencyCheck:
     @pytest.mark.asyncio
     async def test_idle_state(self, runner):
         import remy.bot.handlers.base as handlers_base
-        
-        with patch("remy.utils.concurrency._extraction_runner", None), \
-             patch("remy.utils.concurrency._per_user_extraction_runner", None), \
-             patch.object(handlers_base, "_user_active_requests", {}):
+
+        with (
+            patch("remy.utils.concurrency._extraction_runner", None),
+            patch("remy.utils.concurrency._per_user_extraction_runner", None),
+            patch.object(handlers_base, "_user_active_requests", {}),
+        ):
             result = await runner._check_concurrency()
             assert result.status == CheckStatus.PASS
             assert "idle" in result.message.lower()
@@ -170,12 +175,17 @@ class TestConcurrencyCheck:
         mock_runner.active_count = 2
         mock_runner.total_count = 50
 
-        with patch("remy.utils.concurrency._extraction_runner", mock_runner), \
-             patch("remy.utils.concurrency._per_user_extraction_runner", None), \
-             patch.object(handlers_base, "_user_active_requests", {123: 1}):
+        with (
+            patch("remy.utils.concurrency._extraction_runner", mock_runner),
+            patch("remy.utils.concurrency._per_user_extraction_runner", None),
+            patch.object(handlers_base, "_user_active_requests", {123: 1}),
+        ):
             result = await runner._check_concurrency()
             assert result.status == CheckStatus.PASS
-            assert "active" in result.message.lower() or "extraction" in result.message.lower()
+            assert (
+                "active" in result.message.lower()
+                or "extraction" in result.message.lower()
+            )
 
 
 class TestTokenUsageCheck:
@@ -195,7 +205,9 @@ class TestTokenUsageCheck:
     async def test_with_mock_db(self, runner):
         mock_conn = AsyncMock()
         mock_cursor = AsyncMock()
-        mock_cursor.fetchone = AsyncMock(return_value=(100, 50000, 10000, 5000, 20000, 500.0, 2))
+        mock_cursor.fetchone = AsyncMock(
+            return_value=(100, 50000, 10000, 5000, 20000, 500.0, 2)
+        )
         mock_conn.execute = AsyncMock(return_value=mock_cursor)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=None)
@@ -318,3 +330,33 @@ class TestFormatDiagnosticsOutput:
         )
         output = format_diagnostics_output(result)
         assert "1h" in output
+
+
+class TestDiagnosticsTrigger:
+    """Tests for the diagnostics trigger phrase (Feature 34)."""
+
+    def test_matches_canonical_phrase(self):
+        from remy.diagnostics import is_diagnostics_trigger
+
+        assert is_diagnostics_trigger("Are you there, God. It's me Dale.")
+        assert is_diagnostics_trigger("Are you there, God. It's me Dale")
+
+    def test_matches_bug34_phrase(self):
+        from remy.diagnostics import is_diagnostics_trigger
+
+        # Bug 34: "Are you there God, it's me, Dale" (comma after God)
+        assert is_diagnostics_trigger("Are you there God, it's me, Dale")
+        assert is_diagnostics_trigger("are you there god, it's me, dale")
+
+    def test_matches_variations(self):
+        from remy.diagnostics import is_diagnostics_trigger
+
+        assert is_diagnostics_trigger("Are you there God? Its me, Dale")
+        assert is_diagnostics_trigger("Are you there God it's me Dale")
+
+    def test_does_not_match_unrelated(self):
+        from remy.diagnostics import is_diagnostics_trigger
+
+        assert not is_diagnostics_trigger("Hello Dale")
+        assert not is_diagnostics_trigger("Are you there?")
+        assert not is_diagnostics_trigger("God it's me")

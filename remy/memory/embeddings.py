@@ -221,7 +221,7 @@ class EmbeddingStore:
             return []
 
         vec = await self.embed(query)
-        vec_bytes = self._vec_bytes(vec)
+        self._vec_bytes(vec)
 
         async with self._db.get_connection() as conn:
             try:
@@ -259,7 +259,7 @@ class EmbeddingStore:
             return []
 
         vec = await self.embed(query)
-        vec_bytes = self._vec_bytes(vec)
+        self._vec_bytes(vec)
 
         async with self._db.get_connection() as conn:
             try:

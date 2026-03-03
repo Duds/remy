@@ -124,7 +124,7 @@ def make_contacts_handlers(
                 top = await google_contacts.get_contact(resource_name)
         except Exception as e:
             logger.debug("Failed to fetch full contact details, using search result: %s", e)
-        lines = [f"👤 *Contact details:*\n", format_contact(top, verbose=True)]
+        lines = ["👤 *Contact details:*\n", format_contact(top, verbose=True)]
         if len(people) > 1:
             others = [_extract_name(p) or "?" for p in people[1:]]
             lines.append(f"\n_Also matched: {', '.join(others)}_")

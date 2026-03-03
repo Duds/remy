@@ -10,7 +10,6 @@ Nightly scheduled via ProactiveScheduler; manual trigger via /reindex.
 
 import asyncio
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -203,7 +202,7 @@ class FileChunkStore:
             if SQLITE_VEC_AVAILABLE:
                 # ANN search via sqlite-vec
                 import struct
-                vec_bytes = struct.pack(f"{len(query_embedding)}f", *query_embedding)
+                struct.pack(f"{len(query_embedding)}f", *query_embedding)
                 
                 if path_filter:
                     rows = await conn.execute_fetchall(

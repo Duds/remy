@@ -9,8 +9,6 @@ the model load and transcription. We test the integration logic:
   - transcribe_path convenience method
 """
 
-import os
-import tempfile
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -94,8 +92,6 @@ async def test_transcribe_returns_text(tmp_path):
 @pytest.mark.asyncio
 async def test_transcribe_cleans_up_temp_file(tmp_path):
     """Temp file must be deleted after transcription."""
-    created_paths = []
-    original_mkstemp = tempfile.NamedTemporaryFile
 
     fake_model = make_fake_model("cleanup test")
     tg_file = make_fake_telegram_file(tmp_path)

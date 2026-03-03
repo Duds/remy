@@ -74,7 +74,7 @@ async def test_add_step_to_existing_plan(plan_store):
         steps=["Step 1"],
     )
 
-    step_id = await plan_store.add_step(plan_id, "Step 2", notes="Some notes")
+    await plan_store.add_step(plan_id, "Step 2", notes="Some notes")
 
     plan = await plan_store.get_plan(plan_id)
     assert len(plan["steps"]) == 2
@@ -364,7 +364,7 @@ async def test_delete_plan_wrong_user(plan_store):
 @pytest.mark.asyncio
 async def test_list_plans_filter_by_status(plan_store):
     """Test filtering plans by status."""
-    plan1 = await plan_store.create_plan(user_id=123, title="Active", steps=["S1"])
+    await plan_store.create_plan(user_id=123, title="Active", steps=["S1"])
     plan2 = await plan_store.create_plan(user_id=123, title="Complete", steps=["S1"])
     await plan_store.update_plan_status(plan2, "complete")
 

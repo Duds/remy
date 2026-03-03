@@ -432,3 +432,165 @@ _Last updated: see file history_
 - **Priority:** Medium
 - **Status:** ✅ Fixed
 - **Reported:** 2026-03-03
+
+---
+
+## Feature 34: "Are you there God, it's me, Dale" — hardcoded self-diagnostics trigger
+
+- **Type:** Feature / Easter egg
+- **Description:** The phrase "Are you there God, it's me, Dale" should be a hardcoded trigger in the message handler that automatically runs full self-diagnostics: `check_status` + `get_logs(mode="errors", since="startup")`. Should work regardless of what Claude decides to do with the message.
+- **Location:** `remy/bot/handlers/chat.py`, `remy/bot/handlers.py`, `remy/diagnostics/__init__.py`
+- **Priority:** Low
+- **Status:** ✅ Fixed
+- **Fix:**
+  - Updated `DIAGNOSTICS_TRIGGER` regex to allow comma after "god" (`[.?\s,]*`) so "Are you there God, it's me, Dale" matches
+  - `_run_diagnostics()` now uses `tool_registry.dispatch("check_status", ...)` + `tool_registry.dispatch("get_logs", {"mode": "errors", "since": "startup"}, ...)` when tool_registry is available; falls back to full `DiagnosticsRunner.run_all()` otherwise
+  - Added tests in `tests/test_diagnostics_runner.py::TestDiagnosticsTrigger`
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 35: `react_to_message` tool sends a ✅ text message alongside the emoji reaction
+
+- **Symptom:** When Remy calls `react_to_message` as the sole response (e.g. reacting to "Thanks" with 👍), a ✅ tick character is also sent as a separate Telegram text message at the same timestamp.
+- **Evidence:** Screenshot from 2026-03-04 shows 👍 reaction applied correctly to the "Thanks" message, *and* a standalone ✅ text message sent at 2:26 PM.
+- **Impact:** Doubles up the response — the whole point of using a reaction instead of a text reply is to avoid sending a message. The extra ✅ text defeats the purpose.
+- **Root cause:** When Claude's sole response is `react_to_message` with no text, the streaming path in `chat.py` edits the status message ("⚙️ Using react_to_message…") to "✓" as a minimal indicator. That "✓" appears as a separate text message alongside the emoji reaction.
+- **Priority:** Medium
+- **Status:** ✅ Fixed
+- **Location:** `remy/bot/handlers/chat.py` — `_stream_with_tools_path()`
+- **Fix:** When the only tool used is `react_to_message` and there is no text response, delete the bot's status message instead of editing it to "✓". The emoji reaction on the user's message is the complete response.
+- **Reported:** 2026-03-04
+
+---
+
+## Bug 36: Orphaned `tool_use_id` in main chat path causes 400 error
+
+- **Symptom:** `Sorry, something went wrong: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'messages.0.content.0: unexpected tool_use_id found in tool_result blocks: toolu_01MFrSz64P4zNv9GbhttwaDa. Each tool_result block must have a corresponding tool_use block in the previous message.'}}`
+- **Impact:** User gets a visible error instead of a response. Happens on the first message after a session that ended with a tool call.
+- **Root cause:** `_stream_with_tools_path` in `chat.py` serialises tool turns into `conv_store` using `_TOOL_TURN_PREFIX + json.dumps(assistant_blocks)` and `_TOOL_TURN_PREFIX + json.dumps(tool_result_blocks)`. On the next message, `_build_message_from_turn()` deserialises these back into the `working_messages` list. If the session boundary falls between the `assistant` (tool_use) and `user` (tool_result) turns — or if compaction or any trimming drops one side of the pair — Claude receives an orphaned `tool_use_id` in a `tool_result` block with no corresponding `tool_use` block.
+- **Related:** Bug 20, Bug 29 (same error class, fixed in `reactions.py` only — never applied to main chat path).
+- **Priority:** High
+- **Status:** ✅ Fixed
+- **Location:** `remy/bot/handlers/base.py`, `remy/bot/handlers/chat.py`, `remy/bot/pipeline.py`
+- **Fix:** Moved `_sanitize_messages_for_claude()` to `base.py` (shared). Applied before `stream_with_tools()` in `chat.py` and `pipeline.py`. The two-pass sanitizer drops entire messages containing tool_use/tool_result blocks, then merges consecutive same-role messages.
+- **Reported:** 2026-03-04
+
+---
+
+## Bug 37: Compaction passes raw string to `claude_client.complete()` — expects `list[dict]`
+
+- **Symptom:** `remy.memory.compaction: Claude summarisation failed, using fallback: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'messages: Input should be a valid list'}}`
+- **Impact:** Auto-compaction always falls back to the dumb keyword summary instead of a Claude-generated summary. Long sessions are compacted poorly — important context is lost.
+- **Root cause:** `compaction.py:_generate_summary()` calls `self.claude_client.complete(prompt, model=..., max_tokens=500)` passing a raw string as the first argument. But `ClaudeClient.complete()` expects `messages: list[dict]` as its first parameter (e.g. `[{"role": "user", "content": "..."}]`). The API signature was updated at some point but `compaction.py` was not.
+- **Priority:** Medium
+- **Status:** ✅ Fixed
+- **Location:** `remy/memory/compaction.py` — `_generate_summary()`
+- **Fix:** Wrapped the prompt in a messages list: `self.claude_client.complete([{"role": "user", "content": prompt}], ...)`.
+- **Reported:** 2026-03-04
+
+---
+
+## Bug 38: Max tool iterations (8) truncates multi-step responses
+
+- **Symptom:** `stream_with_tools hit max iterations (8) for user 8138498165` logged as WARNING.
+- **Impact:** For long multi-step tasks (e.g. many file reads, searches, emails in sequence), Remy stops after 8 tool calls and may return an incomplete response. User receives partial results without clear indication the task was truncated.
+- **Root cause:** `_MAX_TOOL_ITERATIONS = 8` in `remy/ai/claude_client.py` limits the agentic loop. Complex workflows (research across many files, bulk email operations, etc.) can exceed this.
+- **Priority:** Low
+- **Status:** ✅ Fixed
+- **Location:** `remy/ai/claude_client.py` — `_MAX_TOOL_ITERATIONS`
+- **Fix:** (1) Increased limit from 8 → 12. (2) When the limit is hit, yield a final `TextChunk` with "_I reached my step limit for this turn. Ask me to continue or break this into smaller tasks._" so the user knows the response was truncated.
+- **Evidence:** Log entry 2026-03-03 03:36:27 — user hit limit during file search/read sequence.
+- **Reported:** 2026-03-04
+
+---
+
+## Bug 39: `react_to_message` SOUL config includes invalid emoji (✅)
+
+- **Symptom:** `set_message_reaction failed: Reaction_invalid` when `react_to_message` is called with `✅`. The tool silently fails and no reaction is applied.
+- **Impact:** Any time Remy tries to use ✅ as a reaction (e.g. to confirm a completed task), the reaction is silently dropped. Degrades conversational feel.
+- **Root cause:** The SOUL config (`config/SOUL.compact.md`) lists `{👍 ✅ ❤️ 🔥 🤔 😂 👀 🎉}` as the allowed set for `react_to_message`. `✅` (U+2705, White Heavy Check Mark) is **not** in Telegram's official reaction emoji list. Telegram only allows reactions from a fixed set tied to the UI reaction picker — symbol/text emoji like ✅ are rejected.
+- **Priority:** Medium
+- **Status:** ✅ Fixed
+- **Location:** `remy/ai/tools/schemas.py` — `react_to_message` tool description and input_schema; `remy/ai/tools/session.py` `ALLOWED_EMOJI` (Bug 27)
+- **Fix:** Updated `react_to_message` schema in `schemas.py` to remove `✅` and `😂` (invalid per Telegram API), align with `session.py` `ALLOWED_EMOJI`: `{👍 ❤️ 🔥 🤔 👀 🎉 🤩 🤣}`. Replaced "task complete" mapping with 🤩 (star-struck).
+- **Reported:** 2026-03-04
+
+### Full official Telegram reaction emoji list (as of Bot API 7.x / python-telegram-bot `ReactionEmoji`)
+
+These are the only emoji accepted by `setMessageReaction`:
+
+| Emoji | Description |
+|-------|-------------|
+| 👍 | Thumbs up |
+| 👎 | Thumbs down |
+| ❤️ | Red heart |
+| 🔥 | Fire |
+| 🥰 | Smiling face with hearts |
+| 👏 | Clapping hands |
+| 😁 | Beaming face |
+| 🤔 | Thinking face |
+| 🤯 | Exploding head |
+| 😱 | Screaming in fear |
+| 🤬 | Face with symbols on mouth |
+| 😢 | Crying face |
+| 🎉 | Party popper |
+| 🤩 | Star-struck |
+| 🤮 | Nauseated face |
+| 💩 | Pile of poo |
+| 🙏 | Folded hands |
+| 👌 | OK hand |
+| 🕊 | Dove |
+| 🤡 | Clown face |
+| 🥱 | Yawning face |
+| 🥴 | Woozy face |
+| 😍 | Heart eyes |
+| 🐳 | Spouting whale |
+| ❤️‍🔥 | Heart on fire |
+| 🌚 | New moon face |
+| 🌭 | Hot dog |
+| 💯 | Hundred points |
+| 🤣 | Rolling on floor laughing |
+| ⚡ | Lightning bolt |
+| 🍌 | Banana |
+| 🏆 | Trophy |
+| 💔 | Broken heart |
+| 🤨 | Face with raised eyebrow |
+| 😐 | Neutral face |
+| 🍓 | Strawberry |
+| 🍾 | Champagne |
+| 💋 | Kiss mark |
+| 🖕 | Middle finger |
+| 😈 | Smiling devil |
+| 😴 | Sleeping face |
+| 😭 | Loudly crying face |
+| 🤓 | Nerd face |
+| 👻 | Ghost |
+| 👨‍💻 | Man technologist |
+| 👀 | Eyes |
+| 🎃 | Jack-o-lantern |
+| 🙈 | See-no-evil monkey |
+| 😇 | Smiling face with halo |
+| 🤝 | Handshake |
+| ✍️ | Writing hand |
+| 🤗 | Hugging face |
+| 🫡 | Saluting face |
+| 🎅 | Santa Claus |
+| 🎄 | Christmas tree |
+| ☃️ | Snowman |
+| 💅 | Nail polish |
+| 🤪 | Zany face |
+| 🗿 | Moai |
+| 🆒 | COOL button |
+| 💘 | Heart with arrow |
+| 🙉 | Hear-no-evil monkey |
+| 🦄 | Unicorn |
+| 😘 | Face blowing a kiss |
+| 💊 | Pill |
+| 🙊 | Speak-no-evil monkey |
+| 😎 | Smiling face with sunglasses |
+| 👾 | Alien monster |
+| 🤷 | Shrug |
+| 😡 | Enraged face |
+
+**Not allowed (common mistakes):** ✅ ☑️ ✔️ 🔴 🟢 — these are symbol/shape emoji not in Telegram's reaction picker.

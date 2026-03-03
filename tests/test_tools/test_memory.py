@@ -84,7 +84,7 @@ class TestExecGetLogs:
     async def test_lines_capped_at_100(self):
         """Lines parameter should be capped at 100."""
         registry = make_registry(logs_dir="/tmp")
-        with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="logs") as mock_thread:
+        with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="logs"):
             result = await exec_get_logs(registry, {"mode": "tail", "lines": 500})
         
         # The result should mention 100 lines (capped), not 500

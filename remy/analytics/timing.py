@@ -7,7 +7,7 @@ and context managers for convenient instrumentation.
 
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Generator
 
 

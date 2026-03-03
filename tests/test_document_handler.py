@@ -1,14 +1,11 @@
 """Tests for the document handler (image files sent as Telegram documents)."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestDocumentHandlerConstants:
     """Test the constants used by the document handler."""
 
     def test_allowed_mimes_includes_jpeg(self):
-        from remy.bot.handlers import make_handlers
         # The constants are defined inside make_handlers, so we test them indirectly
         allowed = {"image/jpeg", "image/png", "image/gif", "image/webp"}
         assert "image/jpeg" in allowed
@@ -94,6 +91,5 @@ class TestDocumentHandlerHistoryPlaceholder:
 
     def test_placeholder_with_default_filename(self):
         filename = "image"
-        caption = ""
         placeholder = f"[document: {filename}]"
         assert placeholder == "[document: image]"

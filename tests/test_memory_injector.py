@@ -5,7 +5,6 @@ Uses real DB (tmp) with mocked embedding search to avoid sentence-transformers d
 
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, patch
 
 from remy.memory.database import DatabaseManager
 from remy.memory.embeddings import EmbeddingStore

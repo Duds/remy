@@ -128,7 +128,7 @@ class TestPerUserTaskRunner:
             return "second"
         
         # Start first task
-        first = runner.run_for_user(user_id=123, coro=long_task())
+        runner.run_for_user(user_id=123, coro=long_task())
         await asyncio.sleep(0.1)  # Let it start
         
         # Start second task for same user
@@ -163,7 +163,7 @@ class TestPerUserTaskRunner:
             await asyncio.sleep(10)
             return "done"
         
-        task = runner.run_for_user(user_id=123, coro=long_task())
+        runner.run_for_user(user_id=123, coro=long_task())
         await asyncio.sleep(0.1)  # Let it start
         
         result = runner.cancel_for_user(123)

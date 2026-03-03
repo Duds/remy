@@ -1,7 +1,5 @@
 """Shared fixtures for remy tests."""
 
-import os
-import tempfile
 
 import pytest
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "relay_mcp": {
+      "command": ".venv/bin/python",
+      "args": ["relay_mcp/server.py", "--stdio", "--db", "data/relay.db"]
+    }
+  }
+}

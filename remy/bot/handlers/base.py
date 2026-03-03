@@ -54,7 +54,7 @@ def _build_message_from_turn(turn: "ConversationTurn") -> dict:
     """
     if turn.content.startswith(_TOOL_TURN_PREFIX):
         try:
-            blocks = json.loads(turn.content[len(_TOOL_TURN_PREFIX):])
+            blocks = json.loads(turn.content[len(_TOOL_TURN_PREFIX) :])
             return {"role": turn.role, "content": blocks}
         except (json.JSONDecodeError, ValueError):
             pass
@@ -76,6 +76,7 @@ class MessageRotator:
     Background task that rotates working messages on a Telegram message
     at random intervals until stopped.
     """
+
     def __init__(self, message, user_id: int):
         self._message = message
         self._user_id = user_id
@@ -88,12 +89,12 @@ class MessageRotator:
             pool = [m for m in WORKING_MESSAGES if m != last_msg]
             msg = random.choice(pool)
             last_msg = msg
-            
+
             try:
                 await self._message.edit_text(msg)
             except Exception as e:
                 logger.debug("Message edit failed (rate limit or deleted): %s", e)
-            
+
             wait_time = random.uniform(0.5, 2.5)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=wait_time)
@@ -115,6 +116,54 @@ class MessageRotator:
             self._task = None
 
 
+def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
+    """Strip tool turns from message history before sending to Claude.
+
+    If history contains orphaned tool_use or tool_result blocks (e.g. after
+    trimming or session boundary), the API rejects with 'unexpected tool_use_id'.
+    This drops entire messages that contain any tool_use or tool_result block
+    (Bug 36, Bug 20, Bug 29). After dropping, consecutive same-role messages
+    are merged to preserve the alternating user/assistant structure.
+    """
+    # Pass 1 — drop any message that contains a tool_use or tool_result block.
+    filtered: list[dict] = []
+    for m in msgs:
+        content = m.get("content")
+        if isinstance(content, list):
+            has_tool = any(
+                isinstance(b, dict) and b.get("type") in ("tool_use", "tool_result")
+                for b in content
+            )
+            if has_tool:
+                continue
+            # No tool blocks — collapse to plain text
+            parts: list[str] = []
+            for b in content:
+                if not isinstance(b, dict):
+                    parts.append(str(b))
+                elif b.get("type") == "text":
+                    parts.append(b.get("text") or b.get("content") or "")
+                else:
+                    parts.append(str(b.get("content") or b.get("text") or ""))
+            joined = "\n".join(p for p in parts if p)
+            if not joined:
+                continue
+            filtered.append({"role": m.get("role"), "content": joined})
+        else:
+            filtered.append(m)
+
+    # Pass 2 — merge consecutive same-role messages (artifact of dropping tool turns).
+    merged: list[dict] = []
+    for m in filtered:
+        if merged and merged[-1].get("role") == m.get("role"):
+            prev_content = merged[-1]["content"]
+            curr_content = m.get("content", "")
+            merged[-1]["content"] = f"{prev_content}\n{curr_content}"
+        else:
+            merged.append(dict(m))
+    return merged
+
+
 def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
     """
     Drop the oldest message pairs from history if the token count exceeds
@@ -123,7 +172,7 @@ def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
 
     Uses estimate_tokens() for fast token counting without API calls.
     Pre-calculates message sizes to avoid O(n²) re-serialisation.
-    
+
     Enforces a hard ceiling from settings.max_input_tokens_per_request to
     prevent runaway costs.
     """
@@ -139,7 +188,8 @@ def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
     if total_tokens > hard_ceiling * 0.9:
         logger.warning(
             "Message history approaching hard ceiling: %d tokens (ceiling: %d)",
-            total_tokens, hard_ceiling,
+            total_tokens,
+            hard_ceiling,
         )
 
     start_idx = 0
@@ -165,9 +215,7 @@ def is_allowed(user_id: int) -> bool:
 async def reject_unauthorized(update: Update) -> bool:
     """Reject unauthorized users with a message. Returns True if rejected."""
     if not is_allowed(update.effective_user.id):
-        await update.message.reply_text(
-            "You are not authorised to use this bot."
-        )
+        await update.message.reply_text("You are not authorised to use this bot.")
         return True
     return False
 

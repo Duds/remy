@@ -42,7 +42,7 @@ from .memory.injector import MemoryInjector
 from .memory.knowledge import KnowledgeExtractor, KnowledgeStore
 from .memory.file_index import FileIndexer
 from .analytics.analyzer import ConversationAnalyzer
-from .config_audit import get_auditor, log_startup_config
+from .config_audit import log_startup_config
 from .delivery import OutboundQueue
 from .diagnostics import DiagnosticsRunner
 from .scheduler.proactive import ProactiveScheduler

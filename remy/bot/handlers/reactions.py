@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .base import is_allowed
+from .base import is_allowed, _sanitize_messages_for_claude
 from ...models import ConversationTurn
 from ..session import SessionManager
 from ...config import settings
@@ -56,61 +56,11 @@ _REACTION_MAP: dict[str, str] = {
 _NO_OP_EMOJI = {"✅", "👍", "👀", "🙏"}
 
 
-def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
-    """Strip tool turns from message history before sending to Claude.
-
-    Reaction handler calls use a simple `complete()` path that doesn't support tool
-    blocks. If history contains tool turns, the API rejects them with
-    'unexpected tool_use_id'. This function drops entire messages that contain any
-    tool_use or tool_result block (Bug 29: partial stripping left orphaned pairs).
-
-    After dropping tool messages, consecutive same-role messages are merged to
-    preserve the alternating user/assistant structure the API requires.
-    """
-    # Pass 1 — drop any message that contains a tool_use or tool_result block.
-    # Dropping the *whole* message (not just the block) prevents orphaned pairs.
-    filtered: list[dict] = []
-    for m in msgs:
-        content = m.get("content")
-        if isinstance(content, list):
-            has_tool = any(
-                isinstance(b, dict) and b.get("type") in ("tool_use", "tool_result")
-                for b in content
-            )
-            if has_tool:
-                continue
-            # No tool blocks — collapse to plain text
-            parts: list[str] = []
-            for b in content:
-                if not isinstance(b, dict):
-                    parts.append(str(b))
-                elif b.get("type") == "text":
-                    parts.append(b.get("text") or b.get("content") or "")
-                else:
-                    parts.append(str(b.get("content") or b.get("text") or ""))
-            joined = "\n".join(p for p in parts if p)
-            if not joined:
-                continue
-            filtered.append({"role": m.get("role"), "content": joined})
-        else:
-            filtered.append(m)
-
-    # Pass 2 — merge consecutive same-role messages (artifact of dropping tool turns).
-    merged: list[dict] = []
-    for m in filtered:
-        if merged and merged[-1].get("role") == m.get("role"):
-            prev_content = merged[-1]["content"]
-            curr_content = m.get("content", "")
-            merged[-1]["content"] = f"{prev_content}\n{curr_content}"
-        else:
-            merged.append(dict(m))
-    return merged
-
-
 def _emoji_from_reaction(reaction) -> str | None:
     """Extract the emoji string from a ReactionType object, or return None."""
     try:
         from telegram import ReactionTypeEmoji
+
         if isinstance(reaction, ReactionTypeEmoji):
             return reaction.emoji
     except ImportError:
@@ -130,7 +80,9 @@ def make_reaction_handler(
     Factory that returns the handle_reaction coroutine.
     """
 
-    async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def handle_reaction(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         reaction_update = update.message_reaction
         if reaction_update is None:
             return
@@ -180,19 +132,27 @@ def make_reaction_handler(
 
         # Early-exit for obvious no-op reactions — skip DB read and Claude call entirely (Bug 14)
         if emoji in _NO_OP_EMOJI:
-            logger.debug("Reaction %s from user %d considered no-op, skipping Claude call", emoji, user.id)
+            logger.debug(
+                "Reaction %s from user %d considered no-op, skipping Claude call",
+                emoji,
+                user.id,
+            )
             try:
                 await conv_store.append_turn(
-                    user_id, session_key,
+                    user_id,
+                    session_key,
                     ConversationTurn(role="user", content=synthetic_text),
                 )
             except Exception as exc:
-                logger.warning("Reaction handler: failed to persist no-op turn: %s", exc)
+                logger.warning(
+                    "Reaction handler: failed to persist no-op turn: %s", exc
+                )
             return
 
         # Load recent conversation history for context
         try:
             from .base import _build_message_from_turn, _trim_messages_to_budget
+
             recent = await conv_store.get_recent_turns(user_id, session_key, limit=10)
             messages = [_build_message_from_turn(t) for t in recent]
             while messages:
@@ -231,7 +191,9 @@ def make_reaction_handler(
             logger.error("Reaction handler: Claude call failed: %s", exc)
             if "unexpected tool_use_id" in err_text or "tool_use_id" in err_text:
                 try:
-                    logger.debug("Reaction handler: retrying Claude call with minimal context")
+                    logger.debug(
+                        "Reaction handler: retrying Claude call with minimal context"
+                    )
                     reply = await claude_client.complete(
                         messages=[{"role": "user", "content": synthetic_text}],
                         system=system_prompt,
@@ -259,11 +221,13 @@ def make_reaction_handler(
         # Persist both turns to conversation history
         try:
             await conv_store.append_turn(
-                user_id, session_key,
+                user_id,
+                session_key,
                 ConversationTurn(role="user", content=synthetic_text),
             )
             await conv_store.append_turn(
-                user_id, session_key,
+                user_id,
+                session_key,
                 ConversationTurn(
                     role="assistant",
                     content=reply.strip(),

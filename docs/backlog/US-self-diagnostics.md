@@ -1,5 +1,7 @@
 # User Story: Self-Diagnostics Suite
 
+**Status:** ✅ Done — trigger phrase + check_status + get_logs (Feature 34 in BUGS.md)
+
 ## Summary
 
 As Dale, I want to trigger a comprehensive self-diagnostics check by sending the phrase "Are you there, God. It's me Dale." so that I can quickly verify all of Remy's subsystems are functioning correctly.

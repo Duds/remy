@@ -110,7 +110,7 @@ class TestTelegramBot:
 
             from remy.bot.telegram_bot import TelegramBot
 
-            bot = TelegramBot(handlers=sample_handlers)
+            TelegramBot(handlers=sample_handlers)
 
             # Verify token was set
             mock_builder.token.assert_called_once_with("test_token")
@@ -140,7 +140,7 @@ class TestTelegramBot:
             
             from remy.bot.telegram_bot import TelegramBot
             
-            bot = TelegramBot(handlers=sample_handlers)
+            TelegramBot(handlers=sample_handlers)
             
             # Verify handlers were added
             assert mock_application.add_handler.called
@@ -170,7 +170,6 @@ class TestErrorHandler:
     async def test_error_handler_sends_alert_for_unexpected_errors(self, mock_settings):
         """Verify unexpected errors trigger admin alerts."""
         from remy.bot.telegram_bot import _error_handler
-        from remy.config import get_settings
         
         import remy.config
         remy.config._settings = None

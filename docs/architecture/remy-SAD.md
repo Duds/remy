@@ -1,7 +1,7 @@
 # Remy — Software Architecture Document (SAD)
 
-**Version:** 1.0  
-**Date:** 01/03/2026  
+**Version:** 1.1  
+**Date:** 04/03/2026  
 **Status:** Internal Engineering Document  
 
 ---
@@ -48,9 +48,12 @@ remy/
 │   ├── agents/              # Board of Directors sub-agents
 │   ├── analytics/           # Metrics, call logging, cost tracking
 │   ├── bot/                 # Telegram bot handlers, streaming
-│   ├── diagnostics/         # Health checks, error logging
+│   ├── delivery/            # Outbound message queue (crash-safe)
+│   ├── diagnostics/         # Health checks, log analysis, self-diagnostics
 │   ├── google/              # Google Workspace integrations
+│   ├── hooks/               # Lifecycle hooks (compaction, etc.)
 │   ├── memory/              # Database, embeddings, knowledge store
+│   ├── relay/               # Relay MCP client (inter-agent)
 │   ├── scheduler/           # Proactive messaging (APScheduler)
 │   ├── utils/               # Formatting, circuit breakers, concurrency
 │   ├── voice/               # Whisper transcription

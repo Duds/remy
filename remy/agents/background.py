@@ -101,7 +101,7 @@ class BackgroundTaskRunner:
 
             if self._job_store and self._job_id:
                 await self._job_store.set_failed(
-                    self._job_id, f"Task failed — see /logs for details"
+                    self._job_id, "Task failed — see /logs for details"
                 )
             await self._bot.send_message(
                 self._chat_id,

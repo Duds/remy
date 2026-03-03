@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from remy.ai.tools.time import exec_get_current_time
 
@@ -59,7 +58,7 @@ class TestExecGetCurrentTime:
         mock_datetime.now.return_value = fixed_time
         
         registry = MagicMock()
-        result = exec_get_current_time(registry)
+        exec_get_current_time(registry)
         
         mock_datetime.now.assert_called_once()
         call_args = mock_datetime.now.call_args

@@ -1,7 +1,6 @@
 """Integration tests for Google API clients with circuit breaker and retry."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -147,7 +146,7 @@ class TestGmailClient:
                 }
                 
                 # The actual call goes through with_google_resilience
-                result = await client.get_unread()
+                await client.get_unread()
                 
                 # Verify resilience wrapper was called
                 mock_resilience.assert_called()
@@ -166,7 +165,7 @@ class TestCalendarClient:
             
             client = CalendarClient(token_file="test_token.json")
             
-            result = await client.list_events()
+            await client.list_events()
             
             # Verify resilience wrapper was called
             mock_resilience.assert_called()
@@ -185,7 +184,7 @@ class TestContactsClient:
             
             client = ContactsClient(token_file="test_token.json")
             
-            result = await client.list_contacts()
+            await client.list_contacts()
             
             # Verify resilience wrapper was called
             mock_resilience.assert_called()
@@ -204,7 +203,7 @@ class TestDocsClient:
             
             client = DocsClient(token_file="test_token.json")
             
-            result = await client.read_document("test_doc_id")
+            await client.read_document("test_doc_id")
             
             # Verify resilience wrapper was called
             mock_resilience.assert_called()

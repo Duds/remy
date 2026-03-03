@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from remy.ai.tool_registry import ToolRegistry, TOOL_SCHEMAS
 from remy.ai.claude_client import (
@@ -18,7 +18,6 @@ from remy.ai.claude_client import (
     ToolStatusChunk,
     ToolResultChunk,
     ToolTurnComplete,
-    StreamEvent,
 )
 from remy.bot.handlers import _build_message_from_turn, _TOOL_TURN_PREFIX
 from remy.models import ConversationTurn
@@ -190,7 +189,7 @@ async def test_dispatch_get_logs_summary():
 @pytest.mark.asyncio
 async def test_dispatch_get_logs_tail():
     reg = make_registry(logs_dir="/tmp")
-    with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="log lines") as mock_thread:
+    with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="log lines"):
         result = await reg.dispatch("get_logs", {"mode": "tail", "lines": 10}, USER_ID)
     assert "log lines" in result
 

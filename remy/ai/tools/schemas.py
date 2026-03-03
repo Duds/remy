@@ -123,7 +123,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Memory / status                                                      #
     # ------------------------------------------------------------------ #
@@ -241,7 +240,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Calendar / email                                                     #
     # ------------------------------------------------------------------ #
@@ -497,7 +495,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["to", "subject", "body"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Contacts                                                             #
     # ------------------------------------------------------------------ #
@@ -539,7 +536,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Web / research                                                       #
     # ------------------------------------------------------------------ #
@@ -585,7 +581,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["item"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Files                                                                #
     # ------------------------------------------------------------------ #
@@ -635,7 +630,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["path"],
         },
     },
-
     {
         "name": "write_file",
         "description": (
@@ -688,7 +682,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["path", "content"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Google Docs                                                          #
     # ------------------------------------------------------------------ #
@@ -709,7 +702,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["doc_id_or_url"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Grocery list                                                         #
     # ------------------------------------------------------------------ #
@@ -741,7 +733,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["action"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Automations (Phase 5)                                                #
     # ------------------------------------------------------------------ #
@@ -852,7 +843,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["task"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Memory management                                                    #
     # ------------------------------------------------------------------ #
@@ -953,7 +943,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Phase 6: Analytics & insights                                        #
     # ------------------------------------------------------------------ #
@@ -1051,7 +1040,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Plan tracking                                                        #
     # ------------------------------------------------------------------ #
@@ -1183,7 +1171,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["plan_id", "status"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # File search (Home directory RAG)                                     #
     # ------------------------------------------------------------------ #
@@ -1234,7 +1221,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Session / Privacy tools                                              #
     # ------------------------------------------------------------------ #
@@ -1277,7 +1263,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Project tracking tools                                               #
     # ------------------------------------------------------------------ #
@@ -1315,7 +1300,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # File management tools                                                #
     # ------------------------------------------------------------------ #
@@ -1393,7 +1377,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["pattern"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Bookmark tools                                                       #
     # ------------------------------------------------------------------ #
@@ -1437,7 +1420,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Extended contacts tools                                              #
     # ------------------------------------------------------------------ #
@@ -1495,7 +1477,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Google Docs extended                                                 #
     # ------------------------------------------------------------------ #
@@ -1521,7 +1502,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["doc_id_or_url", "text"],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Gmail extended                                                       #
     # ------------------------------------------------------------------ #
@@ -1545,7 +1525,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Analytics extended                                                   #
     # ------------------------------------------------------------------ #
@@ -1568,7 +1547,6 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
-
     # ------------------------------------------------------------------ #
     # Special tools                                                        #
     # ------------------------------------------------------------------ #
@@ -1618,10 +1596,18 @@ TOOL_SCHEMAS: list[dict] = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "label": {"type": "string", "description": "Button text (e.g. 'Add to calendar')"},
+                            "label": {
+                                "type": "string",
+                                "description": "Button text (e.g. 'Add to calendar')",
+                            },
                             "callback_id": {
                                 "type": "string",
-                                "enum": ["add_to_calendar", "forward_to_cowork", "break_down", "dismiss"],
+                                "enum": [
+                                    "add_to_calendar",
+                                    "forward_to_cowork",
+                                    "break_down",
+                                    "dismiss",
+                                ],
                                 "description": "Action type",
                             },
                             "payload": {
@@ -1644,7 +1630,7 @@ TOOL_SCHEMAS: list[dict] = [
             "Use it ALONGSIDE a text reply when tone warrants it (e.g. react ❤️ then give a warm response). "
             "Do NOT react to every message — only when a reaction adds genuine meaning. "
             "Never react AND send a hollow one-liner that says the same thing as the reaction. "
-            "Allowed emoji: 👍 ✅ ❤️ 🔥 🤔 😂 👀 🎉"
+            "Allowed emoji: 👍 ❤️ 🔥 🤔 👀 🎉 🤩 🤣"
         ),
         "input_schema": {
             "type": "object",
@@ -1652,14 +1638,14 @@ TOOL_SCHEMAS: list[dict] = [
                 "emoji": {
                     "type": "string",
                     "description": (
-                        "The emoji to react with. Must be one of: 👍 ✅ ❤️ 🔥 🤔 😂 👀 🎉. "
+                        "The emoji to react with. Must be one of: 👍 ❤️ 🔥 🤔 👀 🎉 🤩 🤣. "
                         "Choose based on the emotional register of the message:\n"
                         "👍 — acknowledged, will do, understood\n"
-                        "✅ — task complete or confirmed\n"
+                        "🤩 — task complete, star-struck, impressed\n"
                         "❤️ — warm moment, emotional support\n"
                         "🔥 — great idea, enthusiastic agreement\n"
                         "🤔 — uncertain, need to think\n"
-                        "😂 — genuinely funny\n"
+                        "🤣 — genuinely funny\n"
                         "👀 — noted, watching this\n"
                         "🎉 — celebrating an achievement"
                     ),

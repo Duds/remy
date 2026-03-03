@@ -2,7 +2,6 @@
 Tests for cache hit rate calculation in call_log.
 """
 
-import pytest
 
 from remy.analytics.call_log import calculate_cache_hit_rate
 from remy.models import TokenUsage

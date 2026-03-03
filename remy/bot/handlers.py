@@ -19,6 +19,7 @@ import logging
 import os
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,12 +28,16 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from ..agents.background import BackgroundTaskRunner
-from ..analytics.timing import RequestTiming, timed_phase, PhaseTimer
+from ..analytics.timing import RequestTiming, PhaseTimer
 from ..bot.working_message import WorkingMessage
-from ..ai.claude_client import TextChunk, ToolResultChunk, ToolStatusChunk, ToolTurnComplete
+from ..ai.claude_client import (
+    TextChunk,
+    ToolResultChunk,
+    ToolStatusChunk,
+    ToolTurnComplete,
+)
 from ..ai.input_validator import (
     RateLimiter,
-    validate_command_input,
     validate_message_input,
     sanitize_memory_injection,
     sanitize_file_path,
@@ -58,7 +63,12 @@ if TYPE_CHECKING:
     from ..agents.orchestrator import BoardOrchestrator
     from ..scheduler.proactive import ProactiveScheduler
 
-from ..constants import WORKING_MESSAGES, TOOL_TURN_PREFIX, SHOPPING_KEYWORDS, DEADLINE_KEYWORDS
+from ..constants import (
+    WORKING_MESSAGES,
+    TOOL_TURN_PREFIX,
+    SHOPPING_KEYWORDS,
+    DEADLINE_KEYWORDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +101,7 @@ def _build_message_from_turn(turn: ConversationTurn) -> dict:
     """
     if turn.content.startswith(_TOOL_TURN_PREFIX):
         try:
-            blocks = json.loads(turn.content[len(_TOOL_TURN_PREFIX):])
+            blocks = json.loads(turn.content[len(_TOOL_TURN_PREFIX) :])
             return {"role": turn.role, "content": blocks}
         except (json.JSONDecodeError, ValueError):
             pass
@@ -106,8 +116,10 @@ def _get_history_token_budget() -> int:
     """Calculate history token budget from settings (70% of max input tokens)."""
     return int(settings.max_input_tokens_per_request * 0.7)
 
+
 def _get_working_msg() -> str:
     import random
+
     return random.choice(WORKING_MESSAGES)
 
 
@@ -116,6 +128,7 @@ class MessageRotator:
     Background task that rotates working messages on a Telegram message
     at random intervals until stopped.
     """
+
     def __init__(self, message: any, user_id: int):
         self._message = message
         self._user_id = user_id
@@ -124,18 +137,19 @@ class MessageRotator:
 
     async def _rotate_loop(self):
         import random
+
         last_msg = ""
         while not self._stop_event.is_set():
             # Get a new random message different from the last one
             pool = [m for m in WORKING_MESSAGES if m != last_msg]
             msg = random.choice(pool)
             last_msg = msg
-            
+
             try:
                 await self._message.edit_text(msg)
             except Exception as e:
                 logger.debug("Message edit failed (rate limit or deleted): %s", e)
-            
+
             # Wait for random interval 0.5s - 2.5s
             wait_time = random.uniform(0.5, 2.5)
             try:
@@ -166,7 +180,7 @@ def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
 
     Uses estimate_tokens() for fast token counting without API calls.
     Pre-calculates message sizes to avoid O(n²) re-serialisation.
-    
+
     Enforces a hard ceiling from settings.max_input_tokens_per_request to
     prevent runaway costs.
     """
@@ -184,7 +198,8 @@ def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
     if total_tokens > hard_ceiling * 0.9:
         logger.warning(
             "Message history approaching hard ceiling: %d tokens (ceiling: %d)",
-            total_tokens, hard_ceiling,
+            total_tokens,
+            hard_ceiling,
         )
 
     # Drop oldest pairs until under budget (keep at least 4 messages)
@@ -219,11 +234,12 @@ def make_handlers(
     db=None,  # DatabaseManager — used to upsert user on first message
     tool_registry=None,  # ToolRegistry — enables native Anthropic tool use
     google_calendar=None,  # remy.google.calendar.CalendarClient | None
-    google_gmail=None,     # remy.google.gmail.GmailClient | None
-    google_docs=None,      # remy.google.docs.DocsClient | None
+    google_gmail=None,  # remy.google.gmail.GmailClient | None
+    google_docs=None,  # remy.google.docs.DocsClient | None
     google_contacts=None,  # remy.google.contacts.ContactsClient | None
     automation_store=None,  # remy.memory.automations.AutomationStore | None
-    scheduler_ref: dict | None = None,  # mutable {"proactive_scheduler": ...} for late-binding
+    scheduler_ref: dict
+    | None = None,  # mutable {"proactive_scheduler": ...} for late-binding
     conversation_analyzer=None,  # remy.analytics.analyzer.ConversationAnalyzer | None
     job_store=None,  # remy.memory.background_jobs.BackgroundJobStore | None
     plan_store=None,  # remy.memory.plans.PlanStore | None
@@ -241,9 +257,7 @@ def make_handlers(
 
     async def _reject_unauthorized(update: Update) -> bool:
         if not _is_allowed(update.effective_user.id):
-            await update.message.reply_text(
-                "You are not authorised to use this bot."
-            )
+            await update.message.reply_text("You are not authorised to use this bot.")
             return True
         return False
 
@@ -330,9 +344,11 @@ def make_handlers(
     async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await _reject_unauthorized(update):
             return
-        
+
         # Use the central status check from ToolRegistry
-        status_text = await tool_registry.dispatch("check_status", {}, update.effective_user.id)
+        status_text = await tool_registry.dispatch(
+            "check_status", {}, update.effective_user.id
+        )
         await update.message.reply_text(status_text)
 
     async def diagnostics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -358,9 +374,7 @@ def make_handlers(
             return
 
         await update.message.reply_text("Summarising conversation…")
-        transcript = "\n".join(
-            f"{t.role.upper()}: {t.content[:500]}" for t in turns
-        )
+        transcript = "\n".join(f"{t.role.upper()}: {t.content[:500]}" for t in turns)
         summary = await claude_client.complete(
             messages=[
                 {
@@ -416,8 +430,11 @@ def make_handlers(
                 "You have no active goals yet. Tell me what you're working on!"
             )
             return
-        lines = [f"• *{g['title']}*" + (f" — {g['description']}" if g.get("description") else "")
-                 for g in goals]
+        lines = [
+            f"• *{g['title']}*"
+            + (f" — {g['description']}" if g.get("description") else "")
+            for g in goals
+        ]
         await update.message.reply_text(
             f"🎯 *Active goals* ({len(goals)}):\n\n" + "\n".join(lines),
             parse_mode="Markdown",
@@ -472,7 +489,9 @@ def make_handlers(
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
-    async def delete_conversation_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def delete_conversation_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """Delete conversation history for privacy."""
         if await _reject_unauthorized(update):
             return
@@ -526,10 +545,12 @@ def make_handlers(
             )
             try:
                 summary = await claude_client.complete(
-                    messages=[{
-                        "role": "user",
-                        "content": f"Summarise this file concisely:\n\n{data}",
-                    }],
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"Summarise this file concisely:\n\n{data}",
+                        }
+                    ],
                     system="You are a file summarisation assistant. Be concise and factual.",
                     max_tokens=512,
                 )
@@ -550,8 +571,7 @@ def make_handlers(
         if len(data) > 8000:
             data = data[:8000] + "\n...[truncated]"
         await update.message.reply_text(
-            ("📄 Contents of %s:\n```\n" +
-             "%s\n```") % (sanitized, data),
+            ("📄 Contents of %s:\n```\n" + "%s\n```") % (sanitized, data),
             parse_mode="Markdown",
         )
 
@@ -586,9 +606,7 @@ def make_handlers(
             return
         try:
             entries = os.listdir(sanitized)
-            await update.message.reply_text(
-                "\n".join(entries) or "(empty directory)"
-            )
+            await update.message.reply_text("\n".join(entries) or "(empty directory)")
         except Exception as e:
             await update.message.reply_text(f"❌ Could not list directory: {e}")
 
@@ -601,9 +619,12 @@ def make_handlers(
             return
         pattern = context.args[0]
         import glob
+
         raw_results = []
         for base in settings.allowed_base_dirs:
-            raw_results.extend(glob.glob(os.path.join(base, "**", pattern), recursive=True))
+            raw_results.extend(
+                glob.glob(os.path.join(base, "**", pattern), recursive=True)
+            )
         # Validate every result is within an allowed base (guards against crafted patterns)
         results = []
         for r in raw_results:
@@ -630,12 +651,15 @@ def make_handlers(
             return
         # record as a fact
         from ..models import Fact
+
         fact = Fact(category="project", content=sanitized)
         if fact_store is not None:
             await fact_store.upsert(update.effective_user.id, [fact])
         await update.message.reply_text(f"Project set: {sanitized}")
 
-    async def project_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def project_status_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/project-status — list remembered project paths with file count and last modified."""
         if await _reject_unauthorized(update):
             return
@@ -647,6 +671,7 @@ def make_handlers(
             await update.message.reply_text("No project set yet.")
             return
         from datetime import datetime as _dt
+
         lines = []
         for f in facts:
             path = f["content"]
@@ -658,7 +683,9 @@ def make_handlers(
                     if all_files:
                         latest = max(x.stat().st_mtime for x in all_files)
                         mod_str = _dt.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M")
-                        lines.append(f"• {path}\n  {file_count} files, last modified {mod_str}")
+                        lines.append(
+                            f"• {path}\n  {file_count} files, last modified {mod_str}"
+                        )
                     else:
                         lines.append(f"• {path}\n  (empty)")
                 except Exception:
@@ -670,7 +697,9 @@ def make_handlers(
             parse_mode="Markdown",
         )
 
-    async def scan_downloads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def scan_downloads_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/scan-downloads — rich report: type classification, ages, sizes."""
         if await _reject_unauthorized(update):
             return
@@ -692,12 +721,65 @@ def make_handlers(
 
         # Extension → (icon, label)
         _EXTS: list[tuple[frozenset, str, str]] = [
-            (frozenset(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "svg"]), "🖼", "Images"),
-            (frozenset(["mp4", "mov", "avi", "mkv", "m4v", "wmv", "flv"]), "🎥", "Videos"),
+            (
+                frozenset(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "svg"]),
+                "🖼",
+                "Images",
+            ),
+            (
+                frozenset(["mp4", "mov", "avi", "mkv", "m4v", "wmv", "flv"]),
+                "🎥",
+                "Videos",
+            ),
             (frozenset(["mp3", "m4a", "wav", "flac", "aac", "ogg"]), "🎵", "Audio"),
-            (frozenset(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "pages", "numbers", "key"]), "📄", "Documents"),
-            (frozenset(["zip", "tar", "gz", "bz2", "7z", "rar", "dmg", "pkg", "iso"]), "📦", "Archives"),
-            (frozenset(["py", "js", "ts", "java", "cpp", "c", "h", "go", "rs", "sh", "json", "yaml", "yml", "toml"]), "💻", "Code"),
+            (
+                frozenset(
+                    [
+                        "pdf",
+                        "doc",
+                        "docx",
+                        "xls",
+                        "xlsx",
+                        "ppt",
+                        "pptx",
+                        "txt",
+                        "pages",
+                        "numbers",
+                        "key",
+                    ]
+                ),
+                "📄",
+                "Documents",
+            ),
+            (
+                frozenset(
+                    ["zip", "tar", "gz", "bz2", "7z", "rar", "dmg", "pkg", "iso"]
+                ),
+                "📦",
+                "Archives",
+            ),
+            (
+                frozenset(
+                    [
+                        "py",
+                        "js",
+                        "ts",
+                        "java",
+                        "cpp",
+                        "c",
+                        "h",
+                        "go",
+                        "rs",
+                        "sh",
+                        "json",
+                        "yaml",
+                        "yml",
+                        "toml",
+                    ]
+                ),
+                "💻",
+                "Code",
+            ),
         ]
 
         def _classify(ext: str) -> tuple[str, str]:
@@ -712,13 +794,18 @@ def make_handlers(
                 return f"{b}B"
             if b < 1024 * 1024:
                 return f"{b // 1024}KB"
-            if b < 1024 ** 3:
+            if b < 1024**3:
                 return f"{b // (1024 * 1024)}MB"
-            return f"{b / (1024 ** 3):.1f}GB"
+            return f"{b / (1024**3):.1f}GB"
 
         # label -> (icon, count, bytes)
         type_counts: dict[str, tuple[str, int, int]] = {}
-        age_buckets = {"Today (<1d)": 0, "This week (<7d)": 0, "This month (<30d)": 0, "Old (>30d)": 0}
+        age_buckets = {
+            "Today (<1d)": 0,
+            "This week (<7d)": 0,
+            "This month (<30d)": 0,
+            "Old (>30d)": 0,
+        }
         # (mtime, name, size_bytes) — for oldest-files list
         oldest: list[tuple[float, str, int]] = []
 
@@ -739,10 +826,14 @@ def make_handlers(
                 age_buckets["Old (>30d)"] += 1
             oldest.append((stat.st_mtime, f.name, stat.st_size))
 
-        lines = [f"📦 *Downloads Scan* — {len(files)} files ({_fmt_bytes(total_bytes)} total)\n"]
+        lines = [
+            f"📦 *Downloads Scan* — {len(files)} files ({_fmt_bytes(total_bytes)} total)\n"
+        ]
 
         lines.append("*Type breakdown:*")
-        for label, (icon, count, nbytes) in sorted(type_counts.items(), key=lambda x: -x[1][2]):
+        for label, (icon, count, nbytes) in sorted(
+            type_counts.items(), key=lambda x: -x[1][2]
+        ):
             lines.append(f"  {icon} {label}: {count} file(s), {_fmt_bytes(nbytes)}")
 
         lines.append("\n*Age breakdown:*")
@@ -797,15 +888,17 @@ def make_handlers(
         listing = "\n".join(entries[:50])
         try:
             suggestions = await claude_client.complete(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Here is the contents of directory '{sanitized}':\n\n{listing}\n\n"
-                        "Suggest how to organise these files. "
-                        "Recommend folder names and which files should go where. "
-                        "Be specific and actionable."
-                    ),
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Here is the contents of directory '{sanitized}':\n\n{listing}\n\n"
+                            "Suggest how to organise these files. "
+                            "Recommend folder names and which files should go where. "
+                            "Be specific and actionable."
+                        ),
+                    }
+                ],
                 system="You are a helpful file organisation assistant. Be concise and practical.",
                 max_tokens=1024,
             )
@@ -835,7 +928,9 @@ def make_handlers(
             await update.message.reply_text("❌ Not a directory.")
             return
         try:
-            files = sorted([f for f in p.iterdir() if f.is_file()], key=lambda x: x.stat().st_mtime)
+            files = sorted(
+                [f for f in p.iterdir() if f.is_file()], key=lambda x: x.stat().st_mtime
+            )
         except Exception as e:
             await update.message.reply_text(f"❌ Could not list directory: {e}")
             return
@@ -859,14 +954,16 @@ def make_handlers(
         listing = "\n".join(file_lines)
         try:
             suggestions = await claude_client.complete(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Review these files from '{sanitized}' and suggest DELETE, ARCHIVE, or KEEP for each:\n\n{listing}\n\n"
-                        "Format your response as:\n"
-                        "• filename.ext — KEEP/ARCHIVE/DELETE — brief reason"
-                    ),
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Review these files from '{sanitized}' and suggest DELETE, ARCHIVE, or KEEP for each:\n\n{listing}\n\n"
+                            "Format your response as:\n"
+                            "• filename.ext — KEEP/ARCHIVE/DELETE — brief reason"
+                        ),
+                    }
+                ],
                 system="You are a helpful file cleanup assistant. Be decisive and practical.",
                 max_tokens=1024,
             )
@@ -925,7 +1022,9 @@ def make_handlers(
             msg = msg[:4000] + "…"
         await update.message.reply_text(msg, parse_mode="Markdown")
 
-    async def calendar_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def calendar_today_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/calendar-today — today's events at a glance."""
         context.args = ["1"]
         await calendar_command(update, context)
@@ -999,7 +1098,9 @@ def make_handlers(
             msg = msg[:4000] + "…"
         await update.message.reply_text(msg, parse_mode="Markdown")
 
-    async def gmail_unread_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def gmail_unread_summary_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/gmail-unread-summary — total unread count and top senders."""
         if await _reject_unauthorized(update):
             return
@@ -1023,7 +1124,9 @@ def make_handlers(
             parse_mode="Markdown",
         )
 
-    async def gmail_classify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def gmail_classify_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/gmail-classify — identify promotional/newsletter emails and offer to archive."""
         if await _reject_unauthorized(update):
             return
@@ -1069,7 +1172,9 @@ def make_handlers(
             )
             return
         query = " ".join(context.args)
-        await update.message.reply_text(f"🔍 Searching for `{query}`…", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"🔍 Searching for `{query}`…", parse_mode="Markdown"
+        )
         try:
             emails = await google_gmail.search(query, max_results=10)
         except Exception as e:
@@ -1097,23 +1202,21 @@ def make_handlers(
             await update.message.reply_text(_google_not_configured("Gmail"))
             return
         if not context.args:
-            await update.message.reply_text("Usage: `/gmail-read <message-id>`", parse_mode="Markdown")
+            await update.message.reply_text(
+                "Usage: `/gmail-read <message-id>`", parse_mode="Markdown"
+            )
             return
         message_id = context.args[0]
         await update.message.reply_text("📖 Fetching email…")
         try:
             from ..ai.input_validator import sanitize_memory_injection
+
             m = await google_gmail.get_message(message_id, include_body=True)
-            subj   = sanitize_memory_injection(m.get("subject", "(no subject)"))
+            subj = sanitize_memory_injection(m.get("subject", "(no subject)"))
             sender = sanitize_memory_injection(m.get("from_addr", ""))
-            date   = m.get("date", "")
-            body   = sanitize_memory_injection(m.get("body") or m.get("snippet", ""))
-            text = (
-                f"*{subj}*\n"
-                f"From: {sender}\n"
-                f"Date: {date}\n\n"
-                f"{body}"
-            )
+            date = m.get("date", "")
+            body = sanitize_memory_injection(m.get("body") or m.get("snippet", ""))
+            text = f"*{subj}*\nFrom: {sender}\nDate: {date}\n\n{body}"
             if len(text) > 4000:
                 text = text[:3990] + "\n\n…_(truncated)_"
             await update.message.reply_text(text, parse_mode="Markdown")
@@ -1129,16 +1232,16 @@ def make_handlers(
             return
         try:
             labels = await google_gmail.list_labels()
-            user_labels = [l for l in labels if l["type"] != "system"]
-            sys_labels  = [l for l in labels if l["type"] == "system"]
+            user_labels = [lb for lb in labels if lb["type"] != "system"]
+            sys_labels = [lb for lb in labels if lb["type"] == "system"]
             lines = ["*Gmail Labels*\n"]
             if user_labels:
                 lines.append("*Custom:*")
-                for l in sorted(user_labels, key=lambda x: x["name"]):
-                    lines.append(f"  `{l['id']}` — {l['name']}")
+                for lb in sorted(user_labels, key=lambda x: x["name"]):
+                    lines.append(f"  `{lb['id']}` — {lb['name']}")
             lines.append("\n*System:*")
-            for l in sorted(sys_labels, key=lambda x: x["name"]):
-                lines.append(f"  `{l['id']}` — {l['name']}")
+            for lb in sorted(sys_labels, key=lambda x: x["name"]):
+                lines.append(f"  `{lb['id']}` — {lb['name']}")
             await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Gmail error: {e}")
@@ -1171,7 +1274,12 @@ def make_handlers(
             )
             try:
                 summary = await claude_client.complete(
-                    messages=[{"role": "user", "content": f"Summarise this document:\n\n{text[:20000]}"}],
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"Summarise this document:\n\n{text[:20000]}",
+                        }
+                    ],
                     system="You are a document summarisation assistant. Be concise and factual.",
                     max_tokens=512,
                 )
@@ -1221,14 +1329,18 @@ def make_handlers(
             return
         query = " ".join(context.args).strip() if context.args else ""
         if query:
-            await update.message.reply_text(f"🔍 Searching contacts for _{query}_…", parse_mode="Markdown")
+            await update.message.reply_text(
+                f"🔍 Searching contacts for _{query}_…", parse_mode="Markdown"
+            )
             try:
                 people = await google_contacts.search_contacts(query, max_results=10)
             except Exception as e:
                 await update.message.reply_text(f"❌ Contacts search failed: {e}")
                 return
             if not people:
-                await update.message.reply_text(f"No contacts matching _{query}_.", parse_mode="Markdown")
+                await update.message.reply_text(
+                    f"No contacts matching _{query}_.", parse_mode="Markdown"
+                )
                 return
         else:
             await update.message.reply_text("📋 Fetching contacts…")
@@ -1242,6 +1354,7 @@ def make_handlers(
                 return
 
         from ..google.contacts import format_contact
+
         lines = [f"👥 *{len(people)} contact(s):*\n"]
         for p in people[:20]:
             lines.append(format_contact(p))
@@ -1250,7 +1363,9 @@ def make_handlers(
             msg = msg[:4000] + "…"
         await update.message.reply_text(msg, parse_mode="Markdown")
 
-    async def contacts_birthday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def contacts_birthday_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/contacts-birthday [days=14] — upcoming birthdays."""
         if await _reject_unauthorized(update):
             return
@@ -1262,7 +1377,9 @@ def make_handlers(
             days = max(1, min(days, 90))
         except (ValueError, IndexError):
             days = 14
-        await update.message.reply_text(f"🎂 Checking birthdays in the next {days} days…")
+        await update.message.reply_text(
+            f"🎂 Checking birthdays in the next {days} days…"
+        )
         try:
             upcoming = await google_contacts.get_upcoming_birthdays(days=days)
         except Exception as e:
@@ -1272,6 +1389,7 @@ def make_handlers(
             await update.message.reply_text(f"🎂 No birthdays in the next {days} days.")
             return
         from ..google.contacts import _extract_name
+
         lines = [f"🎂 *Upcoming birthdays (next {days} days):*\n"]
         for bday_date, person in upcoming:
             name = _extract_name(person) or "(unknown)"
@@ -1279,7 +1397,9 @@ def make_handlers(
             lines.append(f"• *{name}* — {bday_date.strftime('%d %b')}{yr}")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
-    async def contacts_details_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def contacts_details_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/contacts-details <name> — full details for a contact."""
         if await _reject_unauthorized(update):
             return
@@ -1296,9 +1416,12 @@ def make_handlers(
             await update.message.reply_text(f"❌ Search failed: {e}")
             return
         if not people:
-            await update.message.reply_text(f"No contact found matching _{query}_.", parse_mode="Markdown")
+            await update.message.reply_text(
+                f"No contact found matching _{query}_.", parse_mode="Markdown"
+            )
             return
         from ..google.contacts import format_contact, _extract_name
+
         # Fetch full details for the top match
         top = people[0]
         resource_name = top.get("resourceName", "")
@@ -1306,8 +1429,10 @@ def make_handlers(
             if resource_name:
                 top = await google_contacts.get_contact(resource_name)
         except Exception as e:
-            logger.debug("Failed to fetch full contact details, using search result: %s", e)
-        lines = [f"👤 *Contact details:*\n", format_contact(top, verbose=True)]
+            logger.debug(
+                "Failed to fetch full contact details, using search result: %s", e
+            )
+        lines = ["👤 *Contact details:*\n", format_contact(top, verbose=True)]
         if len(people) > 1:
             others = [_extract_name(p) or "?" for p in people[1:]]
             lines.append(f"\n_Also matched: {', '.join(others)}_")
@@ -1340,6 +1465,7 @@ def make_handlers(
             )
             return
         from ..google.contacts import _extract_name
+
         person = people[0]
         resource_name = person.get("resourceName", "")
         name = _extract_name(person) or name_query
@@ -1352,7 +1478,9 @@ def make_handlers(
         except Exception as e:
             await update.message.reply_text(f"❌ Could not update note: {e}")
 
-    async def contacts_prune_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def contacts_prune_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/contacts-prune — list contacts with no email and no phone (candidates for deletion)."""
         if await _reject_unauthorized(update):
             return
@@ -1366,16 +1494,21 @@ def make_handlers(
             await update.message.reply_text(f"❌ Could not scan contacts: {e}")
             return
         if not sparse:
-            await update.message.reply_text("✅ All contacts have at least an email or phone number.")
+            await update.message.reply_text(
+                "✅ All contacts have at least an email or phone number."
+            )
             return
         from ..google.contacts import _extract_name
+
         lines = [f"🗑 *{len(sparse)} contact(s) with no email or phone:*\n"]
         for p in sparse[:30]:
             name = _extract_name(p) or "(no name)"
             lines.append(f"• {name}")
         if len(sparse) > 30:
             lines.append(f"…and {len(sparse) - 30} more")
-        lines.append("\n_Use /contacts-details <name> to review, or delete in Google Contacts._")
+        lines.append(
+            "\n_Use /contacts-details <name> to review, or delete in Google Contacts._"
+        )
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     # ------------------------------------------------------------------ #
@@ -1390,8 +1523,11 @@ def make_handlers(
             await update.message.reply_text("Usage: /search <query>")
             return
         from ..web.search import web_search, format_results
+
         query = " ".join(context.args)
-        await update.message.reply_text(f"🔍 Searching for _{query}_…", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"🔍 Searching for _{query}_…", parse_mode="Markdown"
+        )
         results = await web_search(query, max_results=5)
         if not results:
             await update.message.reply_text(
@@ -1399,7 +1535,7 @@ def make_handlers(
                 "Make sure `duckduckgo-search` is installed, or try again later."
             )
             return
-        msg = f"🔍 *Results for \"{query}\":*\n\n" + format_results(results)
+        msg = f'🔍 *Results for "{query}":*\n\n' + format_results(results)
         if len(msg) > 4000:
             msg = msg[:4000] + "…"
         await update.message.reply_text(msg, parse_mode="Markdown")
@@ -1412,7 +1548,9 @@ def make_handlers(
             await update.message.reply_text("Usage: /research <topic>")
             return
         if claude_client is None:
-            await update.message.reply_text("❌ Claude not available for research synthesis.")
+            await update.message.reply_text(
+                "❌ Claude not available for research synthesis."
+            )
             return
         from ..web.search import web_search
 
@@ -1434,20 +1572,22 @@ def make_handlers(
 
             # Build context block for Claude
             snippets = "\n\n".join(
-                f"Source {i}: {r.get('title','')}\nURL: {r.get('href','')}\n{r.get('body','')}"
+                f"Source {i}: {r.get('title', '')}\nURL: {r.get('href', '')}\n{r.get('body', '')}"
                 for i, r in enumerate(results, 1)
             )
 
             synthesis = await claude_client.complete(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Research topic: {topic}\n\n"
-                        f"Web search results:\n{snippets}\n\n"
-                        "Synthesise the key findings into a clear, useful summary. "
-                        "Cite source numbers. Be factual and concise."
-                    ),
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Research topic: {topic}\n\n"
+                            f"Web search results:\n{snippets}\n\n"
+                            "Synthesise the key findings into a clear, useful summary. "
+                            "Cite source numbers. Be factual and concise."
+                        ),
+                    }
+                ],
                 system="You are a research assistant. Synthesise web search results accurately.",
                 max_tokens=1024,
             )
@@ -1488,7 +1628,9 @@ def make_handlers(
             return
         items = await fact_store.get_by_category(update.effective_user.id, "bookmark")
         if not items:
-            await update.message.reply_text("🔖 No bookmarks saved yet. Use /save-url <url> to add one.")
+            await update.message.reply_text(
+                "🔖 No bookmarks saved yet. Use /save-url <url> to add one."
+            )
             return
         filt = " ".join(context.args).lower() if context.args else ""
         if filt:
@@ -1496,7 +1638,9 @@ def make_handlers(
         if not items:
             await update.message.reply_text(f"🔖 No bookmarks matching '{filt}'.")
             return
-        lines = [f"🔖 *Bookmarks{' (filtered)' if filt else ''} — {len(items)} item(s):*\n"]
+        lines = [
+            f"🔖 *Bookmarks{' (filtered)' if filt else ''} — {len(items)} item(s):*\n"
+        ]
         for i, b in enumerate(items[:20], 1):
             lines.append(f"{i}. {b['content']}")
         if len(items) > 20:
@@ -1534,7 +1678,11 @@ def make_handlers(
             if not raw:
                 await update.message.reply_text("Usage: /grocery-list add <items>")
                 return
-            new_items = [i.strip() for i in raw.split(",") if i.strip()] if "," in raw else [raw.strip()]
+            new_items = (
+                [i.strip() for i in raw.split(",") if i.strip()]
+                if "," in raw
+                else [raw.strip()]
+            )
             current = await asyncio.to_thread(_read_items)
             await asyncio.to_thread(_write_items, current + new_items)
             added = ", ".join(new_items)
@@ -1548,7 +1696,9 @@ def make_handlers(
             current = await asyncio.to_thread(_read_items)
             updated = [i for i in current if i.lower() != item_name]
             if len(updated) == len(current):
-                await update.message.reply_text(f"❌ '{item_name}' not found in the list.")
+                await update.message.reply_text(
+                    f"❌ '{item_name}' not found in the list."
+                )
                 return
             await asyncio.to_thread(_write_items, updated)
             await update.message.reply_text(f"✅ Removed: {item_name}")
@@ -1579,8 +1729,11 @@ def make_handlers(
             await update.message.reply_text("Usage: /price-check <item>")
             return
         from ..web.search import web_search
+
         item = " ".join(context.args)
-        await update.message.reply_text(f"🏷 Checking prices for _{item}_…", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"🏷 Checking prices for _{item}_…", parse_mode="Markdown"
+        )
         # Search for the item with price-intent query
         results = await web_search(f"{item} price Australia buy", max_results=5)
         if not results:
@@ -1589,26 +1742,29 @@ def make_handlers(
         if claude_client is None:
             # No Claude — just show raw results
             from ..web.search import format_results
+
             await update.message.reply_text(
                 f"🏷 *Price results for {item}:*\n\n" + format_results(results),
                 parse_mode="Markdown",
             )
             return
         snippets = "\n\n".join(
-            f"Source {i}: {r.get('title','')}\n{r.get('body','')}"
+            f"Source {i}: {r.get('title', '')}\n{r.get('body', '')}"
             for i, r in enumerate(results, 1)
         )
         try:
             analysis = await claude_client.complete(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Item: {item}\n\nSearch results:\n{snippets}\n\n"
-                        "Extract and compare the prices mentioned. "
-                        "List the best options with their prices and sources. "
-                        "Be concise and factual."
-                    ),
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Item: {item}\n\nSearch results:\n{snippets}\n\n"
+                            "Extract and compare the prices mentioned. "
+                            "List the best options with their prices and sources. "
+                            "Be concise and factual."
+                        ),
+                    }
+                ],
                 system="You are a shopping assistant. Extract and compare prices from search results.",
                 max_tokens=512,
             )
@@ -1723,8 +1879,10 @@ def make_handlers(
 
         job_id = await job_store.create(user_id, "board", topic) if job_store else None
         runner = BackgroundTaskRunner(
-            context.bot, update.message.chat_id,
-            job_store=job_store, job_id=job_id,
+            context.bot,
+            update.message.chat_id,
+            job_store=job_store,
+            job_id=job_id,
             working_message=wm,
         )
         asyncio.create_task(runner.run(_collect_board(), label="board analysis"))
@@ -1733,7 +1891,9 @@ def make_handlers(
     # Phase 5: Task automation commands                                     #
     # ------------------------------------------------------------------ #
 
-    def _parse_schedule_args(args: list[str], default_dow: str = "*") -> tuple[str, str]:
+    def _parse_schedule_args(
+        args: list[str], default_dow: str = "*"
+    ) -> tuple[str, str]:
         """
         Parse optional [day] [HH:MM] prefix from a /schedule-* command's args.
 
@@ -1751,8 +1911,13 @@ def make_handlers(
 
         # Check for leading day-of-week token
         _DOW_MAP = {
-            "mon": "1", "tue": "2", "wed": "3", "thu": "4",
-            "fri": "5", "sat": "6", "sun": "0",
+            "mon": "1",
+            "tue": "2",
+            "wed": "3",
+            "thu": "4",
+            "fri": "5",
+            "sat": "6",
+            "sun": "0",
         }
         if remaining and remaining[0].lower() in _DOW_MAP:
             dow = _DOW_MAP[remaining.pop(0).lower()]
@@ -1768,7 +1933,9 @@ def make_handlers(
         cron = f"{minute} {hour} * * {dow}"
         return cron, label
 
-    async def schedule_daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_daily_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """
         /schedule-daily [HH:MM] <task>
 
@@ -1810,7 +1977,9 @@ def make_handlers(
             parse_mode="Markdown",
         )
 
-    async def schedule_weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_weekly_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """
         /schedule-weekly [day] [HH:MM] <task>
 
@@ -1843,7 +2012,16 @@ def make_handlers(
             return
 
         _sched.add_automation(automation_id, user_id, label, cron)
-        _DOW_NAMES = {"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "*": "every day"}
+        _DOW_NAMES = {
+            "0": "Sun",
+            "1": "Mon",
+            "2": "Tue",
+            "3": "Wed",
+            "4": "Thu",
+            "5": "Fri",
+            "6": "Sat",
+            "*": "every day",
+        }
         minute, hour, _, _, dow = cron.split()
         time_str = f"{int(hour):02d}:{int(minute):02d}"
         day_str = _DOW_NAMES.get(dow, dow)
@@ -1853,7 +2031,9 @@ def make_handlers(
             parse_mode="Markdown",
         )
 
-    async def list_automations_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def list_automations_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """
         /list-automations — show all scheduled reminders with their IDs.
         """
@@ -1874,7 +2054,16 @@ def make_handlers(
             )
             return
 
-        _DOW_NAMES = {"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "*": "daily"}
+        _DOW_NAMES = {
+            "0": "Sun",
+            "1": "Mon",
+            "2": "Tue",
+            "3": "Wed",
+            "4": "Thu",
+            "5": "Fri",
+            "6": "Sat",
+            "*": "daily",
+        }
         lines = ["⏰ *Scheduled reminders:*\n"]
         for row in rows:
             cron_parts = row["cron"].split()
@@ -1882,7 +2071,9 @@ def make_handlers(
             time_str = f"{int(hour):02d}:{int(minute):02d}"
             freq = "daily" if dow == "*" else f"every {_DOW_NAMES.get(dow, dow)}"
             last = row["last_run_at"] or "never"
-            lines.append(f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last}")
+            lines.append(
+                f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last}"
+            )
 
         lines.append("\nUse /unschedule <id> to remove one.")  # unschedule has no dash
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
@@ -1948,7 +2139,9 @@ def make_handlers(
         context_block = ""
         if memory_injector is not None:
             try:
-                full_prompt = await memory_injector.build_system_prompt(user_id, task, "")
+                full_prompt = await memory_injector.build_system_prompt(
+                    user_id, task, ""
+                )
                 if "<memory>" in full_prompt:
                     start = full_prompt.index("<memory>")
                     end = full_prompt.index("</memory>") + len("</memory>")
@@ -1994,7 +2187,9 @@ def make_handlers(
             return
 
         if claude_client is None:
-            await update.message.reply_text("Privacy audit unavailable — no Claude client.")
+            await update.message.reply_text(
+                "Privacy audit unavailable — no Claude client."
+            )
             return
 
         user_id = update.effective_user.id
@@ -2050,6 +2245,7 @@ Start by introducing the audit and asking for the first identifier to check."""
                 try:
                     response_parts = []
                     from ..ai.claude_client import TextChunk
+
                     async for event in claude_client.stream_with_tools(
                         messages=[{"role": "user", "content": initial_message}],
                         tool_registry=tool_registry,
@@ -2092,7 +2288,9 @@ Start by introducing the audit and asking for the first identifier to check."""
                     )
                 except Exception as exc:
                     logger.error("Privacy audit error for user %d: %s", user_id, exc)
-                    await update.message.reply_text(f"❌ Could not start privacy audit: {exc}")
+                    await update.message.reply_text(
+                        f"❌ Could not start privacy audit: {exc}"
+                    )
                     return
 
                 await conv_store.add_turn(
@@ -2120,7 +2318,9 @@ Start by introducing the audit and asking for the first identifier to check."""
         args = context.args or []
         period = args[0].lower() if args else "30d"
         valid_periods = {"7d", "30d", "90d", "all", "month"}
-        if period not in valid_periods and not (period.endswith("d") and period[:-1].isdigit()):
+        if period not in valid_periods and not (
+            period.endswith("d") and period[:-1].isdigit()
+        ):
             await update.message.reply_text(
                 "Usage: /stats [period]\nValid periods: 7d, 30d (default), 90d, all"
             )
@@ -2150,7 +2350,9 @@ Start by introducing the audit and asking for the first identifier to check."""
         args = context.args or []
         period = args[0].lower() if args else "30d"
         valid_periods = {"7d", "30d", "90d", "all", "month"}
-        if period not in valid_periods and not (period.endswith("d") and period[:-1].isdigit()):
+        if period not in valid_periods and not (
+            period.endswith("d") and period[:-1].isdigit()
+        ):
             await update.message.reply_text(
                 "Usage: /costs [period]\nValid periods: 7d, 30d (default), 90d, all"
             )
@@ -2177,13 +2379,16 @@ Start by introducing the audit and asking for the first identifier to check."""
             return
 
         from datetime import datetime, timedelta, timezone
+
         user_id = update.effective_user.id
         await update.message.chat.send_action(ChatAction.TYPING)
         sent = await update.message.reply_text("Loading goal status…")
         try:
             active = await conversation_analyzer.get_active_goals_with_age(user_id)
             since = datetime.now(timezone.utc) - timedelta(days=30)
-            completed = await conversation_analyzer.get_completed_goals_since(user_id, since)
+            completed = await conversation_analyzer.get_completed_goals_since(
+                user_id, since
+            )
             msg = conversation_analyzer.format_goal_status_message(active, completed)
             await sent.edit_text(msg, parse_mode="Markdown")
         except Exception as exc:
@@ -2213,10 +2418,14 @@ Start by introducing the audit and asking for the first identifier to check."""
                 user_id, "month", claude_client
             )
 
-        job_id = await job_store.create(user_id, "retrospective", "") if job_store else None
+        job_id = (
+            await job_store.create(user_id, "retrospective", "") if job_store else None
+        )
         runner = BackgroundTaskRunner(
-            context.bot, update.message.chat_id,
-            job_store=job_store, job_id=job_id,
+            context.bot,
+            update.message.chat_id,
+            job_store=job_store,
+            job_id=job_id,
             working_message=wm,
         )
         asyncio.create_task(runner.run(_run_retrospective(), label="retrospective"))
@@ -2244,9 +2453,9 @@ Start by introducing the audit and asking for the first identifier to check."""
             snippet = ""
             if job["result_text"]:
                 preview = job["result_text"][:80].replace("\n", " ")
-                snippet = f'\n  _{preview}…_'
+                snippet = f"\n  _{preview}…_"
             lines.append(
-                f'`#{job["id"]}` {job["job_type"]:14} {emoji} `{job["status"]}`  {started}{snippet}'
+                f"`#{job['id']}` {job['job_type']:14} {emoji} `{job['status']}`  {started}{snippet}"
             )
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
@@ -2282,10 +2491,16 @@ Start by introducing the audit and asking for the first identifier to check."""
                 f"  Errors: {stats.get('errors', 0)}"
             )
 
-        job_id = await job_store.create(update.effective_user.id, "reindex", "") if job_store else None
+        job_id = (
+            await job_store.create(update.effective_user.id, "reindex", "")
+            if job_store
+            else None
+        )
         runner = BackgroundTaskRunner(
-            context.bot, update.message.chat_id,
-            job_store=job_store, job_id=job_id,
+            context.bot,
+            update.message.chat_id,
+            job_store=job_store,
+            job_id=job_id,
             working_message=wm,
         )
         asyncio.create_task(runner.run(_run_reindex(), label="reindex"))
@@ -2330,10 +2545,14 @@ Start by introducing the audit and asking for the first identifier to check."""
             lines.append("\nUse /facts or /goals to review what was stored.")
             return "\n".join(lines)
 
-        job_id = await job_store.create(user_id, "consolidate", "") if job_store else None
+        job_id = (
+            await job_store.create(user_id, "consolidate", "") if job_store else None
+        )
         runner = BackgroundTaskRunner(
-            context.bot, update.message.chat_id,
-            job_store=job_store, job_id=job_id,
+            context.bot,
+            update.message.chat_id,
+            job_store=job_store,
+            job_id=job_id,
             working_message=wm,
         )
         asyncio.create_task(runner.run(_run_consolidation(), label="consolidate"))
@@ -2358,54 +2577,62 @@ Start by introducing the audit and asking for the first identifier to check."""
 
     async def _run_diagnostics(update: Update) -> None:
         """
-        Run comprehensive self-diagnostics and send results to user.
-        
-        Triggered by the phrase "Are you there, God. It's me Dale."
+        Run self-diagnostics: check_status + get_logs (Feature 34).
+
+        Triggered by "Are you there God, it's me, Dale" and variations.
         """
-        from ..diagnostics import DiagnosticsRunner, format_diagnostics_output
-        
         await update.message.chat.send_action(ChatAction.TYPING)
-        
-        # Get scheduler from late-binding ref if available
-        scheduler = scheduler_ref.get("proactive_scheduler") if scheduler_ref else proactive_scheduler
-        
-        # Create runner with all available components
-        runner = DiagnosticsRunner(
-            db=db,
-            embeddings=None,  # Will be wired in main.py
-            knowledge_store=None,  # Will be wired in main.py
-            conv_store=conv_store,
-            claude_client=claude_client,
-            mistral_client=None,  # Will be wired in main.py
-            moonshot_client=None,  # Will be wired in main.py
-            ollama_client=None,  # Will be wired in main.py
-            tool_registry=tool_registry,
-            scheduler=scheduler,
-            settings=settings,
-        )
-        
-        # Override with injected runner if available
-        if diagnostics_runner is not None:
-            runner = diagnostics_runner
-        
+
+        user_id = update.effective_user.id
+
         try:
-            result = await runner.run_all()
-            output = format_diagnostics_output(result, settings.scheduler_timezone)
-            
-            # Log full results
-            logger.info(
-                "Diagnostics complete: %s (%d checks, %.0fms)",
-                result.overall_status.value,
-                len(result.checks),
-                result.total_duration_ms,
-            )
-            
-            # Send to user (Telegram has 4096 char limit)
+            if tool_registry is not None:
+                # Lightweight path: check_status + get_logs (Bug 34 spec)
+                status = await tool_registry.dispatch("check_status", {}, user_id)
+                logs = await tool_registry.dispatch(
+                    "get_logs",
+                    {"mode": "errors", "since": "startup"},
+                    user_id,
+                )
+                output = f"**Self-diagnostics**\n\n{status}\n\n{logs}"
+            else:
+                # Fallback: full DiagnosticsRunner when tool_registry unavailable
+                from ..diagnostics import DiagnosticsRunner, format_diagnostics_output
+
+                scheduler = (
+                    scheduler_ref.get("proactive_scheduler")
+                    if scheduler_ref
+                    else proactive_scheduler
+                )
+                runner = DiagnosticsRunner(
+                    db=db,
+                    embeddings=None,
+                    knowledge_store=None,
+                    conv_store=conv_store,
+                    claude_client=claude_client,
+                    mistral_client=None,
+                    moonshot_client=None,
+                    ollama_client=None,
+                    tool_registry=tool_registry,
+                    scheduler=scheduler,
+                    settings=settings,
+                )
+                if diagnostics_runner is not None:
+                    runner = diagnostics_runner
+                result = await runner.run_all()
+                output = format_diagnostics_output(result, settings.scheduler_timezone)
+                logger.info(
+                    "Diagnostics complete: %s (%d checks, %.0fms)",
+                    result.overall_status.value,
+                    len(result.checks),
+                    result.total_duration_ms,
+                )
+
             if len(output) > 4000:
                 output = output[:4000] + "\n\n_(truncated)_"
-            
+
             await update.message.reply_text(output, parse_mode="Markdown")
-            
+
         except Exception as e:
             logger.exception("Diagnostics failed")
             await update.message.reply_text(
@@ -2435,11 +2662,13 @@ Start by introducing the audit and asking for the first identifier to check."""
 
         If timing is provided, populates ttft_ms, tool_execution_ms, and streaming_ms.
         """
-        current_display: list[str] = []    # text currently shown in Telegram message
-        tool_turns: list[tuple[list[dict], list[dict]]] = []  # (assistant_blocks, result_blocks)
+        current_display: list[str] = []  # text currently shown in Telegram message
+        tool_turns: list[
+            tuple[list[dict], list[dict]]
+        ] = []  # (assistant_blocks, result_blocks)
 
         in_tool_turn = False  # True between ToolStatusChunk and ToolTurnComplete;
-                              # TextChunks arriving in this window are suppressed
+        # TextChunks arriving in this window are suppressed
         last_edit_len = 0
         rotator = MessageRotator(sent, user_id)
         rotator_stopped = False
@@ -2474,6 +2703,7 @@ Start by introducing the audit and asking for the first identifier to check."""
             from ..models import TokenUsage
             from ..analytics.call_log import log_api_call
             import asyncio
+
             usage = TokenUsage()
             t0 = time.monotonic()
 
@@ -2528,7 +2758,8 @@ Start by introducing the audit and asking for the first identifier to check."""
                         # executing (between ToolStatusChunk and ToolTurnComplete).
                         logger.debug(
                             "Suppressing in-tool TextChunk (%d chars) for user %d",
-                            len(event.text), user_id,
+                            len(event.text),
+                            user_id,
                         )
                     else:
                         # Normal path: live-stream text to Telegram.
@@ -2563,7 +2794,9 @@ Start by introducing the audit and asking for the first identifier to check."""
                     # Accumulate tool execution time
                     tool_duration_ms = 0
                     if tool_exec_start is not None:
-                        tool_duration_ms = int((time.monotonic() - tool_exec_start) * 1000)
+                        tool_duration_ms = int(
+                            (time.monotonic() - tool_exec_start) * 1000
+                        )
                         tool_exec_total_ms += tool_duration_ms
                         tool_exec_start = None
                     # HOOK: AFTER_TOOL_CALL
@@ -2610,7 +2843,11 @@ Start by introducing the audit and asking for the first identifier to check."""
         await _flush_display(final=True)
 
         # Calculate streaming time (total - ttft - tool execution)
-        streaming_ms = int((time.monotonic() - t0) * 1000) - ttft_timer.elapsed_ms - tool_exec_total_ms
+        streaming_ms = (
+            int((time.monotonic() - t0) * 1000)
+            - ttft_timer.elapsed_ms
+            - tool_exec_total_ms
+        )
 
         # Persist conversation history
         persistence_start = time.monotonic()
@@ -2619,13 +2856,19 @@ Start by introducing the audit and asking for the first identifier to check."""
             # Assistant turn with tool_use blocks
             asst_serialised = _TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
             await conv_store.append_turn(
-                user_id, session_key,
-                ConversationTurn(role="assistant", content=asst_serialised, model_used=f"anthropic:{settings.model_complex}"),
+                user_id,
+                session_key,
+                ConversationTurn(
+                    role="assistant",
+                    content=asst_serialised,
+                    model_used=f"anthropic:{settings.model_complex}",
+                ),
             )
             # User turn with tool_result blocks
             usr_serialised = _TOOL_TURN_PREFIX + json.dumps(result_blocks)
             await conv_store.append_turn(
-                user_id, session_key,
+                user_id,
+                session_key,
                 ConversationTurn(role="user", content=usr_serialised),
             )
 
@@ -2636,8 +2879,13 @@ Start by introducing the audit and asking for the first identifier to check."""
         final_text = "".join(current_display).strip()
         if final_text:
             await conv_store.append_turn(
-                user_id, session_key,
-                ConversationTurn(role="assistant", content=final_text, model_used=f"anthropic:{settings.model_complex}"),
+                user_id,
+                session_key,
+                ConversationTurn(
+                    role="assistant",
+                    content=final_text,
+                    model_used=f"anthropic:{settings.model_complex}",
+                ),
             )
 
         persistence_ms = int((time.monotonic() - persistence_start) * 1000)
@@ -2648,7 +2896,7 @@ Start by introducing the audit and asking for the first identifier to check."""
             timing.tool_execution_ms = tool_exec_total_ms
             timing.streaming_ms = max(0, streaming_ms)
             timing.persistence_ms = persistence_ms
-            
+
         latency_ms = int((time.monotonic() - t0) * 1000)
         if db is not None:
             asyncio.create_task(
@@ -2694,7 +2942,9 @@ Start by introducing the audit and asking for the first identifier to check."""
             await _process_text_input_inner(user_id, text, update, context, thread_id)
         finally:
             async with _user_request_lock:
-                _user_active_requests[user_id] = _user_active_requests.get(user_id, 1) - 1
+                _user_active_requests[user_id] = (
+                    _user_active_requests.get(user_id, 1) - 1
+                )
                 if _user_active_requests[user_id] <= 0:
                     _user_active_requests.pop(user_id, None)
 
@@ -2757,7 +3007,9 @@ Start by introducing the audit and asking for the first identifier to check."""
                     if google_gmail is not None:
                         try:
                             n = await google_gmail.archive_messages(message_ids)
-                            await update.message.reply_text(f"✅ Archived {n} email(s).")
+                            await update.message.reply_text(
+                                f"✅ Archived {n} email(s)."
+                            )
                         except Exception as e:
                             await update.message.reply_text(f"❌ Archive failed: {e}")
                     else:
@@ -2770,7 +3022,9 @@ Start by introducing the audit and asking for the first identifier to check."""
             # 5b. INTERCEPT PENDING WRITE (inside lock to prevent races between messages)
             if user_id in _pending_writes:
                 pending_path = _pending_writes.pop(user_id)
-                sanitized, err = sanitize_file_path(pending_path, settings.allowed_base_dirs)
+                sanitized, err = sanitize_file_path(
+                    pending_path, settings.allowed_base_dirs
+                )
                 if err or sanitized is None:
                     await update.message.reply_text(f"❌ Write cancelled: {err}")
                 else:
@@ -2825,6 +3079,7 @@ Start by introducing the audit and asking for the first identifier to check."""
             local_hour: int | None = None
             try:
                 import zoneinfo
+
                 tz = zoneinfo.ZoneInfo(settings.scheduler_timezone)
                 local_hour = datetime.now(tz).hour
             except Exception as e:
@@ -2848,7 +3103,9 @@ Start by introducing the audit and asking for the first identifier to check."""
                     system_prompt = sanitize_memory_injection(system_prompt)
                 except Exception as e:
                     logger.error("Memory injection failed, using base prompt: %s", e)
-            req_timing.memory_injection_ms = int((time.monotonic() - memory_start) * 1000)
+            req_timing.memory_injection_ms = int(
+                (time.monotonic() - memory_start) * 1000
+            )
 
             # Conditional trigger hints (Phase 5 ADHD body-double)
             text_lower = text.lower()
@@ -2904,9 +3161,14 @@ Start by introducing the audit and asking for the first identifier to check."""
                 logger.debug(
                     "Request timing for user %d: history=%dms, memory=%dms, ttft=%dms, "
                     "tools=%dms, stream=%dms, persist=%dms, total=%dms",
-                    user_id, req_timing.history_load_ms, req_timing.memory_injection_ms,
-                    req_timing.ttft_ms, req_timing.tool_execution_ms, req_timing.streaming_ms,
-                    req_timing.persistence_ms, req_timing.total_ms(),
+                    user_id,
+                    req_timing.history_load_ms,
+                    req_timing.memory_injection_ms,
+                    req_timing.ttft_ms,
+                    req_timing.tool_execution_ms,
+                    req_timing.streaming_ms,
+                    req_timing.persistence_ms,
+                    req_timing.total_ms(),
                 )
                 # Clear task timer on completion (path A)
                 _task_start_times.pop(user_id, None)
@@ -2914,11 +3176,15 @@ Start by introducing the audit and asking for the first identifier to check."""
                 extraction_runner = get_extraction_runner()
                 if fact_extractor is not None and fact_store is not None:
                     extraction_runner.run_background(
-                        extract_and_store_facts(user_id, text, fact_extractor, fact_store)
+                        extract_and_store_facts(
+                            user_id, text, fact_extractor, fact_store
+                        )
                     )
                 if goal_extractor is not None and goal_store is not None:
                     extraction_runner.run_background(
-                        extract_and_store_goals(user_id, text, goal_extractor, goal_store)
+                        extract_and_store_goals(
+                            user_id, text, goal_extractor, goal_store
+                        )
                     )
                 # HOOK: SESSION_END (Path A)
                 await hook_manager.emit(
@@ -2942,7 +3208,9 @@ Start by introducing the audit and asking for the first identifier to check."""
 
             async def wrapper_stream():
                 nonlocal rotator_stopped
-                async for chunk in router.stream(text, messages, user_id, system=system_prompt):
+                async for chunk in router.stream(
+                    text, messages, user_id, system=system_prompt
+                ):
                     if not rotator_stopped:
                         await rotator.stop()
                         rotator_stopped = True
@@ -2973,7 +3241,9 @@ Start by introducing the audit and asking for the first identifier to check."""
 
             # Save assistant turn
             model_name = router.last_model
-            assistant_turn = ConversationTurn(role="assistant", content=response_text, model_used=model_name)
+            assistant_turn = ConversationTurn(
+                role="assistant", content=response_text, model_used=model_name
+            )
             await conv_store.append_turn(user_id, session_key, assistant_turn)
 
             # Clear task timer on success
@@ -3007,11 +3277,19 @@ Start by introducing the audit and asking for the first identifier to check."""
 
         # Ignore messages generated by the bot itself to prevent re-ingestion loops (Bug 18)
         try:
-            if update.effective_user and context.bot and update.effective_user.id == context.bot.id:
-                logger.debug("Ignoring message from bot itself (top-level handler): %s", update)
+            if (
+                update.effective_user
+                and context.bot
+                and update.effective_user.id == context.bot.id
+            ):
+                logger.debug(
+                    "Ignoring message from bot itself (top-level handler): %s", update
+                )
                 return
         except AttributeError:
-            logger.warning("Bug 18 guard: unexpected context shape, proceeding", exc_info=True)
+            logger.warning(
+                "Bug 18 guard: unexpected context shape, proceeding", exc_info=True
+            )
 
         user = update.effective_user
         user_id = user.id
@@ -3026,11 +3304,19 @@ Start by introducing the audit and asking for the first identifier to check."""
 
         # Ignore messages generated by the bot itself to prevent re-ingestion loops (Bug 18)
         try:
-            if update.effective_user and context.bot and update.effective_user.id == context.bot.id:
-                logger.debug("Ignoring message from bot itself (voice handler): %s", update)
+            if (
+                update.effective_user
+                and context.bot
+                and update.effective_user.id == context.bot.id
+            ):
+                logger.debug(
+                    "Ignoring message from bot itself (voice handler): %s", update
+                )
                 return
         except AttributeError:
-            logger.warning("Bug 18 guard: unexpected context shape, proceeding", exc_info=True)
+            logger.warning(
+                "Bug 18 guard: unexpected context shape, proceeding", exc_info=True
+            )
 
         if voice_transcriber is None:
             await update.message.reply_text(
@@ -3059,14 +3345,24 @@ Start by introducing the audit and asking for the first identifier to check."""
 
         # Ignore messages generated by the bot itself to prevent re-ingestion loops (Bug 18)
         try:
-            if update.effective_user and context.bot and update.effective_user.id == context.bot.id:
-                logger.debug("Ignoring message from bot itself (photo handler): %s", update)
+            if (
+                update.effective_user
+                and context.bot
+                and update.effective_user.id == context.bot.id
+            ):
+                logger.debug(
+                    "Ignoring message from bot itself (photo handler): %s", update
+                )
                 return
         except AttributeError:
-            logger.warning("Bug 18 guard: unexpected context shape, proceeding", exc_info=True)
+            logger.warning(
+                "Bug 18 guard: unexpected context shape, proceeding", exc_info=True
+            )
 
         if claude_client is None:
-            await update.message.reply_text("Image analysis not available (Claude not configured).")
+            await update.message.reply_text(
+                "Image analysis not available (Claude not configured)."
+            )
             return
 
         user_id = update.effective_user.id
@@ -3126,20 +3422,22 @@ Start by introducing the audit and asking for the first identifier to check."""
             messages = _trim_messages_to_budget(messages)
 
             # Append the image message as a multi-block content list
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": image_b64,
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_b64,
+                            },
                         },
-                    },
-                    {"type": "text", "text": user_text},
-                ],
-            })
+                        {"type": "text", "text": user_text},
+                    ],
+                }
+            )
 
             # Save user turn as text-only — do NOT store image bytes in history
             history_text = f"[photo] {caption}" if caption else "[photo]"
@@ -3174,7 +3472,9 @@ Start by introducing the audit and asking for the first identifier to check."""
                 # Path B fallback: router (won't use image block but won't crash)
                 try:
                     await stream_to_telegram(
-                        chunks=router.stream(user_text, messages, user_id, system=system_prompt),
+                        chunks=router.stream(
+                            user_text, messages, user_id, system=system_prompt
+                        ),
                         initial_message=sent,
                         session_manager=session_manager,
                         user_id=user_id,
@@ -3197,14 +3497,24 @@ Start by introducing the audit and asking for the first identifier to check."""
 
         # Ignore messages generated by the bot itself to prevent re-ingestion loops (Bug 18)
         try:
-            if update.effective_user and context.bot and update.effective_user.id == context.bot.id:
-                logger.debug("Ignoring message from bot itself (document handler): %s", update)
+            if (
+                update.effective_user
+                and context.bot
+                and update.effective_user.id == context.bot.id
+            ):
+                logger.debug(
+                    "Ignoring message from bot itself (document handler): %s", update
+                )
                 return
         except AttributeError:
-            logger.warning("Bug 18 guard: unexpected context shape, proceeding", exc_info=True)
+            logger.warning(
+                "Bug 18 guard: unexpected context shape, proceeding", exc_info=True
+            )
 
         if claude_client is None:
-            await update.message.reply_text("Image analysis not available (Claude not configured).")
+            await update.message.reply_text(
+                "Image analysis not available (Claude not configured)."
+            )
             return
 
         doc = update.message.document
@@ -3280,23 +3590,29 @@ Start by introducing the audit and asking for the first identifier to check."""
             messages = _trim_messages_to_budget(messages)
 
             # Append the image message as a multi-block content list
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": doc.mime_type,
-                            "data": image_b64,
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": doc.mime_type,
+                                "data": image_b64,
+                            },
                         },
-                    },
-                    {"type": "text", "text": user_text},
-                ],
-            })
+                        {"type": "text", "text": user_text},
+                    ],
+                }
+            )
 
             # Save user turn as text-only — do NOT store image bytes in history
-            history_text = f"[document: {filename}] {caption}" if caption else f"[document: {filename}]"
+            history_text = (
+                f"[document: {filename}] {caption}"
+                if caption
+                else f"[document: {filename}]"
+            )
             user_turn = ConversationTurn(role="user", content=history_text)
             await conv_store.append_turn(user_id, session_key, user_turn)
 
@@ -3328,14 +3644,18 @@ Start by introducing the audit and asking for the first identifier to check."""
                 # Path B fallback: router (won't use image block but won't crash)
                 try:
                     await stream_to_telegram(
-                        chunks=router.stream(user_text, messages, user_id, system=system_prompt),
+                        chunks=router.stream(
+                            user_text, messages, user_id, system=system_prompt
+                        ),
                         initial_message=sent,
                         session_manager=session_manager,
                         user_id=user_id,
                         thread_id=thread_id,
                     )
                 except Exception as exc:
-                    logger.error("Error processing document for user %d: %s", user_id, exc)
+                    logger.error(
+                        "Error processing document for user %d: %s", user_id, exc
+                    )
                     await sent.edit_text(f"❌ Sorry, something went wrong: {exc}")
 
             _task_start_times.pop(user_id, None)

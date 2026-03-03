@@ -7,7 +7,6 @@ import glob as glob_module
 import logging
 import os
 import time
-from datetime import datetime as _dt
 from pathlib import Path
 from typing import TYPE_CHECKING
 

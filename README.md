@@ -199,10 +199,15 @@ remy/
 │   ├── ai/             # Claude client, tool schemas, streaming
 │   ├── analytics/      # API call logging and telemetry
 │   ├── bot/            # Telegram handlers, message pipeline
+│   ├── delivery/       # Outbound message queue (crash-safe)
+│   ├── diagnostics/    # Health checks, log analysis, self-diagnostics
 │   ├── google/         # Gmail, Calendar, Contacts clients
+│   ├── hooks/          # Lifecycle hooks (before/after compaction, etc.)
 │   ├── memory/         # SQLite stores: goals, plans, facts, conversations
+│   ├── relay/          # Relay MCP client (inter-agent communication)
 │   ├── scheduler/      # Morning briefing, evening check-in, proactive jobs
-│   └── web/            # Health server (FastAPI)
+│   ├── health.py       # HTTP health server (aiohttp) — /health, /metrics, /logs, /telemetry
+│   └── web/            # DuckDuckGo search, price check
 ├── config/
 │   ├── SOUL.md         # Remy's personality and instructions
 │   └── SOUL_SYSTEM.md  # System prompt template
@@ -271,6 +276,12 @@ See [full setup guide](docs/backlog/US-cloudflare-tunnel-remote-observability.md
 
 ---
 
+## Self-Diagnostics
+
+Send **"Are you there God, it's me, Dale"** (or variations) to trigger a self-diagnostics check. Remy runs `check_status` + `get_logs` and returns the results without calling Claude. See `BUGS.md` Feature 34.
+
+---
+
 ## Data
 
 All persistent data lives in `./data/` (mounted into the container):
@@ -281,3 +292,9 @@ All persistent data lives in `./data/` (mounted into the container):
 - `data/relay.db` — Relay MCP message queue
 
 The `data/` directory is gitignored. Back it up before wiping containers.
+
+---
+
+## Bug Reports & Fixes
+
+See [BUGS.md](BUGS.md) for the bug log. Recent fixes (March 2026): react_to_message UX, self-diagnostics trigger, orphaned tool_use_id, compaction API, max tool iterations.

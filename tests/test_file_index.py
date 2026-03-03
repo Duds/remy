@@ -14,7 +14,6 @@ from remy.memory.file_index import (
     _is_sensitive_path,
     _should_skip_dir,
     CHUNK_CHARS,
-    OVERLAP_CHARS,
 )
 from remy.memory.embeddings import EmbeddingStore
 

@@ -1,6 +1,4 @@
 import os
-from pathlib import Path
-import pytest
 
 from remy.ai.input_validator import (
     sanitize_file_path,

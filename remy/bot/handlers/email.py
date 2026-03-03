@@ -27,7 +27,7 @@ def make_email_handlers(
 ):
     """
     Factory that returns Gmail handlers.
-    
+
     Returns a dict of command_name -> handler_function.
     """
 
@@ -63,7 +63,9 @@ def make_email_handlers(
             msg = msg[:4000] + "…"
         await update.message.reply_text(msg, parse_mode="Markdown")
 
-    async def gmail_unread_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def gmail_unread_summary_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/gmail-unread-summary — total unread count and top senders."""
         if await reject_unauthorized(update):
             return
@@ -87,7 +89,9 @@ def make_email_handlers(
             parse_mode="Markdown",
         )
 
-    async def gmail_classify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def gmail_classify_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """/gmail-classify — identify promotional/newsletter emails and offer to archive."""
         if await reject_unauthorized(update):
             return
@@ -137,7 +141,9 @@ def make_email_handlers(
             )
             return
         query = " ".join(context.args)
-        await update.message.reply_text(f"🔍 Searching for `{query}`…", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"🔍 Searching for `{query}`…", parse_mode="Markdown"
+        )
         try:
             emails = await google_gmail.search(query, max_results=10)
         except Exception as e:
@@ -165,23 +171,21 @@ def make_email_handlers(
             await update.message.reply_text(google_not_configured("Gmail"))
             return
         if not context.args:
-            await update.message.reply_text("Usage: `/gmail-read <message-id>`", parse_mode="Markdown")
+            await update.message.reply_text(
+                "Usage: `/gmail-read <message-id>`", parse_mode="Markdown"
+            )
             return
         message_id = context.args[0]
         await update.message.reply_text("📖 Fetching email…")
         try:
             from ...ai.input_validator import sanitize_memory_injection
+
             m = await google_gmail.get_message(message_id, include_body=True)
-            subj   = sanitize_memory_injection(m.get("subject", "(no subject)"))
+            subj = sanitize_memory_injection(m.get("subject", "(no subject)"))
             sender = sanitize_memory_injection(m.get("from_addr", ""))
-            date   = m.get("date", "")
-            body   = sanitize_memory_injection(m.get("body") or m.get("snippet", ""))
-            text = (
-                f"*{subj}*\n"
-                f"From: {sender}\n"
-                f"Date: {date}\n\n"
-                f"{body}"
-            )
+            date = m.get("date", "")
+            body = sanitize_memory_injection(m.get("body") or m.get("snippet", ""))
+            text = f"*{subj}*\nFrom: {sender}\nDate: {date}\n\n{body}"
             if len(text) > 4000:
                 text = text[:3990] + "\n\n…_(truncated)_"
             await update.message.reply_text(text, parse_mode="Markdown")
@@ -197,16 +201,16 @@ def make_email_handlers(
             return
         try:
             labels = await google_gmail.list_labels()
-            user_labels = [l for l in labels if l["type"] != "system"]
-            sys_labels  = [l for l in labels if l["type"] == "system"]
+            user_labels = [lb for lb in labels if lb["type"] != "system"]
+            sys_labels = [lb for lb in labels if lb["type"] == "system"]
             lines = ["*Gmail Labels*\n"]
             if user_labels:
                 lines.append("*Custom:*")
-                for l in sorted(user_labels, key=lambda x: x["name"]):
-                    lines.append(f"  `{l['id']}` — {l['name']}")
+                for lb in sorted(user_labels, key=lambda x: x["name"]):
+                    lines.append(f"  `{lb['id']}` — {lb['name']}")
             lines.append("\n*System:*")
-            for l in sorted(sys_labels, key=lambda x: x["name"]):
-                lines.append(f"  `{l['id']}` — {l['name']}")
+            for lb in sorted(sys_labels, key=lambda x: x["name"]):
+                lines.append(f"  `{lb['id']}` — {lb['name']}")
             await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Gmail error: {e}")

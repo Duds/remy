@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/session-reminder.sh"
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": ".cursor/hooks/protect-sensitive-files.sh"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/format-after-edit.sh"
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": ".cursor/hooks/audit-mcp.sh"
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": ".cursor/hooks/audit-subagent.sh"
+      }
+    ]
+  }
+}

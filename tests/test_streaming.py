@@ -1,7 +1,6 @@
 """Tests for remy/bot/streaming.py — uses mock Telegram Message."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from remy.bot.session import SessionManager

@@ -8,7 +8,6 @@ Verifies that the refactored handlers package:
 4. Re-exported utilities are accessible from the package root
 """
 
-import pytest
 
 
 class TestSubmoduleImports:

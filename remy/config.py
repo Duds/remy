@@ -7,7 +7,7 @@ import os
 from functools import cached_property
 from pathlib import Path
 
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve .env relative to this file (remy/config.py → project root)

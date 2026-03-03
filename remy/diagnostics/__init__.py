@@ -9,7 +9,12 @@ Trigger phrase: "Are you there, God. It's me Dale."
 
 import re
 
-from .runner import DiagnosticsRunner, CheckResult, CheckStatus, format_diagnostics_output
+from .runner import (
+    DiagnosticsRunner,
+    CheckResult,
+    CheckStatus,
+    format_diagnostics_output,
+)
 from .logs import (
     get_error_summary,
     get_recent_logs,
@@ -20,11 +25,10 @@ from .logs import (
 )
 
 # Trigger phrase regex — case-insensitive, punctuation-flexible
-# Matches: "Are you there, God. It's me Dale."
+# Matches: "Are you there, God. It's me Dale." / "Are you there God, it's me, Dale"
 # And variations like: "Are you there God? Its me, Dale"
 DIAGNOSTICS_TRIGGER = re.compile(
-    r"are you there[,\s]*god[.?\s]*it'?s me[,\s]*dale\.?",
-    re.IGNORECASE
+    r"are you there[,\s]*god[.?\s,]*it'?s me[,\s]*dale\.?", re.IGNORECASE
 )
 
 

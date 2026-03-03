@@ -1,6 +1,5 @@
 """Tests for remy/config.py — construct Settings directly, bypassing module singleton."""
 
-import pytest
 from remy.config import Settings
 
 

@@ -1,6 +1,5 @@
 """Tests for Telegram MarkdownV2 formatting utilities."""
 
-import pytest
 from remy.utils.telegram_formatting import (
     format_telegram_message,
     escape_markdown_v2,

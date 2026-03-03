@@ -35,11 +35,17 @@ from .base import (
     _user_request_lock,
     TASK_TIMEOUT_SECONDS,
     _TOOL_TURN_PREFIX,
+    _sanitize_messages_for_claude,
 )
 from .callbacks import make_suggested_actions_keyboard
 from ..session import SessionManager
 from ..streaming import stream_to_telegram
-from ...ai.claude_client import TextChunk, ToolResultChunk, ToolStatusChunk, ToolTurnComplete
+from ...ai.claude_client import (
+    TextChunk,
+    ToolResultChunk,
+    ToolStatusChunk,
+    ToolTurnComplete,
+)
 from ...ai.input_validator import (
     validate_message_input,
     sanitize_memory_injection,
@@ -94,7 +100,7 @@ def make_chat_handlers(
 ):
     """
     Factory that returns chat and message handlers.
-    
+
     Returns a dict of handler_name -> handler_function.
     """
 
@@ -113,46 +119,59 @@ def make_chat_handlers(
             logger.warning("upsert_user failed: %s", exc)
 
     async def _run_diagnostics(update: Update) -> None:
-        """Run comprehensive self-diagnostics and send results to user."""
-        from ...diagnostics import DiagnosticsRunner, format_diagnostics_output
-        
+        """Run self-diagnostics: check_status + get_logs (Feature 34)."""
         await update.message.chat.send_action(ChatAction.TYPING)
-        
-        scheduler = scheduler_ref.get("proactive_scheduler") if scheduler_ref else proactive_scheduler
-        
-        runner = DiagnosticsRunner(
-            db=db,
-            embeddings=None,
-            knowledge_store=None,
-            conv_store=conv_store,
-            claude_client=claude_client,
-            mistral_client=None,
-            moonshot_client=None,
-            ollama_client=None,
-            tool_registry=tool_registry,
-            scheduler=scheduler,
-            settings=settings,
-        )
-        
-        if diagnostics_runner is not None:
-            runner = diagnostics_runner
-        
+
+        user_id = update.effective_user.id
+
         try:
-            result = await runner.run_all()
-            output = format_diagnostics_output(result, settings.scheduler_timezone)
-            
-            logger.info(
-                "Diagnostics complete: %s (%d checks, %.0fms)",
-                result.overall_status.value,
-                len(result.checks),
-                result.total_duration_ms,
-            )
-            
+            if tool_registry is not None:
+                # Lightweight path: check_status + get_logs (Bug 34 spec)
+                status = await tool_registry.dispatch("check_status", {}, user_id)
+                logs = await tool_registry.dispatch(
+                    "get_logs",
+                    {"mode": "errors", "since": "startup"},
+                    user_id,
+                )
+                output = f"**Self-diagnostics**\n\n{status}\n\n{logs}"
+            else:
+                # Fallback: full DiagnosticsRunner when tool_registry unavailable
+                from ...diagnostics import DiagnosticsRunner, format_diagnostics_output
+
+                scheduler = (
+                    scheduler_ref.get("proactive_scheduler")
+                    if scheduler_ref
+                    else proactive_scheduler
+                )
+                runner = DiagnosticsRunner(
+                    db=db,
+                    embeddings=None,
+                    knowledge_store=None,
+                    conv_store=conv_store,
+                    claude_client=claude_client,
+                    mistral_client=None,
+                    moonshot_client=None,
+                    ollama_client=None,
+                    tool_registry=tool_registry,
+                    scheduler=scheduler,
+                    settings=settings,
+                )
+                if diagnostics_runner is not None:
+                    runner = diagnostics_runner
+                result = await runner.run_all()
+                output = format_diagnostics_output(result, settings.scheduler_timezone)
+                logger.info(
+                    "Diagnostics complete: %s (%d checks, %.0fms)",
+                    result.overall_status.value,
+                    len(result.checks),
+                    result.total_duration_ms,
+                )
+
             if len(output) > 4000:
                 output = output[:4000] + "\n\n_(truncated)_"
-            
+
             await update.message.reply_text(output, parse_mode="Markdown")
-            
+
         except Exception as e:
             logger.exception("Diagnostics failed")
             await update.message.reply_text(
@@ -214,13 +233,16 @@ def make_chat_handlers(
 
         def _is_transient_stream_exc(exc: Exception) -> bool:
             txt = str(exc).lower()
-            return any(c in txt for c in (
-                "incomplete chunked read",
-                "peer closed connection",
-                "connection reset by peer",
-                "remote end closed connection",
-                "unexpected eof",
-            ))
+            return any(
+                c in txt
+                for c in (
+                    "incomplete chunked read",
+                    "peer closed connection",
+                    "connection reset by peer",
+                    "remote end closed connection",
+                    "unexpected eof",
+                )
+            )
 
         rotator.start()
         from ...models import TokenUsage
@@ -251,8 +273,11 @@ def make_chat_handlers(
                     },
                 )
 
+                # Sanitize to prevent orphaned tool_use_id (Bug 36)
+                safe_messages = _sanitize_messages_for_claude(messages)
+
                 async for event in claude_client.stream_with_tools(
-                    messages=messages,
+                    messages=safe_messages,
                     tool_registry=tool_registry,
                     user_id=user_id,
                     system=system_prompt,
@@ -282,7 +307,8 @@ def make_chat_handlers(
                         if in_tool_turn:
                             logger.debug(
                                 "Suppressing in-tool TextChunk (%d chars) for user %d",
-                                len(event.text), user_id,
+                                len(event.text),
+                                user_id,
                             )
                         else:
                             current_display.append(event.text)
@@ -311,7 +337,9 @@ def make_chat_handlers(
                         in_tool_turn = False
                         tool_duration_ms = 0
                         if tool_exec_start is not None:
-                            tool_duration_ms = int((time.monotonic() - tool_exec_start) * 1000)
+                            tool_duration_ms = int(
+                                (time.monotonic() - tool_exec_start) * 1000
+                            )
                             tool_exec_total_ms += tool_duration_ms
                             tool_exec_start = None
                         await hook_manager.emit(
@@ -330,7 +358,8 @@ def make_chat_handlers(
                 if _attempt == 0 and _is_transient_stream_exc(exc):
                     logger.warning(
                         "Transient stream error for user %d (attempt 1), retrying: %s",
-                        user_id, exc,
+                        user_id,
+                        exc,
                     )
                     await asyncio.sleep(1.0)
                     continue
@@ -338,10 +367,14 @@ def make_chat_handlers(
                     await rotator.stop()
                 err_str = str(exc)
                 if "overloaded_error" in err_str or "overloaded" in err_str.lower():
-                    logger.warning("stream_with_tools overloaded for user %d: %s", user_id, exc)
+                    logger.warning(
+                        "stream_with_tools overloaded for user %d: %s", user_id, exc
+                    )
                     user_msg = "I'm briefly overloaded on my end — please try again in a moment. 🙏"
                 else:
-                    logger.error("stream_with_tools error for user %d: %s", user_id, exc)
+                    logger.error(
+                        "stream_with_tools error for user %d: %s", user_id, exc
+                    )
                     user_msg = f"Sorry, something went wrong: {exc}"
                 try:
                     await sent.edit_text(user_msg)
@@ -377,7 +410,11 @@ def make_chat_handlers(
                             suggested_actions = actions
                             break
 
-        reply_markup = make_suggested_actions_keyboard(suggested_actions, user_id) if suggested_actions else None
+        reply_markup = (
+            make_suggested_actions_keyboard(suggested_actions, user_id)
+            if suggested_actions
+            else None
+        )
 
         await _flush_display(final=True, reply_markup=reply_markup)
         # Retry once if there's text to display — the first attempt may have failed
@@ -387,32 +424,59 @@ def make_chat_handlers(
             await _flush_display(final=True, reply_markup=reply_markup)
         elif tool_turns:
             # Claude ended with a tool call and produced no text. The message still
-            # shows "⚙️ Using tool_name…" — clear it with a minimal indicator.
-            try:
-                await sent.edit_text("✓", reply_markup=reply_markup)
-            except Exception:
-                pass
+            # shows "⚙️ Using tool_name…". For react_to_message alone, delete the
+            # message — the emoji reaction is the complete response (Bug 35).
+            tool_names = set()
+            for assistant_blocks, _ in tool_turns:
+                for block in assistant_blocks:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_names.add(block.get("name"))
+            if tool_names == {"react_to_message"}:
+                try:
+                    await sent.delete()
+                except Exception:
+                    pass
+            else:
+                try:
+                    await sent.edit_text("✓", reply_markup=reply_markup)
+                except Exception:
+                    pass
 
-        streaming_ms = int((time.monotonic() - t0) * 1000) - ttft_timer.elapsed_ms - tool_exec_total_ms
+        streaming_ms = (
+            int((time.monotonic() - t0) * 1000)
+            - ttft_timer.elapsed_ms
+            - tool_exec_total_ms
+        )
 
         persistence_start = time.monotonic()
         for assistant_blocks, result_blocks in tool_turns:
             asst_serialised = _TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
             await conv_store.append_turn(
-                user_id, session_key,
-                ConversationTurn(role="assistant", content=asst_serialised, model_used=f"anthropic:{settings.model_complex}"),
+                user_id,
+                session_key,
+                ConversationTurn(
+                    role="assistant",
+                    content=asst_serialised,
+                    model_used=f"anthropic:{settings.model_complex}",
+                ),
             )
             usr_serialised = _TOOL_TURN_PREFIX + json.dumps(result_blocks)
             await conv_store.append_turn(
-                user_id, session_key,
+                user_id,
+                session_key,
                 ConversationTurn(role="user", content=usr_serialised),
             )
 
         final_text = "".join(current_display).strip()
         if final_text:
             await conv_store.append_turn(
-                user_id, session_key,
-                ConversationTurn(role="assistant", content=final_text, model_used=f"anthropic:{settings.model_complex}"),
+                user_id,
+                session_key,
+                ConversationTurn(
+                    role="assistant",
+                    content=final_text,
+                    model_used=f"anthropic:{settings.model_complex}",
+                ),
             )
 
         persistence_ms = int((time.monotonic() - persistence_start) * 1000)
@@ -422,10 +486,11 @@ def make_chat_handlers(
             timing.tool_execution_ms = tool_exec_total_ms
             timing.streaming_ms = max(0, streaming_ms)
             timing.persistence_ms = persistence_ms
-            
+
         latency_ms = int((time.monotonic() - t0) * 1000)
         if db is not None:
             from ...analytics.call_log import log_api_call
+
             asyncio.create_task(
                 log_api_call(
                     db,
@@ -467,7 +532,9 @@ def make_chat_handlers(
             await _process_text_input_inner(user_id, text, update, context, thread_id)
         finally:
             async with _user_request_lock:
-                _user_active_requests[user_id] = _user_active_requests.get(user_id, 1) - 1
+                _user_active_requests[user_id] = (
+                    _user_active_requests.get(user_id, 1) - 1
+                )
                 if _user_active_requests[user_id] <= 0:
                     _user_active_requests.pop(user_id, None)
 
@@ -516,7 +583,9 @@ def make_chat_handlers(
 
             if user_id in _pending_writes:
                 pending_path = _pending_writes.pop(user_id)
-                sanitized, err = sanitize_file_path(pending_path, settings.allowed_base_dirs)
+                sanitized, err = sanitize_file_path(
+                    pending_path, settings.allowed_base_dirs
+                )
                 if err or sanitized is None:
                     await update.message.reply_text(f"❌ Write cancelled: {err}")
                 else:
@@ -559,6 +628,7 @@ def make_chat_handlers(
             local_hour: int | None = None
             try:
                 import zoneinfo
+
                 tz = zoneinfo.ZoneInfo(settings.scheduler_timezone)
                 local_hour = datetime.now(tz).hour
             except Exception as e:
@@ -579,7 +649,9 @@ def make_chat_handlers(
                     system_prompt = sanitize_memory_injection(system_prompt)
                 except Exception as e:
                     logger.error("Memory injection failed, using base prompt: %s", e)
-            req_timing.memory_injection_ms = int((time.monotonic() - memory_start) * 1000)
+            req_timing.memory_injection_ms = int(
+                (time.monotonic() - memory_start) * 1000
+            )
 
             text_lower = text.lower()
             if any(kw in text_lower for kw in SHOPPING_KEYWORDS):
@@ -629,19 +701,28 @@ def make_chat_handlers(
                 logger.debug(
                     "Request timing for user %d: history=%dms, memory=%dms, ttft=%dms, "
                     "tools=%dms, stream=%dms, persist=%dms, total=%dms",
-                    user_id, req_timing.history_load_ms, req_timing.memory_injection_ms,
-                    req_timing.ttft_ms, req_timing.tool_execution_ms, req_timing.streaming_ms,
-                    req_timing.persistence_ms, req_timing.total_ms(),
+                    user_id,
+                    req_timing.history_load_ms,
+                    req_timing.memory_injection_ms,
+                    req_timing.ttft_ms,
+                    req_timing.tool_execution_ms,
+                    req_timing.streaming_ms,
+                    req_timing.persistence_ms,
+                    req_timing.total_ms(),
                 )
                 _task_start_times.pop(user_id, None)
                 extraction_runner = get_extraction_runner()
                 if fact_extractor is not None and fact_store is not None:
                     extraction_runner.run_background(
-                        extract_and_store_facts(user_id, text, fact_extractor, fact_store)
+                        extract_and_store_facts(
+                            user_id, text, fact_extractor, fact_store
+                        )
                     )
                 if goal_extractor is not None and goal_store is not None:
                     extraction_runner.run_background(
-                        extract_and_store_goals(user_id, text, goal_extractor, goal_store)
+                        extract_and_store_goals(
+                            user_id, text, goal_extractor, goal_store
+                        )
                     )
                 await hook_manager.emit(
                     HookEvents.SESSION_END,
@@ -660,7 +741,9 @@ def make_chat_handlers(
 
             async def wrapper_stream():
                 nonlocal rotator_stopped
-                async for chunk in router.stream(text, messages, user_id, system=system_prompt):
+                async for chunk in router.stream(
+                    text, messages, user_id, system=system_prompt
+                ):
                     if not rotator_stopped:
                         await rotator.stop()
                         rotator_stopped = True
@@ -690,7 +773,9 @@ def make_chat_handlers(
                     await rotator.stop()
 
             model_name = router.last_model
-            assistant_turn = ConversationTurn(role="assistant", content=response_text, model_used=model_name)
+            assistant_turn = ConversationTurn(
+                role="assistant", content=response_text, model_used=model_name
+            )
             await conv_store.append_turn(user_id, session_key, assistant_turn)
 
             _task_start_times.pop(user_id, None)
@@ -720,11 +805,19 @@ def make_chat_handlers(
 
         # Ignore messages generated by the bot itself to prevent re-ingestion loops (Bug 18)
         try:
-            if update.effective_user and context.bot and update.effective_user.id == context.bot.id:
-                logger.debug("Ignoring message from bot itself (chat handler): %s", update)
+            if (
+                update.effective_user
+                and context.bot
+                and update.effective_user.id == context.bot.id
+            ):
+                logger.debug(
+                    "Ignoring message from bot itself (chat handler): %s", update
+                )
                 return
         except AttributeError:
-            logger.warning("Bug 18 guard: unexpected context shape, proceeding", exc_info=True)
+            logger.warning(
+                "Bug 18 guard: unexpected context shape, proceeding", exc_info=True
+            )
 
         user = update.effective_user
         user_id = user.id
@@ -762,7 +855,9 @@ def make_chat_handlers(
             return
 
         if claude_client is None:
-            await update.message.reply_text("Image analysis not available (Claude not configured).")
+            await update.message.reply_text(
+                "Image analysis not available (Claude not configured)."
+            )
             return
 
         user_id = update.effective_user.id
@@ -816,20 +911,22 @@ def make_chat_handlers(
                 messages.pop(0)
             messages = _trim_messages_to_budget(messages)
 
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": image_b64,
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_b64,
+                            },
                         },
-                    },
-                    {"type": "text", "text": user_text},
-                ],
-            })
+                        {"type": "text", "text": user_text},
+                    ],
+                }
+            )
 
             history_text = f"[photo] {caption}" if caption else "[photo]"
             user_turn = ConversationTurn(role="user", content=history_text)
@@ -861,7 +958,9 @@ def make_chat_handlers(
             else:
                 try:
                     await stream_to_telegram(
-                        chunks=router.stream(user_text, messages, user_id, system=system_prompt),
+                        chunks=router.stream(
+                            user_text, messages, user_id, system=system_prompt
+                        ),
                         initial_message=sent,
                         session_manager=session_manager,
                         user_id=user_id,
@@ -882,7 +981,9 @@ def make_chat_handlers(
             return
 
         if claude_client is None:
-            await update.message.reply_text("Image analysis not available (Claude not configured).")
+            await update.message.reply_text(
+                "Image analysis not available (Claude not configured)."
+            )
             return
 
         doc = update.message.document
@@ -951,22 +1052,28 @@ def make_chat_handlers(
                 messages.pop(0)
             messages = _trim_messages_to_budget(messages)
 
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": doc.mime_type,
-                            "data": image_b64,
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": doc.mime_type,
+                                "data": image_b64,
+                            },
                         },
-                    },
-                    {"type": "text", "text": user_text},
-                ],
-            })
+                        {"type": "text", "text": user_text},
+                    ],
+                }
+            )
 
-            history_text = f"[document: {filename}] {caption}" if caption else f"[document: {filename}]"
+            history_text = (
+                f"[document: {filename}] {caption}"
+                if caption
+                else f"[document: {filename}]"
+            )
             user_turn = ConversationTurn(role="user", content=history_text)
             await conv_store.append_turn(user_id, session_key, user_turn)
 
@@ -996,14 +1103,18 @@ def make_chat_handlers(
             else:
                 try:
                     await stream_to_telegram(
-                        chunks=router.stream(user_text, messages, user_id, system=system_prompt),
+                        chunks=router.stream(
+                            user_text, messages, user_id, system=system_prompt
+                        ),
                         initial_message=sent,
                         session_manager=session_manager,
                         user_id=user_id,
                         thread_id=thread_id,
                     )
                 except Exception as exc:
-                    logger.error("Error processing document for user %d: %s", user_id, exc)
+                    logger.error(
+                        "Error processing document for user %d: %s", user_id, exc
+                    )
                     await sent.edit_text(f"❌ Sorry, something went wrong: {exc}")
 
             _task_start_times.pop(user_id, None)

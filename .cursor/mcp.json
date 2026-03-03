@@ -1,0 +1,14 @@
+{
+  "_comment": "Remy project MCP — relay for inter-agent communication with cowork. Merges with ~/.cursor/mcp.json. Requires: make relay-up or make relay-run.",
+  "mcpServers": {
+    "relay": {
+      "command": "uvx",
+      "args": [
+        "mcp-proxy",
+        "--transport",
+        "streamablehttp",
+        "http://127.0.0.1:8765/mcp"
+      ]
+    }
+  }
+}

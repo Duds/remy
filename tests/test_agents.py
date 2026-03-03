@@ -7,7 +7,7 @@ All Claude calls are mocked — no real API calls are made.
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from remy.agents.base_agent import SubAgent
 from remy.agents.strategy import StrategyAgent

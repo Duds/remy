@@ -153,7 +153,7 @@ class KnowledgeStore:
             # Semantic deduplication for facts only
             if item.entity_type == "fact":
                 category = item.metadata.get("category", "other")
-                source_type = f"knowledge_fact"
+                source_type = "knowledge_fact"
                 
                 similar = await self._embeddings.search_similar_for_type(
                     user_id, item.content, source_type=source_type, limit=5

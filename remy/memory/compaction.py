@@ -9,11 +9,9 @@ Inspired by OpenClaw's session compaction with before/after hooks.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..config import settings
 from ..hooks import HookEvents, hook_manager
 from ..utils.tokens import estimate_tokens
 
@@ -94,9 +92,7 @@ class CompactionService:
             )
 
         # Get all turns to estimate token count
-        turns = await self.conv_store.get_recent_turns(
-            user_id, session_key, limit=500
-        )
+        turns = await self.conv_store.get_recent_turns(user_id, session_key, limit=500)
 
         if not turns:
             return CompactionResult(
@@ -210,7 +206,7 @@ Summary (bullet points only):"""
 
         try:
             response = await self.claude_client.complete(
-                prompt,
+                [{"role": "user", "content": prompt}],
                 model=self.config.summary_model,
                 max_tokens=500,
             )
@@ -229,7 +225,9 @@ Summary (bullet points only):"""
         topics = []
         for t in user_messages[-10:]:
             words = t.content.split()[:10]
-            topics.append(" ".join(words) + ("..." if len(t.content.split()) > 10 else ""))
+            topics.append(
+                " ".join(words) + ("..." if len(t.content.split()) > 10 else "")
+            )
 
         return "Topics discussed:\n" + "\n".join(f"- {topic}" for topic in topics)
 
@@ -239,9 +237,7 @@ Summary (bullet points only):"""
         session_key: str,
     ) -> dict:
         """Get statistics about a session for diagnostics."""
-        turns = await self.conv_store.get_recent_turns(
-            user_id, session_key, limit=500
-        )
+        turns = await self.conv_store.get_recent_turns(user_id, session_key, limit=500)
 
         if not turns:
             return {
@@ -252,15 +248,16 @@ Summary (bullet points only):"""
             }
 
         total_tokens = sum(estimate_tokens(t.content) for t in turns)
-        is_compacted = turns[0].content.startswith("[COMPACTED SUMMARY]") if turns else False
+        is_compacted = (
+            turns[0].content.startswith("[COMPACTED SUMMARY]") if turns else False
+        )
 
         return {
             "turn_count": len(turns),
             "token_estimate": total_tokens,
             "is_compacted": is_compacted,
             "needs_compaction": (
-                not is_compacted
-                and total_tokens >= self.config.token_threshold
+                not is_compacted and total_tokens >= self.config.token_threshold
             ),
             "threshold": self.config.token_threshold,
         }

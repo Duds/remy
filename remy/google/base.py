@@ -19,7 +19,7 @@ import random
 from functools import wraps
 from typing import Awaitable, Callable, TypeVar
 
-from ..utils.circuit_breaker import CircuitOpenError, get_circuit_breaker
+from ..utils.circuit_breaker import get_circuit_breaker
 
 logger = logging.getLogger(__name__)
 

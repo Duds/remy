@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 
 from .base import (
     _build_message_from_turn,
+    _sanitize_messages_for_claude,
     _trim_messages_to_budget,
     _TOOL_TURN_PREFIX,
     _rate_limiter,
@@ -262,4 +263,8 @@ __all__ = [
     "_build_message_from_turn",
     "_trim_messages_to_budget",
     "_TOOL_TURN_PREFIX",
+    "_rate_limiter",
+    "_task_start_times",
+    "_pending_writes",
+    "TASK_TIMEOUT_SECONDS",
 ]

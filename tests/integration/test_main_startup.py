@@ -137,7 +137,6 @@ class TestMainStartup:
             import remy.config
             remy.config._settings = None
             
-            from remy.main import main
             
             # Verify TelegramBot was instantiated
             mock_telegram_bot.assert_not_called()  # Not called until main() runs
@@ -175,7 +174,7 @@ class TestSignalHandling:
         """Verify SIGTERM handler is registered."""
         import signal
         
-        original_handler = signal.getsignal(signal.SIGTERM)
+        signal.getsignal(signal.SIGTERM)
         
         # The handler is registered inside main(), so we just verify the mechanism works
         assert signal.getsignal(signal.SIGTERM) is not None

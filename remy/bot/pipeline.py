@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from .handlers import (
     _TOOL_TURN_PREFIX,
     _build_message_from_turn,
+    _sanitize_messages_for_claude,
     _trim_messages_to_budget,
 )
 from .session import SessionManager
@@ -101,6 +102,7 @@ async def run_proactive_trigger(
             messages.pop()
 
         messages = _trim_messages_to_budget(messages)
+        messages = _sanitize_messages_for_claude(messages)
 
         # ------------------------------------------------------------------ #
         # 2. Append the synthetic trigger message                              #

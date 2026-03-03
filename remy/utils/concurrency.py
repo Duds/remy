@@ -9,7 +9,7 @@ Provides semaphore-based limiting for background tasks to prevent:
 
 import asyncio
 import logging
-from typing import Awaitable, Callable, TypeVar
+from typing import Awaitable, TypeVar
 
 logger = logging.getLogger(__name__)
 

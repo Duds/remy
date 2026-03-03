@@ -20,7 +20,6 @@ from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...memory.facts import FactStore
-    from ..working_message import WorkingMessage
 
 logger = logging.getLogger(__name__)
 

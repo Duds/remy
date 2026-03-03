@@ -1,8 +1,5 @@
 import asyncio
-import os
-from pathlib import Path
 
-import pytest
 
 from remy.bot.handlers import make_handlers
 from remy.bot.session import SessionManager

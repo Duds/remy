@@ -1,5 +1,4 @@
 import os
-import tempfile
 import asyncio
 
 from remy.memory.conversations import ConversationStore
