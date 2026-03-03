@@ -24,8 +24,9 @@ _TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 def _parse_event_start(start: dict, today: date | None = None) -> str:
     """Return a human-readable time string from an event start dict.
 
-    For all-day events that started before `today`, returns "(ongoing)" so the
-    briefing doesn't display a stale past date for multi-day spanning events.
+    For timed events: "HH:MM" (24-hour).
+    For all-day events: "dd MMM" (Australian style, US-conversational-briefing-via-remy).
+    For all-day events that started before `today`: "(ongoing)".
     """
     dt_str = start.get("dateTime")
     if dt_str:
@@ -41,6 +42,13 @@ def _parse_event_start(start: dict, today: date | None = None) -> str:
             event_date = date.fromisoformat(date_str)
             if event_date < today:
                 return "(ongoing)"
+            return event_date.strftime("%d %b")
+        except ValueError:
+            pass
+    if date_str:
+        try:
+            event_date = date.fromisoformat(date_str)
+            return event_date.strftime("%d %b")
         except ValueError:
             pass
     return date_str
@@ -56,29 +64,39 @@ class CalendarClient:
     def _service(self):
         from googleapiclient.discovery import build  # type: ignore[import]
         from .auth import get_credentials
+
         return build("calendar", "v3", credentials=get_credentials(self._token_file))
 
     async def list_events(self, days: int = 7, max_results: int = 20) -> list[dict]:
         """List upcoming events in the primary calendar for the next `days` days."""
+
         def _sync():
             now = datetime.now(timezone.utc)
             end = now + timedelta(days=days)
-            result = self._service().events().list(
-                calendarId="primary",
-                timeMin=now.isoformat(),
-                timeMax=end.isoformat(),
-                maxResults=max_results,
-                singleEvents=True,
-                orderBy="startTime",
-            ).execute()
+            result = (
+                self._service()
+                .events()
+                .list(
+                    calendarId="primary",
+                    timeMin=now.isoformat(),
+                    timeMax=end.isoformat(),
+                    maxResults=max_results,
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
             return result.get("items", [])
-        return await with_google_resilience("calendar", lambda: asyncio.to_thread(_sync))
+
+        return await with_google_resilience(
+            "calendar", lambda: asyncio.to_thread(_sync)
+        )
 
     async def create_event(
         self,
         title: str,
-        date_str: str,   # YYYY-MM-DD
-        time_str: str,   # HH:MM
+        date_str: str,  # YYYY-MM-DD
+        time_str: str,  # HH:MM
         duration_hours: float = 1.0,
         description: str = "",
     ) -> dict:
@@ -101,12 +119,18 @@ class CalendarClient:
                 "summary": title,
                 "description": description,
                 "start": {"dateTime": start_dt.isoformat(), "timeZone": tz},
-                "end":   {"dateTime": end_dt.isoformat(),   "timeZone": tz},
+                "end": {"dateTime": end_dt.isoformat(), "timeZone": tz},
             }
-            return self._service().events().insert(
-                calendarId="primary", body=body
-            ).execute()
-        return await with_google_resilience("calendar", lambda: asyncio.to_thread(_sync))
+            return (
+                self._service()
+                .events()
+                .insert(calendarId="primary", body=body)
+                .execute()
+            )
+
+        return await with_google_resilience(
+            "calendar", lambda: asyncio.to_thread(_sync)
+        )
 
     def format_event(self, event: dict) -> str:
         """Return a single-line summary of a calendar event."""

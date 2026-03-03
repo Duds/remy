@@ -5,7 +5,7 @@ Filename convention: US-<kebab-case-feature-slug>.md
 Status tags: ⬜ Backlog  |  🔄 In Progress  |  ✅ Done  |  ❌ Deferred
 -->
 
-⬜ Backlog
+✅ Done
 
 ## Summary
 

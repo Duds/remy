@@ -699,7 +699,11 @@ class ProactiveScheduler:
             logger.warning("Relay inbox poll (tasks) failed: %s", e)
 
     async def _morning_briefing(self) -> None:
-        """07:00 job — send a summary of active goals, calendar, birthdays, downloads."""
+        """07:00 job — send a summary of active goals, calendar, birthdays, downloads.
+
+        US-conversational-briefing-via-remy: tries Claude-composed briefing first;
+        falls back to template if Claude fails or is unavailable.
+        """
         chat_id = _read_primary_chat_id()
         if chat_id is None:
             logger.debug("Morning briefing skipped — no primary chat ID set")
@@ -710,10 +714,11 @@ class ProactiveScheduler:
             logger.debug("Morning briefing skipped — no allowed users configured")
             return
 
+        user_id = user_ids[0]
         logger.info("Sending morning briefing to chat %d", chat_id)
 
         generator = MorningBriefingGenerator(
-            user_id=user_ids[0],
+            user_id=user_id,
             goal_store=self._goal_store,
             plan_store=self._plan_store,
             fact_store=self._fact_store,
@@ -722,8 +727,41 @@ class ProactiveScheduler:
             file_indexer=self._file_indexer,
             claude=self._claude_client,
         )
+
+        # Try Claude-composed briefing first (US-conversational-briefing-via-remy)
+        if (
+            self._claude_client is not None
+            and self._tool_registry is not None
+            and self._session_manager is not None
+            and self._conv_store is not None
+        ):
+            try:
+                payload = await generator.generate_structured()
+                from ..bot.pipeline import run_proactive_trigger
+
+                await run_proactive_trigger(
+                    label="Morning briefing",
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    bot=self._bot,
+                    claude_client=self._claude_client,
+                    tool_registry=self._tool_registry,
+                    session_manager=self._session_manager,
+                    conv_store=self._conv_store,
+                    db=self._db,
+                    context=payload,
+                )
+                _record_delivery("morning_briefing")
+                return
+            except Exception as e:
+                logger.warning(
+                    "Claude morning briefing failed, falling back to template: %s", e
+                )
+
+        # Fallback: template-generated briefing
         content = await generator.generate()
         await self._send(chat_id, content)
+        _record_delivery("morning_briefing")
 
     async def _afternoon_focus(self) -> None:
         """

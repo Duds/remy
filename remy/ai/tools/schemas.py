@@ -544,7 +544,8 @@ TOOL_SCHEMAS: list[dict] = [
         "description": (
             "Search the web using DuckDuckGo and return results. "
             "Use this when the user asks you to search for something, look something up, "
-            "find current information, research a topic, or check prices."
+            "find current information, research a topic, or check prices. "
+            "Limit: 3 searches per turn. Prefer one or two well-formed queries before synthesising."
         ),
         "input_schema": {
             "type": "object",
@@ -1630,7 +1631,7 @@ TOOL_SCHEMAS: list[dict] = [
             "Use it ALONGSIDE a text reply when tone warrants it (e.g. react ❤️ then give a warm response). "
             "Do NOT react to every message — only when a reaction adds genuine meaning. "
             "Never react AND send a hollow one-liner that says the same thing as the reaction. "
-            "Allowed emoji: 👍 ❤️ 🔥 🤔 👀 🎉 🤩 🤣"
+            "Allowed emoji: 👍 👎 ❤️ 🔥 🤔 👀 🎉 🤩 🤣 👏 😁 🙏 😍 🤝"
         ),
         "input_schema": {
             "type": "object",
@@ -1638,16 +1639,22 @@ TOOL_SCHEMAS: list[dict] = [
                 "emoji": {
                     "type": "string",
                     "description": (
-                        "The emoji to react with. Must be one of: 👍 ❤️ 🔥 🤔 👀 🎉 🤩 🤣. "
+                        "The emoji to react with. Must be one of: 👍 👎 ❤️ 🔥 🤔 👀 🎉 🤩 🤣 👏 😁 🙏 😍 🤝. "
                         "Choose based on the emotional register of the message:\n"
                         "👍 — acknowledged, will do, understood\n"
-                        "🤩 — task complete, star-struck, impressed\n"
+                        "👎 — disagree, not for me (honest pushback)\n"
                         "❤️ — warm moment, emotional support\n"
                         "🔥 — great idea, enthusiastic agreement\n"
                         "🤔 — uncertain, need to think\n"
-                        "🤣 — genuinely funny\n"
                         "👀 — noted, watching this\n"
-                        "🎉 — celebrating an achievement"
+                        "🎉 — celebrating an achievement\n"
+                        "🤩 — task complete, star-struck, impressed\n"
+                        "🤣 — genuinely funny\n"
+                        "👏 — well done, applause\n"
+                        "😁 — beaming, love it\n"
+                        "🙏 — thanks, please, grateful\n"
+                        "😍 — heart eyes, strong approval\n"
+                        "🤝 — handshake, deal, agreed"
                     ),
                 },
             },

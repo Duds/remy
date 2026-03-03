@@ -16,6 +16,21 @@ from typing import TYPE_CHECKING
 from telegram import Update
 
 from ...config import settings
+
+# Tools that trigger an automatic completion reaction (🤩) on the user's message
+# when they complete successfully. Uses Telegram-valid emoji per Bug 39.
+COMPLETION_REACTION_TOOLS = frozenset(
+    {
+        "label_emails",  # archive, trash, modify labels
+        "create_calendar_event",
+        "remove_reminder",  # delete automation
+        "manage_memory",  # add/update/delete facts
+        "manage_goal",  # add/update/complete/abandon goals
+        "write_file",
+        "append_file",
+    }
+)
+COMPLETION_REACTION_EMOJI = "🤩"  # Telegram-valid; ✅ not supported
 from ...constants import WORKING_MESSAGES, TOOL_TURN_PREFIX
 from ...ai.input_validator import RateLimiter
 from ...utils.tokens import estimate_tokens
@@ -218,6 +233,56 @@ async def reject_unauthorized(update: Update) -> bool:
         await update.message.reply_text("You are not authorised to use this bot.")
         return True
     return False
+
+
+async def apply_completion_reaction(
+    bot,
+    chat_id: int | None,
+    message_id: int | None,
+    tool_turns: list[tuple[list[dict], list[dict]]],
+) -> None:
+    """Apply 🤩 reaction to the user's message when an allowlisted tool completes successfully.
+
+    US-emoji-reactions-feedback: pipeline-level reaction for task completion.
+    Graceful fallback: log WARNING on failure, never surface to user.
+    """
+    if chat_id is None or message_id is None or not tool_turns:
+        return
+
+    for assistant_blocks, result_blocks in tool_turns:
+        result_by_id = {
+            b.get("tool_use_id"): b.get("content")
+            for b in result_blocks
+            if isinstance(b, dict)
+        }
+        for block in assistant_blocks:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if name not in COMPLETION_REACTION_TOOLS:
+                continue
+            content = result_by_id.get(block.get("id"), "")
+            if isinstance(content, list):
+                content = " ".join(str(c) for c in content)
+            if "encountered an error" in str(content):
+                continue
+            try:
+                from telegram import ReactionTypeEmoji
+
+                await bot.set_message_reaction(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reaction=[ReactionTypeEmoji(emoji=COMPLETION_REACTION_EMOJI)],
+                )
+                logger.debug(
+                    "Applied completion reaction %s for tool %s on message %d",
+                    COMPLETION_REACTION_EMOJI,
+                    name,
+                    message_id,
+                )
+            except Exception as exc:
+                logger.warning("set_message_reaction (completion) failed: %s", exc)
+            return  # One reaction per message
 
 
 def google_not_configured(service: str) -> str:

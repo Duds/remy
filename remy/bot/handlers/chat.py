@@ -36,11 +36,13 @@ from .base import (
     TASK_TIMEOUT_SECONDS,
     _TOOL_TURN_PREFIX,
     _sanitize_messages_for_claude,
+    apply_completion_reaction,
 )
 from .callbacks import make_suggested_actions_keyboard
 from ..session import SessionManager
 from ..streaming import stream_to_telegram
 from ...ai.claude_client import (
+    AnthropicOverloadFallbackAvailable,
     TextChunk,
     ToolResultChunk,
     ToolStatusChunk,
@@ -133,7 +135,7 @@ def make_chat_handlers(
                     {"mode": "errors", "since": "startup"},
                     user_id,
                 )
-                output = f"**Self-diagnostics**\n\n{status}\n\n{logs}"
+                output = f"*Self-diagnostics*\n\n{status}\n\n{logs}"
             else:
                 # Fallback: full DiagnosticsRunner when tool_registry unavailable
                 from ...diagnostics import DiagnosticsRunner, format_diagnostics_output
@@ -187,6 +189,7 @@ def make_chat_handlers(
         sent,
         chat_id: int | None = None,
         message_id: int | None = None,
+        bot=None,
         timing: RequestTiming | None = None,
     ) -> None:
         """Tool-aware streaming path using native Anthropic function calling."""
@@ -248,6 +251,7 @@ def make_chat_handlers(
         from ...models import TokenUsage
         from ...analytics.call_log import log_api_call
 
+        stream_model = None  # None = default; set on AnthropicOverloadFallbackAvailable
         for _attempt in range(2):
             try:
                 usage = TokenUsage()
@@ -284,6 +288,7 @@ def make_chat_handlers(
                     usage_out=usage,
                     chat_id=chat_id,
                     message_id=message_id,
+                    model=stream_model,
                 ):
                     if not ttft_recorded:
                         ttft_timer.stop()
@@ -354,6 +359,16 @@ def make_chat_handlers(
 
                 break  # stream completed successfully
 
+            except AnthropicOverloadFallbackAvailable as e:
+                # Retry once with fallback model (US-anthropic-overload-fallback)
+                stream_model = e.fallback_model
+                logger.info(
+                    "anthropic_overload_fallback: retrying with %s for user %d",
+                    stream_model,
+                    user_id,
+                )
+                continue
+
             except Exception as exc:
                 if _attempt == 0 and _is_transient_stream_exc(exc):
                     logger.warning(
@@ -370,7 +385,7 @@ def make_chat_handlers(
                     logger.warning(
                         "stream_with_tools overloaded for user %d: %s", user_id, exc
                     )
-                    user_msg = "I'm briefly overloaded on my end — please try again in a moment. 🙏"
+                    user_msg = "Anthropic's API is busy right now. I'll keep trying, or you can try again in a few minutes."
                 else:
                     logger.error(
                         "stream_with_tools error for user %d: %s", user_id, exc
@@ -415,6 +430,10 @@ def make_chat_handlers(
             if suggested_actions
             else None
         )
+
+        # US-emoji-reactions-feedback: apply 🤩 on user's message when allowlisted tool completes
+        if bot is not None and tool_turns:
+            await apply_completion_reaction(bot, chat_id, message_id, tool_turns)
 
         await _flush_display(final=True, reply_markup=reply_markup)
         # Retry once if there's text to display — the first attempt may have failed
@@ -611,7 +630,9 @@ def make_chat_handlers(
             req_timing = RequestTiming()
 
             history_start = time.monotonic()
-            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
             messages = [_build_message_from_turn(t) for t in recent]
             while messages:
                 first = messages[0]
@@ -696,6 +717,7 @@ def make_chat_handlers(
                     sent=sent,
                     chat_id=update.effective_chat.id if update.effective_chat else None,
                     message_id=update.message.message_id if update.message else None,
+                    bot=context.bot,
                     timing=req_timing,
                 )
                 logger.debug(
@@ -902,7 +924,9 @@ def make_chat_handlers(
             session_manager.clear_cancel(user_id)
             session_key = SessionManager.get_session_key(user_id, thread_id)
 
-            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
             messages = [_build_message_from_turn(t) for t in recent]
             while messages:
                 first = messages[0]
@@ -954,6 +978,7 @@ def make_chat_handlers(
                     sent=sent,
                     chat_id=update.effective_chat.id if update.effective_chat else None,
                     message_id=update.message.message_id if update.message else None,
+                    bot=context.bot,
                 )
             else:
                 try:
@@ -1043,7 +1068,9 @@ def make_chat_handlers(
             session_manager.clear_cancel(user_id)
             session_key = SessionManager.get_session_key(user_id, thread_id)
 
-            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
             messages = [_build_message_from_turn(t) for t in recent]
             while messages:
                 first = messages[0]
@@ -1099,6 +1126,7 @@ def make_chat_handlers(
                     sent=sent,
                     chat_id=update.effective_chat.id if update.effective_chat else None,
                     message_id=update.message.message_id if update.message else None,
+                    bot=context.bot,
                 )
             else:
                 try:

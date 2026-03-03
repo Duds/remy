@@ -594,3 +594,16 @@ These are the only emoji accepted by `setMessageReaction`:
 | 😡 | Enraged face |
 
 **Not allowed (common mistakes):** ✅ ☑️ ✔️ 🔴 🟢 — these are symbol/shape emoji not in Telegram's reaction picker.
+
+---
+
+## Bug 40: `KnowledgeStore` has no attribute `add`
+
+- **Symptom:** `AttributeError: 'KnowledgeStore' object has no attribute 'add'` when calling the `save_bookmark` tool.
+- **Impact:** Bookmarks cannot be saved. Tool silently fails and returns an error to the user.
+- **Root cause (suspected):** `KnowledgeStore` class is missing an `add()` method — either it was never implemented, renamed (e.g. to `save()` or `insert()`), or removed during a refactor without updating the callers.
+- **Priority:** Medium
+- **Status:** Open
+- **Location:** `remy/memory/knowledge.py` — `KnowledgeStore` class; `remy/ai/tools/bookmarks.py` (or wherever `save_bookmark` calls `store.add(...)`)
+- **Fix:** Add an `add()` method to `KnowledgeStore` (or update the caller to use the correct existing method name).
+- **Reported:** 2026-03-04

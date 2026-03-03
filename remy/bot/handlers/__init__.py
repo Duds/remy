@@ -137,12 +137,17 @@ def make_handlers(
         )
     )
 
-    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done)
+    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done, run_auto)
     handlers["callback"] = make_callback_handler(
         google_gmail=google_gmail,
         google_calendar=google_calendar,
         automation_store=automation_store,
         scheduler_ref=scheduler_ref,
+        claude_client=claude_client,
+        tool_registry=tool_registry,
+        session_manager=session_manager,
+        conv_store=conv_store,
+        db=db,
     )
 
     # Calendar

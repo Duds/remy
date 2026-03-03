@@ -1,6 +1,6 @@
 # Remy Roadmap & Development Plan
 
-**Last Updated:** March 4, 2026 (Bug fixes 35–38, docs refresh)
+**Last Updated:** March 4, 2026 (Round-trip latency user stories, Bug fixes 35–38)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -367,13 +367,13 @@ Combines Telegram Bot API (inline keyboards, callbacks, chat actions) with Claud
 - [ ] **Confirmation flows** (`US-confirmation-flows`) — [Confirm] [Cancel] inline buttons for destructive actions (archive emails, delete automation). Replaces "Reply yes" text flow.
 - [x] **Smart reply buttons** (`US-smart-reply-buttons`) — Contextual [Add to calendar], [Forward to cowork], [Break down] on substantive replies. Requires `CallbackQueryHandler` + pipeline `suggested_actions`.
 - [x] **Snooze/Complete on reminders** (`US-snooze-complete-reminders`) — [Snooze 5m] [Snooze 15m] [Done] on proactive reminder messages.
-- [ ] **Emoji reactions as task feedback** (`US-emoji-reactions-feedback`) — Automatic ✅ on user's message when tools complete. Builds on `US-emoji-reaction-handling` (done).
-- [ ] **One-tap automation templates** (`US-one-tap-automations`) — `/list_automations` as inline buttons; tap to run on-demand.
+- [x] **Emoji reactions as task feedback** (`US-emoji-reactions-feedback`) — Automatic 🤩 on user's message when allowlisted tools complete. Builds on `US-emoji-reaction-handling` (done).
+- [x] **One-tap automation templates** (`US-one-tap-automations`) — `/list_automations` as inline buttons; tap to run on-demand.
 
 ### Tier 2 — High value, moderate effort
 
-- [ ] **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice. See `docs/backlog/US-conversational-briefing-via-remy.md`.
-- [ ] **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions in briefings/summaries.
+- [x] **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice. See `docs/backlog/US-conversational-briefing-via-remy.md`.
+- [x] **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions in briefings/summaries.
 - [x] **Send to cowork** (`US-send-to-cowork`) — [Send to cowork] on notes/summaries for one-tap relay handoff.
 - [ ] **Chat actions for long tasks** — `upload_document` / `upload_photo` when research/board runs (instead of only `typing`).
 - [ ] **Run again / different params** — [Run again] [New topic] on tool-heavy flows (research, board, Gmail quick wins).
@@ -461,11 +461,16 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **S**    | Confirmation flows (inline Confirm/Cancel)                          | US-confirmation-flows               | ⬜ Phase 8                   |
 | **S**    | Smart reply buttons (Add to calendar, Forward to cowork)             | US-smart-reply-buttons              | ✅ Done                      |
 | **S**    | Snooze/Complete on proactive reminders                              | US-snooze-complete-reminders        | ✅ Done                      |
-| **C**    | Emoji reactions as task completion feedback                         | US-emoji-reactions-feedback         | ⬜ Phase 8                   |
-| **C**    | One-tap automation templates                                        | US-one-tap-automations              | ⬜ Phase 8                   |
-| **C**    | Conversational briefing via Remy (morning)                           | US-conversational-briefing-via-remy | ⬜ Phase 8                   |
-| **C**    | Calendar quick add from inline suggestions                           | US-calendar-quick-add               | ⬜ Phase 8                   |
+| **C**    | Emoji reactions as task completion feedback                         | US-emoji-reactions-feedback         | ✅ Done                      |
+| **C**    | One-tap automation templates                                        | US-one-tap-automations              | ✅ Done                      |
+| **C**    | Conversational briefing via Remy (morning)                           | US-conversational-briefing-via-remy | ✅ Done                      |
+| **C**    | Calendar quick add from inline suggestions                           | US-calendar-quick-add               | ✅ Done                      |
 | **C**    | Send to cowork with one tap                                          | US-send-to-cowork                   | ✅ Done                      |
+| **S**    | Fix save_bookmark KnowledgeStore AttributeError                     | US-fix-save-bookmark-knowledge-store | ⬜ Backlog                   |
+| **S**    | Cap tool iterations per turn (reduce latency)                         | US-cap-tool-iterations-per-turn    | ⬜ Backlog                   |
+| **S**    | Web search optimisation (per-turn limit, caching)                    | US-web-search-optimisation         | ⬜ Backlog                   |
+| **C**    | Aggressive session compaction (earlier trigger, smaller window)      | US-aggressive-session-compaction  | ⬜ Backlog                   |
+| **C**    | Anthropic overload detection and fallback                            | US-anthropic-overload-fallback    | ⬜ Backlog                   |
 | **W**    | Headless browser automation                                        | —                                   | ❌ Avoid                     |
 | **W**    | Knowledge graph + vector store                                     | —                                   | ❌ Avoid                     |
 
@@ -480,10 +485,10 @@ These were in my-agent and caused bloat. **Do not implement.**
 1. **Confirmation flows** (`US-confirmation-flows`) — [Confirm] [Cancel] for archive/delete. Safety first; small change.
 2. ~~**Smart reply buttons** (`US-smart-reply-buttons`)~~ — Done
 3. ~~**Snooze/Complete on reminders** (`US-snooze-complete-reminders`)~~ — Done
-4. **Emoji reactions as task feedback** (`US-emoji-reactions-feedback`) — Automatic ✅ on task completion.
-5. **One-tap automations** (`US-one-tap-automations`) — `/list_automations` as inline buttons.
-6. **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice.
-7. **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions.
+4. ~~**Emoji reactions as task feedback** (`US-emoji-reactions-feedback`)~~ — Done
+5. ~~**One-tap automations** (`US-one-tap-automations`)~~ — Done
+6. ~~**Conversational briefing via Remy** (`US-conversational-briefing-via-remy`)~~ — Done
+7. ~~**Calendar quick add** (`US-calendar-quick-add`)~~ — Done
 8. ~~**Send to cowork** (`US-send-to-cowork`)~~ — Done
 
 ---
@@ -507,6 +512,18 @@ These were in my-agent and caused bloat. **Do not implement.**
 15. ~~**Analytics: API call log** (`US-analytics-call-log`)~~
 
 16. ~~**Analytics: `/costs` command** (`US-analytics-costs-command`)~~
+
+### Round-Trip Latency (Performance)
+
+From telemetry analysis 03/03/2026: avg ~19.5 s per turn; tool execution dominates. See `docs/backlog/` (US-fix-save-bookmark-knowledge-store, US-cap-tool-iterations-per-turn, US-web-search-optimisation, US-aggressive-session-compaction, US-anthropic-overload-fallback).
+
+1. **Fix save_bookmark** (`US-fix-save-bookmark-knowledge-store`) — KnowledgeStore.add AttributeError; blocks bookmark tool
+2. **Cap tool iterations** (`US-cap-tool-iterations-per-turn`) — Configurable max_iterations, graceful truncation
+3. **Web search optimisation** (`US-web-search-optimisation`) — Per-turn limit, optional caching, "search once then decide"
+4. **Aggressive session compaction** (`US-aggressive-session-compaction`) — Earlier trigger, smaller recent-turns window for tool-heavy flows
+5. **Anthropic overload fallback** (`US-anthropic-overload-fallback`) — Detect overloaded_error, user message, optional Haiku fallback
+
+---
 
 ### P2 — Next quarter (moderate, high value)
 
@@ -667,3 +684,47 @@ All constraints from the spec implemented: in-memory only, 5MB cap, MIME allowli
 - [x] **Completed one-time reminders auto-log to memory** — when a one-time reminder fires, write a fact or log entry recording that it fired (e.g. "Reminder completed: Pick up tyres from Tyrepower (2026-03-01)"). Prevents stale reminders and gives Remy a history of completed tasks. Implemented in `scheduler/proactive.py:_log_completed_reminder()`.
 
 - [x] **End-of-day memory consolidation** — scheduled job (22:00 daily) + manual `/consolidate` command that reviews the day's conversation history and extracts anything worth persisting as a fact or goal. Claude-powered summarisation pass over the JSONL session log. Implemented in `scheduler/proactive.py:_end_of_day_consolidation()` and `_consolidate_user_memory()`. Also available as `consolidate_memory` tool for natural language invocation.
+
+---
+
+## 🆕 PBI: Telegram (Remy) as Claude Desktop Relay Target
+
+**Added:** March 2026
+**Phase:** 8 — Telegram + Claude UX Enhancements
+**Priority:** C (Could Have)
+**Backlog ref:** `US-claude-desktop-relay`
+
+### Problem
+
+Claude Desktop can relay messages to Remy via the MCP relay tool (`CLAUDE.md`), but Remy currently
+has no ability to respond back through that relay channel. The relay is one-directional: Desktop → Remy only.
+There is also no tool available in the Telegram bot context to initiate or respond to relay messages.
+
+### Goal
+
+Enable bidirectional communication between Claude Desktop and Remy (Telegram), so that:
+1. Claude Desktop can send Remy a task or message via the relay
+2. Remy can respond back to Claude Desktop via the same relay channel
+3. Dale can use Claude Desktop as a "cowork" peer and Remy as the persistent memory/action layer
+
+### Proposed Approach
+
+- Expose a `relay_post_message` / `relay_get_messages` tool pair in Remy's ToolRegistry (mirroring CLAUDE.md spec)
+- Add a `/relay` or `/cowork` inbox command — shows pending relay messages from Claude Desktop
+- Add `relay_reply` tool — Remy sends a response back to the relay inbox for Claude Desktop to pick up
+- Relay inbox backed by existing SQLite (new `relay_messages` table), not an external service
+- Authentication: shared secret in `.env` (same model as Cloudflare tunnel)
+
+### Acceptance Criteria
+
+- [ ] Dale can send a message from Claude Desktop to Remy's relay inbox
+- [ ] Remy can read the relay inbox and reply
+- [ ] Claude Desktop can read Remy's reply
+- [ ] Full round-trip tested: Desktop → Remy → Desktop
+- [ ] No exposed public endpoint required (relay uses shared file or SQLite, not HTTP)
+
+### Notes
+
+- See `CLAUDE.md` for existing relay MCP spec
+- Bookmark saved: https://huggingface.co/dphn/dolphin-2.6-mistral-7b (local Ollama candidate — to evaluate)
+- Current relay is one-directional and only works inside Claude Desktop session

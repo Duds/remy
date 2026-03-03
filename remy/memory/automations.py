@@ -42,6 +42,17 @@ class AutomationStore:
             await conn.execute("DELETE FROM automations WHERE id = ?", (automation_id,))
             await conn.commit()
 
+    async def get_by_id(self, automation_id: int) -> dict[str, Any] | None:
+        """Return automation by ID, or None if not found."""
+        async with self._db.get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT id, user_id, label, cron, fire_at, last_run_at, created_at "
+                "FROM automations WHERE id = ?",
+                (automation_id,),
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
     async def get_all(self, user_id: int) -> list[dict[str, Any]]:
         """Return all automations for a user, ordered by creation time."""
         async with self._db.get_connection() as conn:

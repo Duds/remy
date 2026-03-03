@@ -28,9 +28,7 @@ _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 2.0  # seconds
 # Rate-limit retries use longer delays since the window resets every 60s
 _RATE_LIMIT_RETRY_DELAYS = [30.0, 60.0]  # seconds between attempts 1→2 and 2→3
-# Maximum tool-call iterations before breaking the agentic loop
-# Increased from 8 to 12 to support complex multi-step workflows (Bug 38)
-_MAX_TOOL_ITERATIONS = 12
+# Maximum tool-call iterations: from settings.anthropic_max_tool_iterations (default 6)
 
 # Minimum system prompt length to enable caching (Anthropic requires 1024+ tokens)
 _MIN_CACHE_TOKENS = 1024
@@ -80,6 +78,22 @@ class ToolTurnComplete:
 
 # The StreamEvent union type
 StreamEvent = Union[TextChunk, ToolStatusChunk, ToolResultChunk, ToolTurnComplete]
+
+
+class AnthropicOverloadFallbackAvailable(Exception):
+    """Raised when Anthropic returns overload after max retries and a fallback model is configured.
+    Caller may retry stream_with_tools with model=fallback_model."""
+
+    def __init__(self, fallback_model: str) -> None:
+        self.fallback_model = fallback_model
+        super().__init__(fallback_model)
+
+
+def _is_overload_error(exc: anthropic.APIStatusError) -> bool:
+    """True if the error is Anthropic overload (529 or overloaded_error)."""
+    if exc.status_code == 529:
+        return True
+    return "overloaded" in str(exc).lower()
 
 
 class ClaudeClient:
@@ -219,11 +233,12 @@ class ClaudeClient:
         working_messages = list(messages)
         accumulated_usage = TokenUsage()
 
-        for iteration in range(_MAX_TOOL_ITERATIONS):
+        max_iterations = settings.anthropic_max_tool_iterations
+        for iteration in range(max_iterations):
             logger.debug(
                 "stream_with_tools iteration %d/%d, messages=%d",
                 iteration + 1,
-                _MAX_TOOL_ITERATIONS,
+                max_iterations,
                 len(working_messages),
             )
 
@@ -339,18 +354,41 @@ class ClaudeClient:
 
                 except anthropic.APIStatusError as e:
                     if e.status_code >= 500:
+                        is_overload = _is_overload_error(e)
+                        max_retries = (
+                            settings.anthropic_overload_max_retries
+                            if is_overload
+                            else _MAX_RETRIES
+                        )
                         delay = _RETRY_BASE_DELAY * (2**attempt)
                         logger.warning(
-                            "Anthropic overload %d in stream_with_tools (attempt %d/%d). "
+                            "Anthropic %s %d in stream_with_tools (attempt %d/%d). "
                             "Retrying in %.1fs",
+                            "overload" if is_overload else "error",
                             e.status_code,
                             attempt + 1,
-                            _MAX_RETRIES,
+                            max_retries,
                             delay,
                         )
-                        if attempt < _MAX_RETRIES - 1:
+                        if attempt < max_retries - 1:
                             await asyncio.sleep(delay)
                         else:
+                            if (
+                                is_overload
+                                and settings.anthropic_overload_fallback_model
+                            ):
+                                logger.info(
+                                    "anthropic_overload_fallback: will retry with %s",
+                                    settings.anthropic_overload_fallback_model,
+                                )
+                                raise AnthropicOverloadFallbackAvailable(
+                                    settings.anthropic_overload_fallback_model
+                                ) from e
+                            if is_overload:
+                                logger.info(
+                                    "anthropic_overload for user %d (no fallback configured)",
+                                    user_id,
+                                )
                             raise
                     else:
                         raise
@@ -368,31 +406,71 @@ class ClaudeClient:
 
             # Execute all tool calls and collect results
             tool_result_blocks: list[dict] = []
+            web_search_count = 0
             for tool_block in tool_use_blocks:
                 tool_name = tool_block["name"]
                 tool_use_id = tool_block["id"]
                 tool_input = tool_block.get("input", {})
 
-                logger.info(
-                    "Executing tool %s (id=%s) for user %d",
-                    tool_name,
-                    tool_use_id,
-                    user_id,
-                )
-
-                try:
-                    result = await tool_registry.dispatch(
-                        tool_name, tool_input, user_id, chat_id, message_id
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "Tool dispatch failed for %s (id=%s): %s",
+                # Per-turn cap for web_search (US-web-search-optimisation)
+                if tool_name == "web_search":
+                    if web_search_count >= settings.web_search_max_per_turn:
+                        result = (
+                            f"Web search limit reached ({settings.web_search_max_per_turn} per turn). "
+                            "Synthesise your reply from the results already retrieved."
+                        )
+                        logger.info(
+                            "web_search_cap_hit for user %d (count=%d)",
+                            user_id,
+                            web_search_count,
+                        )
+                    else:
+                        web_search_count += 1
+                        if web_search_count == settings.web_search_max_per_turn:
+                            logger.info(
+                                "web_search_cap_hit for user %d (count=%d)",
+                                user_id,
+                                web_search_count,
+                            )
+                        logger.info(
+                            "Executing tool %s (id=%s) for user %d",
+                            tool_name,
+                            tool_use_id,
+                            user_id,
+                        )
+                        try:
+                            result = await tool_registry.dispatch(
+                                tool_name, tool_input, user_id, chat_id, message_id
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                "Tool dispatch failed for %s (id=%s): %s",
+                                tool_name,
+                                tool_use_id,
+                                exc,
+                                exc_info=True,
+                            )
+                            result = f"Tool '{tool_name}' encountered an error: {exc}"
+                else:
+                    logger.info(
+                        "Executing tool %s (id=%s) for user %d",
                         tool_name,
                         tool_use_id,
-                        exc,
-                        exc_info=True,
+                        user_id,
                     )
-                    result = f"Tool '{tool_name}' encountered an error: {exc}"
+                    try:
+                        result = await tool_registry.dispatch(
+                            tool_name, tool_input, user_id, chat_id, message_id
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Tool dispatch failed for %s (id=%s): %s",
+                            tool_name,
+                            tool_use_id,
+                            exc,
+                            exc_info=True,
+                        )
+                        result = f"Tool '{tool_name}' encountered an error: {exc}"
 
                 yield ToolResultChunk(
                     tool_name=tool_name,
@@ -435,8 +513,12 @@ class ClaudeClient:
             usage_out.cache_read_tokens = accumulated_usage.cache_read_tokens
         logger.warning(
             "stream_with_tools hit max iterations (%d) for user %d",
-            _MAX_TOOL_ITERATIONS,
+            max_iterations,
             user_id,
+        )
+        logger.info(
+            "max_iterations_reached",
+            extra={"user_id": user_id, "iterations": max_iterations},
         )
         # Yield a truncation note so the user knows the response was limited (Bug 38)
         yield TextChunk(

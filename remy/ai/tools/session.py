@@ -110,7 +110,9 @@ async def exec_end_session(registry: ToolRegistry, inp: dict, user_id: int) -> s
                 "minutes": reminder_minutes,
                 "message": reminder_text or "Follow up on our last conversation",
             }
-            reminder_result = await exec_set_one_time_reminder(registry, reminder_inp, user_id)
+            reminder_result = await exec_set_one_time_reminder(
+                registry, reminder_inp, user_id
+            )
             result_parts.append(reminder_result)
         except Exception as e:
             result_parts.append(f"Could not set reminder: {e}")
@@ -125,7 +127,22 @@ async def exec_react_to_message(
     message_id: int | None,
 ) -> str:
     """Set an emoji reaction on Dale's most recent Telegram message."""
-    ALLOWED_EMOJI = {"👍", "❤️", "🔥", "🤔", "👀", "🎉", "🤩", "🤣"}
+    ALLOWED_EMOJI = {
+        "👍",
+        "👎",
+        "❤️",
+        "🔥",
+        "🤔",
+        "👀",
+        "🎉",
+        "🤩",
+        "🤣",
+        "👏",
+        "😁",
+        "🙏",
+        "😍",
+        "🤝",
+    }
 
     emoji = tool_input.get("emoji", "").strip()
     if not emoji:
@@ -141,13 +158,16 @@ async def exec_react_to_message(
         return "Reaction not available — chat or message context missing."
 
     from telegram import ReactionTypeEmoji
+
     try:
         await bot.set_message_reaction(
             chat_id=chat_id,
             message_id=message_id,
             reaction=[ReactionTypeEmoji(emoji=emoji)],
         )
-        logger.debug("Reacted with %s on message %d in chat %d", emoji, message_id, chat_id)
+        logger.debug(
+            "Reacted with %s on message %d in chat %d", emoji, message_id, chat_id
+        )
         return f"Reacted with {emoji}"
     except Exception as exc:
         logger.warning("set_message_reaction failed: %s", exc)

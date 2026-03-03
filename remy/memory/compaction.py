@@ -28,6 +28,7 @@ class CompactionConfig:
 
     enabled: bool = True
     token_threshold: int = 50_000
+    turn_threshold: int = 80  # Trigger compaction when turn count >= this (US-aggressive-session-compaction)
     keep_recent_messages: int = 20
     summary_model: str = "claude-haiku-4-5-20251001"
 
@@ -115,14 +116,21 @@ class CompactionService:
 
         # Estimate total tokens
         total_tokens = sum(estimate_tokens(t.content) for t in turns)
+        turn_count = len(turns)
 
-        if total_tokens < self.config.token_threshold:
+        # Trigger if token threshold OR turn threshold exceeded (US-aggressive-session-compaction)
+        under_token = total_tokens < self.config.token_threshold
+        under_turn = turn_count < self.config.turn_threshold
+        if under_token and under_turn:
             return CompactionResult(
                 compacted=False,
-                original_turns=len(turns),
+                original_turns=turn_count,
                 original_tokens=total_tokens,
                 summary_tokens=0,
-                reason=f"Below threshold ({total_tokens} < {self.config.token_threshold})",
+                reason=(
+                    f"Below thresholds (tokens {total_tokens} < {self.config.token_threshold}, "
+                    f"turns {turn_count} < {self.config.turn_threshold})"
+                ),
             )
 
         # Emit BEFORE_COMPACTION hook
@@ -171,12 +179,17 @@ class CompactionService:
             summary_tokens,
         )
 
+        reason = (
+            f"Exceeded token threshold ({total_tokens} >= {self.config.token_threshold})"
+            if not under_token
+            else f"Exceeded turn threshold ({turn_count} >= {self.config.turn_threshold})"
+        )
         return CompactionResult(
             compacted=True,
             original_turns=len(turns),
             original_tokens=total_tokens,
             summary_tokens=summary_tokens,
-            reason=f"Exceeded threshold ({total_tokens} >= {self.config.token_threshold})",
+            reason=reason,
         )
 
     async def _generate_summary(self, turns: list) -> str:
@@ -271,8 +284,17 @@ def get_compaction_service(
     conv_store: "ConversationStore | None" = None,
     claude_client: "ClaudeClient | None" = None,
 ) -> CompactionService | None:
-    """Get or create the compaction service singleton."""
+    """Get or create the compaction service singleton (config from settings)."""
     global _compaction_service
     if _compaction_service is None and conv_store is not None:
-        _compaction_service = CompactionService(conv_store, claude_client)
+        from ..config import settings
+
+        config = CompactionConfig(
+            token_threshold=settings.compaction_token_threshold,
+            turn_threshold=settings.compaction_turn_threshold,
+            keep_recent_messages=settings.compaction_keep_recent_messages,
+        )
+        _compaction_service = CompactionService(
+            conv_store, claude_client, config=config
+        )
     return _compaction_service

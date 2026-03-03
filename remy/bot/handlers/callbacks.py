@@ -197,6 +197,11 @@ def make_callback_handler(
     relay_post_message=None,
     automation_store=None,
     scheduler_ref: dict | None = None,
+    claude_client=None,
+    tool_registry=None,
+    session_manager=None,
+    conv_store=None,
+    db=None,
 ):
     """
     Factory that returns the callback query handler.
@@ -475,6 +480,73 @@ def make_callback_handler(
                 await query.edit_message_text("Done ✓")
             except Exception:
                 pass
+
+        elif data.startswith("run_auto_"):
+            # US-one-tap-automations: run automation on-demand via inline button
+            suffix = data[len("run_auto_") :]
+            if not suffix.isdigit():
+                logger.warning("run_auto_ callback with invalid id: %s", suffix[:20])
+                return
+            automation_id = int(suffix)
+            if (
+                automation_store is None
+                or claude_client is None
+                or tool_registry is None
+                or session_manager is None
+                or conv_store is None
+            ):
+                try:
+                    await query.edit_message_text("❌ Automation run not available.")
+                except Exception:
+                    pass
+                return
+            automation = await automation_store.get_by_id(automation_id)
+            if automation is None:
+                try:
+                    await query.edit_message_text("No longer available.")
+                except Exception:
+                    pass
+                return
+            if automation.get("user_id") != user_id:
+                return
+            label = automation.get("label") or "Reminder"
+            chat_id = query.message.chat_id if query.message else None
+            if chat_id is None:
+                return
+            try:
+                await query.edit_message_text(
+                    f"⏰ Running *{label}*…",
+                    parse_mode="Markdown",
+                    reply_markup=None,
+                )
+            except Exception as e:
+                logger.debug("Edit message for run_auto failed: %s", e)
+            try:
+                from ..pipeline import run_proactive_trigger
+
+                await run_proactive_trigger(
+                    label=label,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    bot=context.bot,
+                    claude_client=claude_client,
+                    tool_registry=tool_registry,
+                    session_manager=session_manager,
+                    conv_store=conv_store,
+                    db=db,
+                    automation_id=automation_id,
+                    one_time=False,
+                )
+            except Exception as e:
+                logger.exception("run_proactive_trigger (on-demand) failed: %s", e)
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"❌ Could not run *{label}*: {e}",
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass
 
         else:
             logger.warning("Unknown callback_data: %s", data[:50])

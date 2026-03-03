@@ -14,6 +14,8 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from .base import reject_unauthorized
 from ..session import SessionManager
 from ...utils.telegram_formatting import format_telegram_message
@@ -40,11 +42,13 @@ def make_automation_handlers(
 ):
     """
     Factory that returns automation and task handlers.
-    
+
     Returns a dict of command_name -> handler_function.
     """
 
-    def _parse_schedule_args(args: list[str], default_dow: str = "*") -> tuple[str, str]:
+    def _parse_schedule_args(
+        args: list[str], default_dow: str = "*"
+    ) -> tuple[str, str]:
         """
         Parse optional [day] [HH:MM] prefix from a /schedule-* command's args.
         Returns (cron_str, label) where label is the remainder of the args joined.
@@ -55,8 +59,13 @@ def make_automation_handlers(
         dow = default_dow
 
         _DOW_MAP = {
-            "mon": "1", "tue": "2", "wed": "3", "thu": "4",
-            "fri": "5", "sat": "6", "sun": "0",
+            "mon": "1",
+            "tue": "2",
+            "wed": "3",
+            "thu": "4",
+            "fri": "5",
+            "sat": "6",
+            "sun": "0",
         }
         if remaining and remaining[0].lower() in _DOW_MAP:
             dow = _DOW_MAP[remaining.pop(0).lower()]
@@ -71,7 +80,9 @@ def make_automation_handlers(
         cron = f"{minute} {hour} * * {dow}"
         return cron, label
 
-    async def schedule_daily_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_daily_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """
         /schedule-daily [HH:MM] <task>
         Create a daily reminder. HH:MM is optional (defaults to 09:00).
@@ -110,7 +121,9 @@ def make_automation_handlers(
             parse_mode="Markdown",
         )
 
-    async def schedule_weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_weekly_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """
         /schedule-weekly [day] [HH:MM] <task>
         Create a weekly reminder. Day defaults to Monday, time to 09:00.
@@ -141,7 +154,16 @@ def make_automation_handlers(
             return
 
         _sched.add_automation(automation_id, user_id, label, cron)
-        _DOW_NAMES = {"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "*": "every day"}
+        _DOW_NAMES = {
+            "0": "Sun",
+            "1": "Mon",
+            "2": "Tue",
+            "3": "Wed",
+            "4": "Thu",
+            "5": "Fri",
+            "6": "Sat",
+            "*": "every day",
+        }
         minute, hour, _, _, dow = cron.split()
         time_str = f"{int(hour):02d}:{int(minute):02d}"
         day_str = _DOW_NAMES.get(dow, dow)
@@ -151,8 +173,10 @@ def make_automation_handlers(
             parse_mode="Markdown",
         )
 
-    async def list_automations_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/list-automations — show all scheduled reminders with their IDs."""
+    async def list_automations_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """/list-automations — show scheduled reminders with inline [Run] buttons (US-one-tap-automations)."""
         if await reject_unauthorized(update):
             return
 
@@ -170,18 +194,48 @@ def make_automation_handlers(
             )
             return
 
-        _DOW_NAMES = {"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "*": "daily"}
+        _DOW_NAMES = {
+            "0": "Sun",
+            "1": "Mon",
+            "2": "Tue",
+            "3": "Wed",
+            "4": "Thu",
+            "5": "Fri",
+            "6": "Sat",
+            "*": "daily",
+        }
         lines = ["⏰ *Scheduled reminders:*\n"]
         for row in rows:
-            cron_parts = row["cron"].split()
-            minute, hour, _, _, dow = cron_parts
+            cron = row.get("cron") or ""
+            cron_parts = cron.split() if cron else ["0", "9", "*", "*", "*"]
+            minute = cron_parts[0] if len(cron_parts) > 0 else "0"
+            hour = cron_parts[1] if len(cron_parts) > 1 else "9"
+            dow = cron_parts[4] if len(cron_parts) > 4 else "*"
             time_str = f"{int(hour):02d}:{int(minute):02d}"
             freq = "daily" if dow == "*" else f"every {_DOW_NAMES.get(dow, dow)}"
-            last = row["last_run_at"] or "never"
-            lines.append(f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last}")
+            last = row.get("last_run_at") or "never"
+            lines.append(
+                f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last}"
+            )
 
-        lines.append("\nUse /unschedule <id> to remove one.")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        lines.append("\nTap a button to run now. Use /unschedule <id> to remove.")
+
+        # Inline keyboard: one button per automation (label truncated to 32 chars per Telegram limit)
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    (r["label"] or "Run")[:32], callback_data=f"run_auto_{r['id']}"
+                )
+            ]
+            for r in rows
+        ]
+        keyboard = InlineKeyboardMarkup(buttons)
+
+        await update.message.reply_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
 
     async def unschedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/unschedule <id> — remove a scheduled reminder by its ID."""
@@ -237,7 +291,9 @@ def make_automation_handlers(
         context_block = ""
         if memory_injector is not None:
             try:
-                full_prompt = await memory_injector.build_system_prompt(user_id, task, "")
+                full_prompt = await memory_injector.build_system_prompt(
+                    user_id, task, ""
+                )
                 if "<memory>" in full_prompt:
                     start = full_prompt.index("<memory>")
                     end = full_prompt.index("</memory>") + len("</memory>")
@@ -323,8 +379,10 @@ def make_automation_handlers(
 
         job_id = await job_store.create(user_id, "board", topic) if job_store else None
         runner = BackgroundTaskRunner(
-            context.bot, update.message.chat_id,
-            job_store=job_store, job_id=job_id,
+            context.bot,
+            update.message.chat_id,
+            job_store=job_store,
+            job_id=job_id,
             working_message=wm,
         )
         asyncio.create_task(runner.run(_collect_board(), label="board analysis"))

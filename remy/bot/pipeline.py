@@ -59,6 +59,27 @@ def _reminder_system_prompt(label: str) -> str:
     )
 
 
+def _briefing_system_prompt(context: dict) -> str:
+    """
+    US-conversational-briefing-via-remy: system prompt for morning briefing.
+    Injects structured context so Claude composes a natural, prioritised message.
+    """
+    ctx_json = json.dumps(context, indent=0)
+    return (
+        f"{settings.soul_md}\n\n"
+        "---\n"
+        "MORNING BRIEFING: You have structured context for Dale's day. "
+        "Compose a short, warm, conversational message.\n\n"
+        "- Use Australian date format (DD/MM/YYYY) and 24-hour time\n"
+        "- Prioritise what matters most; don't list everything verbatim\n"
+        "- Be concise and natural — you're Remy, not a bulletin\n"
+        "- Include calendar highlights, top goals, and any urgent items\n"
+        "- Optionally mention downloads cleanup or stale plans if relevant\n\n"
+        "Structured context:\n"
+        f"```json\n{ctx_json}\n```"
+    )
+
+
 async def run_proactive_trigger(
     *,
     label: str,
@@ -72,6 +93,7 @@ async def run_proactive_trigger(
     db=None,
     automation_id: int = 0,
     one_time: bool = False,
+    context: dict | None = None,
 ) -> None:
     """
     Run a scheduler-triggered reminder through the full Claude pipeline.
@@ -89,7 +111,9 @@ async def run_proactive_trigger(
         # ------------------------------------------------------------------ #
         # 1. Build message history                                             #
         # ------------------------------------------------------------------ #
-        recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+        recent = await conv_store.get_recent_turns(
+            user_id, session_key, limit=settings.compaction_keep_recent_messages
+        )
         messages: list[dict] = [_build_message_from_turn(t) for t in recent]
 
         # Drop any orphaned tool turns at the end of history (can't end on a
@@ -110,7 +134,10 @@ async def run_proactive_trigger(
         trigger_text = f"[Reminder] {label}"
         messages.append({"role": "user", "content": trigger_text})
 
-        system_prompt = _reminder_system_prompt(label)
+        if context is not None:
+            system_prompt = _briefing_system_prompt(context)
+        else:
+            system_prompt = _reminder_system_prompt(label)
 
         # ------------------------------------------------------------------ #
         # 3. Send placeholder to Telegram                                      #
@@ -182,10 +209,18 @@ async def run_proactive_trigger(
                 label,
                 exc,
             )
-            try:
-                await sent.edit_text(
+            err_str = str(exc)
+            if "overloaded_error" in err_str or "overloaded" in err_str.lower():
+                user_msg = (
+                    f"⏰ Reminder: {label}\n\n_"
+                    "Anthropic's API is busy right now. Try again in a few minutes._"
+                )
+            else:
+                user_msg = (
                     f"⏰ Reminder: {label}\n\n_(Error generating response: {exc})_"
                 )
+            try:
+                await sent.edit_text(user_msg)
             except Exception as edit_err:
                 logger.debug("Failed to edit error message in pipeline: %s", edit_err)
             return
@@ -194,29 +229,63 @@ async def run_proactive_trigger(
         final_text = streamer.full_text.strip()
 
         # ------------------------------------------------------------------ #
-        # 4b. Attach [Snooze 5m] [Snooze 15m] [Done] keyboard to reminder     #
+        # 4b. Attach keyboard to message                                      #
+        #     Reminders: [Snooze 5m] [Snooze 15m] [Done]                       #
+        #     Briefings: [Add to calendar] per event (US-calendar-quick-add)    #
         # ------------------------------------------------------------------ #
-        try:
-            from .handlers.callbacks import (
-                make_reminder_keyboard,
-                store_reminder_payload,
-            )
+        if context is None:
+            try:
+                from .handlers.callbacks import (
+                    make_reminder_keyboard,
+                    store_reminder_payload,
+                )
 
-            token = store_reminder_payload(
-                user_id=user_id,
-                chat_id=chat_id,
-                label=label,
-                automation_id=automation_id,
-                one_time=one_time,
-            )
-            keyboard = make_reminder_keyboard(token)
-            await bot.edit_message_reply_markup(
-                chat_id=chat_id,
-                message_id=sent.message_id,
-                reply_markup=keyboard,
-            )
-        except Exception as e:
-            logger.debug("Could not attach reminder keyboard: %s", e)
+                token = store_reminder_payload(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    label=label,
+                    automation_id=automation_id,
+                    one_time=one_time,
+                )
+                keyboard = make_reminder_keyboard(token)
+                await bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=sent.message_id,
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.debug("Could not attach reminder keyboard: %s", e)
+        elif context and (cal := context.get("calendar")):
+            # US-calendar-quick-add: [Add to calendar] buttons for each event
+            try:
+                from .handlers.callbacks import make_suggested_actions_keyboard
+
+                actions = []
+                for item in cal[:4]:  # Max 4 buttons (keyboard limit)
+                    when = item.get("when")
+                    title = (item.get("title") or "Event").strip()
+                    if when and title:
+                        # Shorten label for Telegram (32 chars)
+                        label = f"📅 {title}"[:32]
+                        actions.append(
+                            {
+                                "label": label,
+                                "callback_id": "add_to_calendar",
+                                "payload": {"title": title, "when": when},
+                            }
+                        )
+                if actions:
+                    keyboard = make_suggested_actions_keyboard(actions, user_id)
+                    if keyboard:
+                        await bot.edit_message_reply_markup(
+                            chat_id=chat_id,
+                            message_id=sent.message_id,
+                            reply_markup=keyboard,
+                        )
+            except Exception as e:
+                logger.debug(
+                    "Could not attach [Add to calendar] keyboard to briefing: %s", e
+                )
 
         # ------------------------------------------------------------------ #
         # 5. Persist conversation history                                       #

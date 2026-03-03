@@ -103,12 +103,13 @@ def test_format_event_all_day():
 
     client = CalendarClient.__new__(CalendarClient)
     # Use a far-future date so it never shows as "(ongoing)"
+    # US-conversational-briefing-via-remy: all-day events use Australian "dd MMM" format
     event = {
         "summary": "Public Holiday",
         "start": {"date": "2099-12-25"},
     }
     result = client.format_event(event)
-    assert "2099-12-25" in result
+    assert "25 Dec" in result
     assert "Public Holiday" in result
 
 
@@ -283,12 +284,14 @@ def test_calendar_command_with_mock():
     from remy.bot.handlers import make_handlers
 
     mock_cal = MagicMock()
-    mock_cal.list_events = AsyncMock(return_value=[
-        {
-            "summary": "Stand-up",
-            "start": {"dateTime": "2026-03-01T09:00:00+11:00"},
-        }
-    ])
+    mock_cal.list_events = AsyncMock(
+        return_value=[
+            {
+                "summary": "Stand-up",
+                "start": {"dateTime": "2026-03-01T09:00:00+11:00"},
+            }
+        ]
+    )
     mock_cal.format_event = MagicMock(return_value="• 09:00 — Stand-up")
 
     handlers = make_handlers(
@@ -306,10 +309,12 @@ def test_gmail_unread_summary_mock():
     from remy.bot.handlers import make_handlers
 
     mock_gmail = MagicMock()
-    mock_gmail.get_unread_summary = AsyncMock(return_value={
-        "count": 3,
-        "senders": ["alice@example.com", "bob@example.com"],
-    })
+    mock_gmail.get_unread_summary = AsyncMock(
+        return_value={
+            "count": 3,
+            "senders": ["alice@example.com", "bob@example.com"],
+        }
+    )
 
     handlers = make_handlers(
         session_manager=None,
@@ -326,7 +331,9 @@ def test_gmail_unread_summary_mock():
 # ── contacts helpers ──────────────────────────────────────────────────────────
 
 
-def _make_person(name="Jane Doe", email="jane@example.com", phone="+61400000000", bday=None):
+def _make_person(
+    name="Jane Doe", email="jane@example.com", phone="+61400000000", bday=None
+):
     """Create a minimal People API person dict for testing."""
     p = {
         "resourceName": "people/c123",
@@ -406,6 +413,7 @@ def test_get_sparse_contacts_filters_correctly():
     sparse = asyncio.run(client.get_sparse_contacts())
     assert len(sparse) == 1
     from remy.google.contacts import _extract_name
+
     assert _extract_name(sparse[0]) == "Has neither"
 
 
@@ -454,11 +462,14 @@ def test_contacts_search_with_results():
     from remy.bot.handlers import make_handlers
 
     mock_contacts = MagicMock()
-    mock_contacts.search_contacts = AsyncMock(return_value=[
-        _make_person("Jane Doe", email="jane@example.com")
-    ])
+    mock_contacts.search_contacts = AsyncMock(
+        return_value=[_make_person("Jane Doe", email="jane@example.com")]
+    )
     handlers = make_handlers(
-        session_manager=None, router=None, conv_store=None, google_contacts=mock_contacts
+        session_manager=None,
+        router=None,
+        conv_store=None,
+        google_contacts=mock_contacts,
     )
     update = make_update()
     asyncio.run(handlers["contacts"](update, make_context(["Jane"])))
@@ -471,7 +482,10 @@ def test_contacts_birthday_no_upcoming():
     mock_contacts = MagicMock()
     mock_contacts.get_upcoming_birthdays = AsyncMock(return_value=[])
     handlers = make_handlers(
-        session_manager=None, router=None, conv_store=None, google_contacts=mock_contacts
+        session_manager=None,
+        router=None,
+        conv_store=None,
+        google_contacts=mock_contacts,
     )
     update = make_update()
     asyncio.run(handlers["contacts-birthday"](update, make_context()))
@@ -484,7 +498,10 @@ def test_contacts_prune_none_sparse():
     mock_contacts = MagicMock()
     mock_contacts.get_sparse_contacts = AsyncMock(return_value=[])
     handlers = make_handlers(
-        session_manager=None, router=None, conv_store=None, google_contacts=mock_contacts
+        session_manager=None,
+        router=None,
+        conv_store=None,
+        google_contacts=mock_contacts,
     )
     update = make_update()
     asyncio.run(handlers["contacts-prune"](update, make_context()))
@@ -496,7 +513,10 @@ def test_contacts_note_no_args():
 
     mock_contacts = MagicMock()
     handlers = make_handlers(
-        session_manager=None, router=None, conv_store=None, google_contacts=mock_contacts
+        session_manager=None,
+        router=None,
+        conv_store=None,
+        google_contacts=mock_contacts,
     )
     update = make_update()
     asyncio.run(handlers["contacts-note"](update, make_context()))

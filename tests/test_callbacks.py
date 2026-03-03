@@ -294,3 +294,69 @@ class TestCallbackHandler:
 
         mock_store.update_last_run.assert_called_once_with(5)
         update.callback_query.edit_message_text.assert_called_with("Done ✓")
+
+    @pytest.mark.asyncio
+    @patch("remy.bot.handlers.callbacks.is_allowed", return_value=True)
+    async def test_run_auto_missing_automation_shows_no_longer_available(
+        self, mock_is_allowed
+    ):
+        mock_store = AsyncMock()
+        mock_store.get_by_id.return_value = None
+
+        handler = make_callback_handler(
+            automation_store=mock_store,
+            claude_client=MagicMock(),
+            tool_registry=MagicMock(),
+            session_manager=MagicMock(),
+            conv_store=MagicMock(),
+        )
+
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.callback_query.data = "run_auto_42"
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+        update.effective_user = MagicMock()
+        update.effective_user.id = 999
+
+        context = MagicMock()
+
+        await handler(update, context)
+
+        mock_store.get_by_id.assert_called_once_with(42)
+        update.callback_query.edit_message_text.assert_called_with(
+            "No longer available."
+        )
+
+    @pytest.mark.asyncio
+    @patch("remy.bot.handlers.callbacks.is_allowed", return_value=True)
+    async def test_run_auto_wrong_user_ignored(self, mock_is_allowed):
+        mock_store = AsyncMock()
+        mock_store.get_by_id.return_value = {
+            "id": 42,
+            "user_id": 111,  # different from callback user
+            "label": "Gmail quick wins",
+        }
+
+        handler = make_callback_handler(
+            automation_store=mock_store,
+            claude_client=MagicMock(),
+            tool_registry=MagicMock(),
+            session_manager=MagicMock(),
+            conv_store=MagicMock(),
+        )
+
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.callback_query.data = "run_auto_42"
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+        update.effective_user = MagicMock()
+        update.effective_user.id = 999  # not the owner
+
+        context = MagicMock()
+
+        await handler(update, context)
+
+        mock_store.get_by_id.assert_called_once_with(42)
+        update.callback_query.edit_message_text.assert_not_called()

@@ -12,10 +12,11 @@ def mock_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test_key")
     monkeypatch.setenv("TELEGRAM_ALLOWED_USERS_RAW", "12345")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    
+
     import remy.config
+
     remy.config._settings = None
-    
+
     return tmp_path
 
 
@@ -48,9 +49,11 @@ def mock_conv_store(tmp_path):
 @pytest.fixture
 def mock_session_manager():
     """Mock SessionManager for testing."""
-    mock = MagicMock()
-    mock.get_session_key = MagicMock(return_value="test_session")
-    return mock
+    from remy.bot.session import SessionManager
+
+    mgr = SessionManager()
+    mgr.get_session_key = MagicMock(return_value="test_session")
+    return mgr
 
 
 @pytest.fixture
@@ -77,17 +80,17 @@ class TestProactivePipeline:
         """Verify pipeline sends a message to the user."""
         from remy.bot.pipeline import run_proactive_trigger
         from remy.ai.claude_client import TextChunk
-        
+
         # Mock streaming response
         async def mock_stream(*args, **kwargs):
             yield TextChunk(text="Good morning!")
-        
+
         mock_claude_client.stream_with_tools = mock_stream
-        
+
         mock_sent = MagicMock()
         mock_sent.edit_text = AsyncMock()
         mock_telegram_bot.send_message = AsyncMock(return_value=mock_sent)
-        
+
         await run_proactive_trigger(
             bot=mock_telegram_bot,
             chat_id=12345,
@@ -98,7 +101,7 @@ class TestProactivePipeline:
             conv_store=mock_conv_store,
             session_manager=mock_session_manager,
         )
-        
+
         # Verify message was sent
         mock_telegram_bot.send_message.assert_called()
 
@@ -114,24 +117,38 @@ class TestProactivePipeline:
     ):
         """Verify pipeline handles tool use correctly."""
         from remy.bot.pipeline import run_proactive_trigger
-        from remy.ai.claude_client import TextChunk, ToolStatusChunk, ToolResultChunk, ToolTurnComplete
-        
+        from remy.ai.claude_client import (
+            TextChunk,
+            ToolStatusChunk,
+            ToolResultChunk,
+            ToolTurnComplete,
+        )
+
         # Mock streaming response with tool use
         async def mock_stream(*args, **kwargs):
             yield ToolStatusChunk(tool_name="get_current_time")
             yield ToolResultChunk(tool_name="get_current_time", result="10:00 AM")
             yield ToolTurnComplete(
-                assistant_blocks=[{"type": "tool_use", "id": "123", "name": "get_current_time", "input": {}}],
-                tool_result_blocks=[{"type": "tool_result", "tool_use_id": "123", "content": "10:00 AM"}],
+                assistant_blocks=[
+                    {
+                        "type": "tool_use",
+                        "id": "123",
+                        "name": "get_current_time",
+                        "input": {},
+                    }
+                ],
+                tool_result_blocks=[
+                    {"type": "tool_result", "tool_use_id": "123", "content": "10:00 AM"}
+                ],
             )
             yield TextChunk(text="The time is 10:00 AM")
-        
+
         mock_claude_client.stream_with_tools = mock_stream
-        
+
         mock_sent = MagicMock()
         mock_sent.edit_text = AsyncMock()
         mock_telegram_bot.send_message = AsyncMock(return_value=mock_sent)
-        
+
         await run_proactive_trigger(
             bot=mock_telegram_bot,
             chat_id=12345,
@@ -142,7 +159,7 @@ class TestProactivePipeline:
             conv_store=mock_conv_store,
             session_manager=mock_session_manager,
         )
-        
+
         # Verify tool status was shown
         assert mock_sent.edit_text.called
 
@@ -158,18 +175,18 @@ class TestProactivePipeline:
     ):
         """Verify pipeline handles errors gracefully."""
         from remy.bot.pipeline import run_proactive_trigger
-        
+
         # Mock streaming response that raises an error
         async def mock_stream(*args, **kwargs):
             raise ValueError("API error")
             yield  # Make it a generator
-        
+
         mock_claude_client.stream_with_tools = mock_stream
-        
+
         mock_sent = MagicMock()
         mock_sent.edit_text = AsyncMock()
         mock_telegram_bot.send_message = AsyncMock(return_value=mock_sent)
-        
+
         # Should not raise
         await run_proactive_trigger(
             bot=mock_telegram_bot,
@@ -181,7 +198,7 @@ class TestProactivePipeline:
             conv_store=mock_conv_store,
             session_manager=mock_session_manager,
         )
-        
+
         # Verify error message was shown
         mock_sent.edit_text.assert_called()
 
@@ -198,17 +215,17 @@ class TestProactivePipeline:
         """Verify pipeline persists conversation turns."""
         from remy.bot.pipeline import run_proactive_trigger
         from remy.ai.claude_client import TextChunk
-        
+
         # Mock streaming response
         async def mock_stream(*args, **kwargs):
             yield TextChunk(text="Hello!")
-        
+
         mock_claude_client.stream_with_tools = mock_stream
-        
+
         mock_sent = MagicMock()
         mock_sent.edit_text = AsyncMock()
         mock_telegram_bot.send_message = AsyncMock(return_value=mock_sent)
-        
+
         await run_proactive_trigger(
             bot=mock_telegram_bot,
             chat_id=12345,
@@ -219,9 +236,60 @@ class TestProactivePipeline:
             conv_store=mock_conv_store,
             session_manager=mock_session_manager,
         )
-        
+
         # Verify conversation was persisted
         assert mock_conv_store.append_turn.called
+
+    @pytest.mark.asyncio
+    async def test_pipeline_attaches_add_to_calendar_buttons_for_briefing(
+        self,
+        mock_settings,
+        mock_claude_client,
+        mock_tool_registry,
+        mock_conv_store,
+        mock_session_manager,
+        mock_telegram_bot,
+    ):
+        """US-calendar-quick-add: briefing with calendar context gets [Add to calendar] buttons."""
+        from remy.bot.pipeline import run_proactive_trigger
+        from remy.ai.claude_client import TextChunk
+
+        async def mock_stream(*args, **kwargs):
+            yield TextChunk(text="Good morning! You have Team standup at 10:00.")
+
+        mock_claude_client.stream_with_tools = mock_stream
+
+        mock_sent = MagicMock()
+        mock_sent.edit_text = AsyncMock()
+        mock_telegram_bot.send_message = AsyncMock(return_value=mock_sent)
+        mock_telegram_bot.edit_message_reply_markup = AsyncMock()
+
+        context = {
+            "date": "2026-03-04",
+            "calendar": [
+                {
+                    "title": "Team standup",
+                    "time": "10:00",
+                    "when": "2026-03-04T10:00:00",
+                },
+                {"title": "Lunch", "time": "12:30", "when": "2026-03-04T12:30:00"},
+            ],
+        }
+
+        await run_proactive_trigger(
+            bot=mock_telegram_bot,
+            chat_id=12345,
+            user_id=12345,
+            label="Morning briefing",
+            claude_client=mock_claude_client,
+            tool_registry=mock_tool_registry,
+            conv_store=mock_conv_store,
+            session_manager=mock_session_manager,
+            context=context,
+        )
+
+        # Verify [Add to calendar] keyboard was attached
+        mock_telegram_bot.edit_message_reply_markup.assert_called_once()
 
 
 class TestStreamingReply:
@@ -231,19 +299,19 @@ class TestStreamingReply:
     async def test_streaming_reply_updates_message(self, mock_settings):
         """Verify StreamingReply updates the Telegram message."""
         from remy.bot.streaming import StreamingReply
-        
+
         mock_message = MagicMock()
         mock_message.edit_text = AsyncMock()
-        
+
         mock_session_manager = MagicMock()
         mock_session_manager.is_cancelled = MagicMock(return_value=False)
-        
+
         streamer = StreamingReply(mock_message, mock_session_manager, user_id=12345)
-        
+
         await streamer.feed("Hello ")
         await streamer.feed("World!")
         await streamer.finalize()
-        
+
         # Verify text was accumulated correctly
         assert streamer._accumulated == "Hello World!"
         # finalize() calls _flush() which should edit the message

@@ -3,13 +3,20 @@ Morning briefing generator.
 
 Produces the daily morning summary including goals, calendar, birthdays,
 downloads cleanup suggestions, and stale plan steps.
+
+Supports two modes:
+- generate(): template-based string (fallback)
+- generate_structured(): compact dict for Claude composition (US-conversational-briefing-via-remy)
 """
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from ...config import settings
 from .base import BriefingGenerator
 
 logger = logging.getLogger(__name__)
@@ -60,6 +67,154 @@ class MorningBriefingGenerator(BriefingGenerator):
 
         return "\n\n".join(sections)
 
+    async def generate_structured(self) -> dict[str, Any]:
+        """Generate a compact structured payload for Claude composition.
+
+        US-conversational-briefing-via-remy: token-efficient dict for
+        run_proactive_trigger context. Dates in ISO for parsing; locale hints for output.
+        """
+        tz_name = getattr(settings, "scheduler_timezone", "Australia/Sydney")
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = timezone.utc
+        today = datetime.now(tz).date()
+        date_str = today.strftime("%Y-%m-%d")
+
+        payload: dict[str, Any] = {"date": date_str, "locale": "Australia"}
+
+        goals = await self._get_active_goals(limit=10)
+        payload["goals"] = [
+            {"title": g.get("title", ""), "desc": g.get("description")} for g in goals
+        ]
+
+        if self._calendar:
+            try:
+                events = await self._calendar.list_events(days=1)
+                cal_items: list[dict[str, Any]] = []
+                for e in events[:10]:
+                    title = e.get("summary", "(no title)")
+                    start = e.get("start", {})
+                    url = e.get("htmlLink", "")
+                    when_iso: str | None = None
+                    if start.get("dateTime"):
+                        try:
+                            dt = datetime.fromisoformat(start["dateTime"])
+                            when_iso = dt.strftime("%Y-%m-%dT%H:%M:00")
+                            cal_items.append(
+                                {
+                                    "time": dt.strftime("%H:%M"),
+                                    "title": title,
+                                    "url": url or "",
+                                    "when": when_iso,
+                                }
+                            )
+                        except Exception:
+                            cal_items.append(
+                                {"time": "?", "title": title, "url": url or ""}
+                            )
+                    else:
+                        date_val = start.get("date", "")
+                        try:
+                            if date_val:
+                                d = date.fromisoformat(date_val)
+                                when_iso = f"{date_val}T09:00:00"
+                                cal_items.append(
+                                    {
+                                        "date": d.strftime("%d %b"),
+                                        "title": title,
+                                        "url": url or "",
+                                        "when": when_iso,
+                                    }
+                                )
+                            else:
+                                cal_items.append(
+                                    {"date": "?", "title": title, "url": url or ""}
+                                )
+                        except ValueError:
+                            cal_items.append(
+                                {"date": date_val, "title": title, "url": url or ""}
+                            )
+                payload["calendar"] = cal_items
+            except Exception as e:
+                logger.debug("Could not load calendar for structured briefing: %s", e)
+                payload["calendar"] = []
+        else:
+            payload["calendar"] = []
+
+        if self._fact_store:
+            try:
+                project_facts = await self._fact_store.get_by_category(
+                    self._user_id, "project"
+                )
+                payload["projects"] = [
+                    pf.get("content", "")[:80]
+                    for pf in project_facts[:5]
+                    if pf.get("content")
+                ]
+            except Exception as e:
+                logger.debug("Could not load projects for structured briefing: %s", e)
+                payload["projects"] = []
+        else:
+            payload["projects"] = []
+
+        downloads = Path.home() / "Downloads"
+        if downloads.exists():
+            old_files = [
+                f.name
+                for f in downloads.iterdir()
+                if f.is_file() and f.stat().st_mtime < time.time() - 7 * 86400
+            ]
+            payload["downloads"] = old_files[:10]
+        else:
+            payload["downloads"] = []
+
+        if self._contacts:
+            try:
+                from ...google.contacts import _extract_name
+
+                upcoming = await self._contacts.get_upcoming_birthdays(days=7)
+                payload["birthdays"] = [
+                    {"name": _extract_name(p) or "Someone", "date": d.strftime("%d %b")}
+                    for d, p in upcoming[:5]
+                ]
+            except Exception as e:
+                logger.debug("Could not load birthdays for structured briefing: %s", e)
+                payload["birthdays"] = []
+        else:
+            payload["birthdays"] = []
+
+        if self._plan_store:
+            try:
+                stale = await self._plan_store.stale_steps(self._user_id, days=7)
+                stale_items: list[dict[str, Any]] = []
+                for step in stale[:5]:
+                    days_stale = 7
+                    try:
+                        updated = datetime.fromisoformat(
+                            step["step_updated_at"]
+                        ).replace(tzinfo=timezone.utc)
+                        days_stale = (datetime.now(timezone.utc) - updated).days
+                    except (ValueError, KeyError):
+                        pass
+                    stale_items.append(
+                        {
+                            "plan": step.get("plan_title", "?"),
+                            "step": step.get("step_title", "?"),
+                            "days": days_stale,
+                        }
+                    )
+                payload["stale_plans"] = stale_items
+            except Exception as e:
+                logger.debug(
+                    "Could not load stale plans for structured briefing: %s", e
+                )
+                payload["stale_plans"] = []
+        else:
+            payload["stale_plans"] = []
+
+        return payload
+
     async def _build_goals_section(self) -> str:
         """Build the active goals section."""
         goals = await self._get_active_goals(limit=10)
@@ -77,7 +232,9 @@ class MorningBriefingGenerator(BriefingGenerator):
             goal_lines.append(line)
 
         goals_text = "\n".join(goal_lines)
-        return f"Here's what you're working on:\n{goals_text}\n\nMake it count today. 💪"
+        return (
+            f"Here's what you're working on:\n{goals_text}\n\nMake it count today. 💪"
+        )
 
     async def _build_calendar_section(self) -> str:
         """Build today's calendar events section."""
@@ -100,7 +257,9 @@ class MorningBriefingGenerator(BriefingGenerator):
         if self._fact_store is None:
             return ""
         try:
-            project_facts = await self._fact_store.get_by_category(self._user_id, "project")
+            project_facts = await self._fact_store.get_by_category(
+                self._user_id, "project"
+            )
             if not project_facts:
                 return ""
 
@@ -116,6 +275,7 @@ class MorningBriefingGenerator(BriefingGenerator):
             return ""
         try:
             from ...google.contacts import _extract_name
+
             upcoming = await self._contacts.get_upcoming_birthdays(days=7)
             if not upcoming:
                 return ""
@@ -136,7 +296,8 @@ class MorningBriefingGenerator(BriefingGenerator):
             return ""
 
         old_files = [
-            f.name for f in downloads.iterdir()
+            f.name
+            for f in downloads.iterdir()
             if f.is_file() and f.stat().st_mtime < time.time() - 7 * 86400
         ]
         if not old_files:
@@ -164,7 +325,9 @@ class MorningBriefingGenerator(BriefingGenerator):
         for step in stale[:5]:
             days_stale = 7
             try:
-                updated = datetime.fromisoformat(step["step_updated_at"]).replace(tzinfo=timezone.utc)
+                updated = datetime.fromisoformat(step["step_updated_at"]).replace(
+                    tzinfo=timezone.utc
+                )
                 days_stale = (datetime.now(timezone.utc) - updated).days
             except (ValueError, KeyError):
                 pass

@@ -31,6 +31,7 @@ class TestBriefingGeneratorBase:
 
     def test_format_date_header(self):
         """Date header is formatted correctly."""
+
         class ConcreteGenerator(BriefingGenerator):
             async def generate(self) -> str:
                 return self._format_date_header()
@@ -43,6 +44,7 @@ class TestBriefingGeneratorBase:
     @pytest.mark.asyncio
     async def test_get_active_goals_with_no_store(self):
         """Returns empty list when goal_store is None."""
+
         class ConcreteGenerator(BriefingGenerator):
             async def generate(self) -> str:
                 goals = await self._get_active_goals()
@@ -97,6 +99,22 @@ class TestBriefingGeneratorBase:
 
 class TestMorningBriefingGenerator:
     """Tests for MorningBriefingGenerator."""
+
+    @pytest.mark.asyncio
+    async def test_generate_structured_returns_compact_payload(self):
+        """generate_structured returns dict with expected keys (US-conversational-briefing-via-remy)."""
+        gen = MorningBriefingGenerator(user_id=123)
+        payload = await gen.generate_structured()
+
+        assert isinstance(payload, dict)
+        assert "date" in payload
+        assert "goals" in payload
+        assert "calendar" in payload
+        assert "projects" in payload
+        assert "downloads" in payload
+        assert "birthdays" in payload
+        assert "stale_plans" in payload
+        assert payload["locale"] == "Australia"
 
     @pytest.mark.asyncio
     async def test_generate_with_no_dependencies(self):
@@ -199,7 +217,9 @@ class TestMorningBriefingGenerator:
 
         old_file = downloads / "old_report.pdf"
         old_file.write_text("x")
-        os.utime(old_file, (old_file.stat().st_atime, old_file.stat().st_mtime - 10 * 86400))
+        os.utime(
+            old_file, (old_file.stat().st_atime, old_file.stat().st_mtime - 10 * 86400)
+        )
 
         recent_file = downloads / "recent.txt"
         recent_file.write_text("y")

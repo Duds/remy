@@ -49,6 +49,7 @@ def make_registry(**kwargs) -> ToolRegistry:
 # 1. Tool schema validation                                                    #
 # --------------------------------------------------------------------------- #
 
+
 def test_tool_schemas_count():
     """Check that we have a healthy number of tools."""
     assert len(TOOL_SCHEMAS) >= 5
@@ -88,6 +89,7 @@ def test_registry_schemas_property():
 # 2. StreamEvent dataclasses                                                   #
 # --------------------------------------------------------------------------- #
 
+
 def test_text_chunk_dataclass():
     chunk = TextChunk(text="hello")
     assert chunk.text == "hello"
@@ -101,7 +103,9 @@ def test_tool_status_chunk_dataclass():
 
 
 def test_tool_result_chunk_dataclass():
-    chunk = ToolResultChunk(tool_name="get_goals", tool_use_id="xyz", result="goals here")
+    chunk = ToolResultChunk(
+        tool_name="get_goals", tool_use_id="xyz", result="goals here"
+    )
     assert chunk.result == "goals here"
 
 
@@ -117,6 +121,7 @@ def test_tool_turn_complete_dataclass():
 # --------------------------------------------------------------------------- #
 # 3. _build_message_from_turn (conversation history reconstruction)            #
 # --------------------------------------------------------------------------- #
+
 
 def test_build_message_plain_text():
     """Regular turn returns plain text dict."""
@@ -160,6 +165,7 @@ def test_build_message_invalid_json_sentinel_falls_back():
 # 4. ToolRegistry.dispatch routing                                             #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_dispatch_unknown_tool_returns_error():
     reg = make_registry()
@@ -177,10 +183,10 @@ async def test_dispatch_get_logs_summary():
     reg = make_registry(logs_dir="/tmp")
     with patch("remy.ai.tools.memory.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [
-            0,              # get_session_start_line → int
-            None,           # get_session_start → None (no timestamp found)
+            0,  # get_session_start_line → int
+            None,  # get_session_start → None (no timestamp found)
             "Error summary",  # get_error_summary
-            "Tail content",   # get_recent_logs
+            "Tail content",  # get_recent_logs
         ]
         result = await reg.dispatch("get_logs", {"mode": "summary"}, USER_ID)
     assert "Error summary" in result or "Tail content" in result
@@ -197,14 +203,14 @@ async def test_dispatch_get_logs_tail():
 @pytest.mark.asyncio
 async def test_dispatch_get_logs_errors():
     """dispatch('get_logs', errors) makes 3 asyncio.to_thread calls:
-        get_session_start_line, get_session_start, get_error_summary
+    get_session_start_line, get_session_start, get_error_summary
     """
     reg = make_registry(logs_dir="/tmp")
     with patch("remy.ai.tools.memory.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [
-            0,             # get_session_start_line → int
-            None,          # get_session_start → None
-            "errors here", # get_error_summary
+            0,  # get_session_start_line → int
+            None,  # get_session_start → None
+            "errors here",  # get_error_summary
         ]
         result = await reg.dispatch("get_logs", {"mode": "errors"}, USER_ID)
     assert "errors here" in result
@@ -221,10 +227,12 @@ async def test_dispatch_get_goals_no_store():
 @pytest.mark.asyncio
 async def test_dispatch_get_goals_returns_list():
     goal_store = MagicMock()
-    goal_store.get_active = AsyncMock(return_value=[
-        {"title": "Launch remy", "description": "Go live"},
-        {"title": "Write tests"},
-    ])
+    goal_store.get_active = AsyncMock(
+        return_value=[
+            {"title": "Launch remy", "description": "Go live"},
+            {"title": "Write tests"},
+        ]
+    )
     reg = make_registry(goal_store=goal_store)
     result = await reg.dispatch("get_goals", {"limit": 5}, USER_ID)
     assert "Launch remy" in result
@@ -250,10 +258,12 @@ async def test_dispatch_get_facts_no_store():
 @pytest.mark.asyncio
 async def test_dispatch_get_facts_returns_list():
     fact_store = MagicMock()
-    fact_store.get_for_user = AsyncMock(return_value=[
-        {"category": "name", "content": "User's name is Dale"},
-        {"category": "location", "content": "User is in Sydney"},
-    ])
+    fact_store.get_for_user = AsyncMock(
+        return_value=[
+            {"category": "name", "content": "User's name is Dale"},
+            {"category": "location", "content": "User is in Sydney"},
+        ]
+    )
     reg = make_registry(fact_store=fact_store)
     result = await reg.dispatch("get_facts", {}, USER_ID)
     assert "Dale" in result
@@ -274,16 +284,18 @@ async def test_dispatch_manage_memory_add():
     ks = MagicMock()
     ks.add_item = AsyncMock(return_value=123)
     reg = make_registry(knowledge_store=ks)
-    
-    result = await reg.dispatch("manage_memory", {
-        "action": "add",
-        "content": "I like blue",
-        "category": "preference"
-    }, USER_ID)
-    
+
+    result = await reg.dispatch(
+        "manage_memory",
+        {"action": "add", "content": "I like blue", "category": "preference"},
+        USER_ID,
+    )
+
     assert "Fact stored" in result
     assert "123" in result
-    ks.add_item.assert_called_once_with(USER_ID, "fact", "I like blue", {"category": "preference"})
+    ks.add_item.assert_called_once_with(
+        USER_ID, "fact", "I like blue", {"category": "preference"}
+    )
 
 
 @pytest.mark.asyncio
@@ -291,16 +303,22 @@ async def test_dispatch_manage_memory_update():
     ks = MagicMock()
     ks.update = AsyncMock(return_value=True)
     reg = make_registry(knowledge_store=ks)
-    
-    result = await reg.dispatch("manage_memory", {
-        "action": "update",
-        "fact_id": 456,
-        "content": "I like red",
-        "category": "preference"
-    }, USER_ID)
-    
+
+    result = await reg.dispatch(
+        "manage_memory",
+        {
+            "action": "update",
+            "fact_id": 456,
+            "content": "I like red",
+            "category": "preference",
+        },
+        USER_ID,
+    )
+
     assert "Fact 456 updated" in result
-    ks.update.assert_called_once_with(USER_ID, 456, "I like red", {"category": "preference"})
+    ks.update.assert_called_once_with(
+        USER_ID, 456, "I like red", {"category": "preference"}
+    )
 
 
 @pytest.mark.asyncio
@@ -308,12 +326,11 @@ async def test_dispatch_manage_memory_delete():
     ks = MagicMock()
     ks.delete = AsyncMock(return_value=True)
     reg = make_registry(knowledge_store=ks)
-    
-    result = await reg.dispatch("manage_memory", {
-        "action": "delete",
-        "fact_id": 789
-    }, USER_ID)
-    
+
+    result = await reg.dispatch(
+        "manage_memory", {"action": "delete", "fact_id": 789}, USER_ID
+    )
+
     assert "Fact 789 deleted" in result
     ks.delete.assert_called_once_with(USER_ID, 789)
 
@@ -351,7 +368,9 @@ async def test_dispatch_check_status_claude_available():
     claude.ping = AsyncMock(return_value=True)
     reg = make_registry(claude_client=claude)
     with patch("httpx.AsyncClient") as mock_http:
-        mock_http.return_value.__aenter__ = AsyncMock(return_value=mock_http.return_value)
+        mock_http.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http.return_value
+        )
         mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
         mock_http.return_value.get = AsyncMock(
             return_value=MagicMock(
@@ -368,33 +387,44 @@ async def test_dispatch_manage_goal_add():
     ks = MagicMock()
     ks.add_item = AsyncMock(return_value=123)
     reg = make_registry(knowledge_store=ks)
-    
-    result = await reg.dispatch("manage_goal", {
-        "action": "add",
-        "title": "Learn Rust",
-        "description": "Read the book"
-    }, USER_ID)
-    
+
+    result = await reg.dispatch(
+        "manage_goal",
+        {"action": "add", "title": "Learn Rust", "description": "Read the book"},
+        USER_ID,
+    )
+
     assert "Goal added" in result
     assert "123" in result
-    ks.add_item.assert_called_once_with(USER_ID, "goal", "Learn Rust", {"status": "active", "description": "Read the book"})
+    ks.add_item.assert_called_once_with(
+        USER_ID,
+        "goal",
+        "Learn Rust",
+        {"status": "active", "description": "Read the book"},
+    )
 
 
 @pytest.mark.asyncio
 async def test_dispatch_manage_goal_complete():
     from remy.models import KnowledgeItem
-    item = KnowledgeItem(id=456, entity_type="goal", content="Launch", metadata={"status": "active"}, confidence=1.0)
-    
+
+    item = KnowledgeItem(
+        id=456,
+        entity_type="goal",
+        content="Launch",
+        metadata={"status": "active"},
+        confidence=1.0,
+    )
+
     ks = MagicMock()
     ks.get_by_type = AsyncMock(return_value=[item])
     ks.update = AsyncMock(return_value=True)
     reg = make_registry(knowledge_store=ks)
-    
-    result = await reg.dispatch("manage_goal", {
-        "action": "complete",
-        "goal_id": 456
-    }, USER_ID)
-    
+
+    result = await reg.dispatch(
+        "manage_goal", {"action": "complete", "goal_id": 456}, USER_ID
+    )
+
     assert "marked as completed" in result
     ks.update.assert_called_once_with(USER_ID, 456, metadata={"status": "completed"})
 
@@ -412,6 +442,7 @@ async def test_dispatch_handles_tool_exception():
 # --------------------------------------------------------------------------- #
 # 5. ClaudeClient.stream_with_tools — agentic loop behaviour                   #
 # --------------------------------------------------------------------------- #
+
 
 def _make_stream_event(delta_type: str, **kwargs):
     """Create a minimal mock stream event."""
@@ -469,3 +500,144 @@ async def test_stream_with_tools_yields_text_chunks():
     # No tool events since stop_reason = end_turn
     tool_events = [e for e in events if isinstance(e, ToolTurnComplete)]
     assert len(tool_events) == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_with_tools_hits_max_iterations_yields_truncation():
+    """
+    When max_iterations is reached (e.g. 2), stream yields truncation TextChunk.
+    """
+    # Two iterations, each returning tool_use so we keep looping
+    tool_block = MagicMock()
+    tool_block.type = "tool_use"
+    tool_block.id = "toolu_1"
+    tool_block.name = "get_current_time"
+    tool_block.input = {}
+
+    final_msg_tool_use = MagicMock()
+    final_msg_tool_use.stop_reason = "tool_use"
+    final_msg_tool_use.content = [tool_block]
+    final_msg_tool_use.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+
+    async def fake_stream_iter():
+        yield _make_stream_event("RawContentBlockStartEvent", content_block=tool_block)
+
+    mock_stream = MagicMock()
+    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+    mock_stream.__aexit__ = AsyncMock(return_value=False)
+    mock_stream.__aiter__ = lambda self: fake_stream_iter().__aiter__()
+    mock_stream.get_final_message = AsyncMock(return_value=final_msg_tool_use)
+
+    tool_registry = make_registry()
+    client = ClaudeClient.__new__(ClaudeClient)
+    client._client = MagicMock()
+    client._client.messages.stream = MagicMock(return_value=mock_stream)
+
+    with patch("remy.ai.claude_client.settings") as mock_settings:
+        mock_settings.anthropic_max_tool_iterations = 2
+        mock_settings.anthropic_max_tokens = 4096
+        events = []
+        async for event in client.stream_with_tools(
+            messages=[{"role": "user", "content": "what time is it?"}],
+            tool_registry=tool_registry,
+            user_id=USER_ID,
+        ):
+            events.append(event)
+
+    truncation = [
+        e for e in events if isinstance(e, TextChunk) and "step limit" in e.text
+    ]
+    assert len(truncation) == 1
+    assert "step limit" in truncation[0].text
+
+
+@pytest.mark.asyncio
+async def test_web_search_cap_per_turn_fourth_returns_cap_message():
+    """
+    When 4 web_search tool calls occur in one turn with cap=3, the 4th returns cap message.
+    """
+    tool_blocks = []
+    for i in range(4):
+        b = MagicMock()
+        b.type = "tool_use"
+        b.id = f"toolu_{i}"
+        b.name = "web_search"
+        b.input = {"query": f"q{i}"}
+        tool_blocks.append(b)
+    final_msg = MagicMock()
+    final_msg.stop_reason = "tool_use"
+    final_msg.content = tool_blocks
+    final_msg.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+
+    async def fake_stream_iter():
+        for b in tool_blocks:
+            yield _make_stream_event("RawContentBlockStartEvent", content_block=b)
+
+    mock_stream_tool_use = MagicMock()
+    mock_stream_tool_use.__aenter__ = AsyncMock(return_value=mock_stream_tool_use)
+    mock_stream_tool_use.__aexit__ = AsyncMock(return_value=False)
+    mock_stream_tool_use.__aiter__ = lambda self: fake_stream_iter().__aiter__()
+    mock_stream_tool_use.get_final_message = AsyncMock(return_value=final_msg)
+
+    # Second iteration: end_turn so loop exits
+    end_msg = MagicMock()
+    end_msg.stop_reason = "end_turn"
+    end_msg.content = [MagicMock(type="text", text="Done.")]
+    end_msg.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+
+    async def fake_end_iter():
+        yield _make_stream_event(
+            "RawContentBlockDeltaEvent",
+            delta=MagicMock(type="text_delta", text="Done."),
+        )
+
+    mock_stream_end = MagicMock()
+    mock_stream_end.__aenter__ = AsyncMock(return_value=mock_stream_end)
+    mock_stream_end.__aexit__ = AsyncMock(return_value=False)
+    mock_stream_end.__aiter__ = lambda self: fake_end_iter().__aiter__()
+    mock_stream_end.get_final_message = AsyncMock(return_value=end_msg)
+
+    tool_registry = make_registry()
+    tool_registry.dispatch = AsyncMock(side_effect=["R1", "R2", "R3"])
+
+    client = ClaudeClient.__new__(ClaudeClient)
+    client._client = MagicMock()
+    client._client.messages.stream = MagicMock(
+        side_effect=[mock_stream_tool_use, mock_stream_end]
+    )
+
+    with patch("remy.ai.claude_client.settings") as mock_settings:
+        mock_settings.anthropic_max_tool_iterations = 12
+        mock_settings.web_search_max_per_turn = 3
+        mock_settings.anthropic_max_tokens = 4096
+        events = []
+        async for event in client.stream_with_tools(
+            messages=[{"role": "user", "content": "search a lot"}],
+            tool_registry=tool_registry,
+            user_id=USER_ID,
+        ):
+            events.append(event)
+
+    result_chunks = [e for e in events if isinstance(e, ToolResultChunk)]
+    assert len(result_chunks) == 4
+    assert result_chunks[0].result == "R1"
+    assert result_chunks[1].result == "R2"
+    assert result_chunks[2].result == "R3"
+    assert "Web search limit reached" in result_chunks[3].result
+    assert "3 per turn" in result_chunks[3].result
+    assert tool_registry.dispatch.call_count == 3

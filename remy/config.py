@@ -24,6 +24,7 @@ def _load_env_file() -> None:
     if not _ENV_FILE.exists():
         return
     from dotenv import dotenv_values
+
     for key, value in dotenv_values(_ENV_FILE).items():
         if value and not os.environ.get(key):
             os.environ[key] = value
@@ -85,7 +86,9 @@ class Settings(BaseSettings):
     soul_prefer_compact: bool = True  # Prefer compact version if it exists
 
     # Memory system (US-improved-persistent-memory)
-    fact_merge_threshold: float = 0.15  # ANN cosine distance below which facts are merged
+    fact_merge_threshold: float = (
+        0.15  # ANN cosine distance below which facts are merged
+    )
 
     # Token budget controls (cost and latency safeguards)
     max_input_tokens_per_request: int = 50_000  # Hard ceiling for input context
@@ -131,17 +134,33 @@ class Settings(BaseSettings):
     # ── Claude Desktop (Claude Code CLI) routing ────────────────────────────────
     # When enabled, Claude-bound requests prefer the CLI (subscription) over API.
     claude_desktop_enabled: bool = False
-    claude_desktop_cli_path: str = "claude"  # Path to `claude` binary (or just "claude" for PATH)
+    claude_desktop_cli_path: str = (
+        "claude"  # Path to `claude` binary (or just "claude" for PATH)
+    )
 
     # ── Claude client ───────────────────────────────────────────────────────────
     claude_max_retries: int = 3
     claude_retry_base_delay: float = 2.0
-    claude_max_tool_iterations: int = 5
+    claude_max_tool_iterations: int = 5  # Legacy; use anthropic_max_tool_iterations
+    anthropic_max_tool_iterations: int = (
+        6  # Cap tool rounds per turn (US-cap-tool-iterations-per-turn)
+    )
+    web_search_max_per_turn: int = (
+        3  # Cap web_search per turn (US-web-search-optimisation)
+    )
+    anthropic_overload_fallback_model: str = ""  # e.g. claude-haiku-4-5-20251001; empty = disabled (US-anthropic-overload-fallback)
+    anthropic_overload_max_retries: int = 2  # Retries before fallback or user message
     claude_min_cache_tokens: int = 1024
 
     # ── Compaction ──────────────────────────────────────────────────────────────
-    compaction_token_threshold: int = 50_000
-    compaction_keep_recent_messages: int = 20
+    compaction_token_threshold: int = 40_000  # Trigger compaction when session exceeds this (US-aggressive-session-compaction)
+    compaction_turn_threshold: int = 80  # Or when turn count exceeds this
+    compaction_keep_recent_messages: int = (
+        20  # Recent turns window when loading history
+    )
+    recent_turns_window_tool_heavy: int = (
+        10  # Smaller window for tool-heavy flows (future use)
+    )
 
     # ── File indexing ───────────────────────────────────────────────────────────
     file_index_chunk_chars: int = 1500
@@ -211,6 +230,7 @@ class Settings(BaseSettings):
         Falls back to SOUL.md, then to a minimal default prompt.
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         # Try compact version first if preferred
@@ -247,6 +267,7 @@ _settings: Settings | None = None
 
 class _SettingsProxy:
     """Lazy proxy so `from remy.config import settings` works without eager init."""
+
     def __getattr__(self, name):
         return getattr(get_settings(), name)
 

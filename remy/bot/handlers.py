@@ -31,6 +31,7 @@ from ..agents.background import BackgroundTaskRunner
 from ..analytics.timing import RequestTiming, PhaseTimer
 from ..bot.working_message import WorkingMessage
 from ..ai.claude_client import (
+    AnthropicOverloadFallbackAvailable,
     TextChunk,
     ToolResultChunk,
     ToolStatusChunk,
@@ -2813,11 +2814,125 @@ Start by introducing the audit and asking for the first identifier to check."""
                     current_display = []
                     last_edit_len = 0
 
+        except AnthropicOverloadFallbackAvailable as e:
+            if not rotator_stopped:
+                await rotator.stop()
+            logger.info(
+                "anthropic_overload_fallback: retrying with %s for user %d",
+                e.fallback_model,
+                user_id,
+            )
+            # Retry once with fallback model (handlers path)
+            try:
+                async for event in claude_client.stream_with_tools(
+                    messages=messages,
+                    tool_registry=tool_registry,
+                    user_id=user_id,
+                    system=system_prompt,
+                    usage_out=usage,
+                    chat_id=chat_id,
+                    model=e.fallback_model,
+                ):
+                    # Same event handling as above (duplicated for retry path)
+                    if not ttft_recorded:
+                        ttft_timer.stop()
+                        ttft_recorded = True
+                    if not rotator_stopped:
+                        await rotator.stop()
+                        rotator_stopped = True
+                    if session_manager.is_cancelled(user_id):
+                        shown = "".join(current_display)
+                        try:
+                            await sent.edit_text(
+                                (shown + "\n\n_[cancelled]_").strip(),
+                                parse_mode="Markdown",
+                            )
+                        except Exception as edit_exc:
+                            logger.debug(
+                                "Failed to edit cancelled message: %s", edit_exc
+                            )
+                        return
+                    if isinstance(event, TextChunk):
+                        if in_tool_turn:
+                            logger.debug(
+                                "Suppressing in-tool TextChunk (%d chars) for user %d",
+                                len(event.text),
+                                user_id,
+                            )
+                        else:
+                            current_display.append(event.text)
+                            if len("".join(current_display)) - last_edit_len >= 200:
+                                await _flush_display()
+                    elif isinstance(event, ToolStatusChunk):
+                        in_tool_turn = True
+                        tool_exec_start = time.monotonic()
+                        await hook_manager.emit(
+                            HookEvents.BEFORE_TOOL_CALL,
+                            {"user_id": user_id, "tool_name": event.tool_name},
+                        )
+                        try:
+                            await sent.edit_text(
+                                f"_⚙️ Using {event.tool_name}…_",
+                                parse_mode="Markdown",
+                            )
+                        except Exception as edit_exc:
+                            logger.debug(
+                                "Failed to update tool status message: %s", edit_exc
+                            )
+                    elif isinstance(event, ToolResultChunk):
+                        pass
+                    elif isinstance(event, ToolTurnComplete):
+                        in_tool_turn = False
+                        tool_duration_ms = 0
+                        if tool_exec_start is not None:
+                            tool_duration_ms = int(
+                                (time.monotonic() - tool_exec_start) * 1000
+                            )
+                            tool_exec_total_ms += tool_duration_ms
+                            tool_exec_start = None
+                        await hook_manager.emit(
+                            HookEvents.AFTER_TOOL_CALL,
+                            {"user_id": user_id, "duration_ms": tool_duration_ms},
+                        )
+                        tool_turns.append(
+                            (event.assistant_blocks, event.tool_result_blocks)
+                        )
+                        current_display = []
+                        last_edit_len = 0
+            except Exception as retry_exc:
+                if not rotator_stopped:
+                    await rotator.stop()
+                err_str = str(retry_exc)
+                if "overloaded" in err_str.lower():
+                    logger.warning(
+                        "stream_with_tools overloaded (fallback retry) for user %d: %s",
+                        user_id,
+                        retry_exc,
+                    )
+                    user_msg = "Anthropic's API is busy right now. I'll keep trying, or you can try again in a few minutes."
+                else:
+                    logger.error(
+                        "stream_with_tools error for user %d (after fallback): %s",
+                        user_id,
+                        retry_exc,
+                    )
+                    user_msg = f"Sorry, something went wrong: {retry_exc}"
+                await sent.edit_text(user_msg)
+                return
+
         except Exception as exc:
             if not rotator_stopped:
                 await rotator.stop()
-            logger.error("stream_with_tools error for user %d: %s", user_id, exc)
-            await sent.edit_text(f"Sorry, something went wrong: {exc}")
+            err_str = str(exc)
+            if "overloaded_error" in err_str or "overloaded" in err_str.lower():
+                logger.warning(
+                    "stream_with_tools overloaded for user %d: %s", user_id, exc
+                )
+                user_msg = "Anthropic's API is busy right now. I'll keep trying, or you can try again in a few minutes."
+            else:
+                logger.error("stream_with_tools error for user %d: %s", user_id, exc)
+                user_msg = f"Sorry, something went wrong: {exc}"
+            await sent.edit_text(user_msg)
             return
 
         # HOOK: LLM_OUTPUT
@@ -3053,7 +3168,9 @@ Start by introducing the audit and asking for the first identifier to check."""
 
             # Build messages list from recent history (tool-turn-aware)
             history_start = time.monotonic()
-            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
             messages = [_build_message_from_turn(t) for t in recent]
             # Strip orphaned tool-turn fragments from the start of history.
             # get_recent_turns slices the last N turns blindly, so the cutoff
@@ -3411,7 +3528,9 @@ Start by introducing the audit and asking for the first identifier to check."""
             session_key = SessionManager.get_session_key(user_id, thread_id)
 
             # Build history from conv_store
-            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
             messages = [_build_message_from_turn(t) for t in recent]
             # Strip orphaned tool-turn fragments from the start of history
             while messages:
@@ -3579,7 +3698,9 @@ Start by introducing the audit and asking for the first identifier to check."""
             session_key = SessionManager.get_session_key(user_id, thread_id)
 
             # Build history from conv_store
-            recent = await conv_store.get_recent_turns(user_id, session_key, limit=20)
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
             messages = [_build_message_from_turn(t) for t in recent]
             # Strip orphaned tool-turn fragments from the start of history
             while messages:

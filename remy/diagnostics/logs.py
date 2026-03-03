@@ -173,14 +173,14 @@ def get_error_summary(
 
         summary = []
         if errors:
-            summary.append(f"🚨 **Recent Errors ({error_count} total)**")
+            summary.append(f"🚨 *Recent Errors ({error_count} total)*")
             for line in errors:
                 if ":" in line:
                     msg = line.split(":", 2)[-1].strip()
                     summary.append(f"  • {msg}")
 
         if warnings:
-            summary.append(f"\n⚠️  **Recent Warnings ({warning_count} total)**")
+            summary.append(f"\n⚠️  *Recent Warnings ({warning_count} total)*")
             for line in warnings:
                 if ":" in line:
                     msg = line.split(":", 2)[-1].strip()
