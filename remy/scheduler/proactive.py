@@ -156,7 +156,7 @@ class ProactiveScheduler:
             trigger=afternoon_trigger,
             id="afternoon_focus",
             replace_existing=True,
-            misfire_grace_time=3600,
+            misfire_grace_time=7200,
             coalesce=True,
         )
         self._scheduler.add_job(
@@ -206,7 +206,7 @@ class ProactiveScheduler:
                 trigger=consolidation_trigger,
                 id="end_of_day_consolidation",
                 replace_existing=True,
-                misfire_grace_time=3600,
+                misfire_grace_time=7200,
                 coalesce=True,
             )
             logger.info("Memory consolidation job scheduled: %s", consolidation_cron)

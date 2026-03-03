@@ -57,38 +57,54 @@ _NO_OP_EMOJI = {"✅", "👍", "👀", "🙏"}
 
 
 def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
-    """Strip tool_use/tool_result blocks from message history before sending to Claude.
+    """Strip tool turns from message history before sending to Claude.
 
     Reaction handler calls use a simple `complete()` path that doesn't support tool
     blocks. If history contains tool turns, the API rejects them with
-    'unexpected tool_use_id'. This function collapses list-content messages down to
-    plain text, discarding any block that carries a tool_use_id reference (Bug 12).
+    'unexpected tool_use_id'. This function drops entire messages that contain any
+    tool_use or tool_result block (Bug 29: partial stripping left orphaned pairs).
+
+    After dropping tool messages, consecutive same-role messages are merged to
+    preserve the alternating user/assistant structure the API requires.
     """
-    safe = []
+    # Pass 1 — drop any message that contains a tool_use or tool_result block.
+    # Dropping the *whole* message (not just the block) prevents orphaned pairs.
+    filtered: list[dict] = []
     for m in msgs:
         content = m.get("content")
         if isinstance(content, list):
+            has_tool = any(
+                isinstance(b, dict) and b.get("type") in ("tool_use", "tool_result")
+                for b in content
+            )
+            if has_tool:
+                continue
+            # No tool blocks — collapse to plain text
             parts: list[str] = []
             for b in content:
                 if not isinstance(b, dict):
                     parts.append(str(b))
-                    continue
-                btype = b.get("type")
-                if btype == "text":
+                elif b.get("type") == "text":
                     parts.append(b.get("text") or b.get("content") or "")
-                elif btype in ("tool_result", "tool_use"):
-                    # Drop the block — don't carry over tool_use_id references
-                    pass
                 else:
                     parts.append(str(b.get("content") or b.get("text") or ""))
             joined = "\n".join(p for p in parts if p)
             if not joined:
-                # Skip messages that collapse to nothing — API rejects empty content
                 continue
-            safe.append({"role": m.get("role"), "content": joined})
+            filtered.append({"role": m.get("role"), "content": joined})
         else:
-            safe.append(m)
-    return safe
+            filtered.append(m)
+
+    # Pass 2 — merge consecutive same-role messages (artifact of dropping tool turns).
+    merged: list[dict] = []
+    for m in filtered:
+        if merged and merged[-1].get("role") == m.get("role"):
+            prev_content = merged[-1]["content"]
+            curr_content = m.get("content", "")
+            merged[-1]["content"] = f"{prev_content}\n{curr_content}"
+        else:
+            merged.append(dict(m))
+    return merged
 
 
 def _emoji_from_reaction(reaction) -> str | None:

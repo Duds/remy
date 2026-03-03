@@ -316,3 +316,80 @@ _Last updated: see file history_
 - **Priority:** Medium
 - **Status:** ✅ Fixed
 - **Fixed:** 2026-02-27
+
+---
+
+## Bug 25: `read_file` tool truncates large files
+
+- **Symptom:** File contents cut off mid-way with `[… truncated — NNNNN chars total]` appended
+- **Impact:** Remy cannot read files in full when they exceed the tool's internal character limit. Large documents (e.g. BUGS.md, long notes) are partially unreadable, causing incomplete or inaccurate responses.
+- **Root cause:** The `read_file` tool implementation enforces a hard character cap on returned content before passing it to the model. This is a tool-side limit, not a context window constraint — Claude's context window is large enough to handle files of this size without issue.
+- **Priority:** Medium
+- **Status:** ✅ Fixed
+- **Reported:** 2026-03-02
+- **Fix:** Increased char cap from 8000 → 50000 in `remy/ai/tools/files.py` line 59.
+
+---
+
+## Bug 26: Scheduler jobs still misfiring despite coalesce=True fix (Bug 7 regression)
+
+- **Symptom:** `Run time of job "ProactiveScheduler._afternoon_focus ... was missed by 1:04:23"` and `_end_of_day_consolidation ... was missed by 1:39:48` in logs dated 2026-03-03
+- **Impact:** Scheduled briefings and end-of-day consolidation are not firing on time. End-of-day memory consolidation is particularly important — missed runs mean facts from the day are not persisted.
+- **Root cause (suspected):** Bug 7's fix added `coalesce=True` but the misfire warnings suggest the scheduler is still registering jobs *after* their scheduled time on this startup, not that multiple fires are queueing. Likely cause: bot is starting up late in the day (e.g. after a restart mid-afternoon), and APScheduler logs a misfire for the window it missed even with `coalesce=True`. The `misfire_grace_time=3600` means jobs missed by more than 1 hour are silently skipped entirely — which may be the actual problem (consolidation at 22:00 was missed by 1h39m, outside grace window).
+- **Priority:** Medium
+- **Status:** ✅ Fixed
+- **Location:** `remy/scheduler/proactive.py`
+- **Fix:** Increased `misfire_grace_time` from 3600 → 7200 for `afternoon_focus` and `end_of_day_consolidation` jobs.
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 27: `set_message_reaction` fails with `Reaction_invalid`
+
+- **Symptom:** `set_message_reaction failed: Reaction_invalid` logged as warnings in `remy.ai.tools.session`
+- **Impact:** Emoji reactions that Remy tries to set on her own messages silently fail. User sees no reaction — degrades the conversational feel.
+- **Root cause (suspected):** Telegram's `setMessageReaction` API only accepts a limited set of emoji from its official reaction list. The emoji being passed (likely from `_REACTION_MAP` or the SOUL config) is valid Unicode but not in Telegram's permitted reaction set for this bot/chat type.
+- **Priority:** Low
+- **Status:** ✅ Fixed
+- **Location:** `remy/ai/tools/session.py` — `set_message_reaction` executor
+- **Fix:** Replaced `ALLOWED_EMOJI` set — removed `✅` and `😂` (not in Telegram's official reaction list), added `🤩` and `🤣`.
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 28: Stream crash — incomplete chunked read during tool-use path (Bug 21 regression)
+
+- **Symptom:** `stream_with_tools error for user 8138498165: peer closed connection without sending complete message body (incomplete chunked read)`
+- **Impact:** User's message is dropped entirely — no response delivered. Happens during the streaming tool-use path, so no graceful fallback message is shown.
+- **Root cause (suspected):** Anthropic API closed the HTTP/1.1 chunked stream mid-response (network blip or server-side timeout). The `stream_with_tools` path does not currently catch `httpx.RemoteProtocolError` or `httpx.ReadError` and retry or surface a user-facing error.
+- **Priority:** High
+- **Status:** ✅ Fixed
+- **Location:** `remy/bot/handlers/chat.py` — `stream_with_tools` exception handling
+- **Fix:** Already addressed by Bug 21's retry mechanism (`for _attempt in range(2)` with `_is_transient_stream_exc()` helper). Second-attempt failures surface a user-facing error — correct behaviour.
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 29: Reaction handler tool_use_id errors still firing despite sanitizer (Bug 20 regression)
+
+- **Symptom:** `Reaction handler: Claude call failed: messages.0.content.0: unexpected tool_use_id found in tool_result blocks` — logged twice in 2026-03-03 session despite `_sanitize_messages_for_claude()` being present in `reactions.py`
+- **Impact:** Reaction-triggered Claude calls fail silently. Dale's emoji reactions get no response.
+- **Root cause (suspected):** `_sanitize_messages_for_claude()` strips `tool_result` blocks from list-content messages, but may not handle the case where a `tool_result` block appears as the *sole* content in a message (making the message collapse to empty string and get skipped), while the preceding `tool_use` message is *kept* with its `tool_use_id`. The API then sees an orphaned `tool_use` without its corresponding `tool_result` — or vice versa — and rejects the call. The sanitizer needs to strip *both* sides of a tool_use/tool_result pair atomically.
+- **Priority:** High
+- **Status:** ✅ Fixed
+- **Location:** `remy/bot/handlers/reactions.py` — `_sanitize_messages_for_claude()`
+- **Fix:** Rewrote sanitizer with two passes: (1) drop entire messages containing any `tool_use`/`tool_result` block (prevents orphaned pairs); (2) merge consecutive same-role messages (artifact of dropping tool turns). Previous single-pass approach stripped blocks individually, leaving orphaned `tool_use_id` references.
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 19: Anthropic `overloaded_error` drops message with no retry and no user feedback
+
+- **Symptom:** `stream_with_tools error for user 8138498165: {'type': 'error', 'error': {'details': None, 'type': 'overloaded_error', 'message': 'Overloaded'}}` — user's message silently dropped.
+- **Impact:** User gets no response at all. No error message, no retry attempt. From Dale's perspective, Remy just went quiet.
+- **Root cause:** `stream_with_tools` catches the exception and logs it, but does not: (a) retry with exponential backoff, or (b) send a user-facing fallback message indicating the service is temporarily unavailable.
+- **Priority:** High
+- **Status:** 🔍 Investigating
+- **Location:** `remy/bot/handlers/chat.py` — exception handler in `stream_with_tools`
+- **Suggested fix:** On `overloaded_error`: wait 5–10s and retry once. If the retry also fails, send a plain-text message: "Anthropic is overloaded right now — please try again in a moment." Log the event at WARNING not ERROR (it's transient, not a bug in our code). Consider implementing a shared retry wrapper for all Anthropic transient errors (`overloaded_error`, `api_error` 529) alongside the existing chunked-read handling from Bug 17.
+- **Reported:** 2026-03-03

@@ -125,7 +125,7 @@ async def exec_react_to_message(
     message_id: int | None,
 ) -> str:
     """Set an emoji reaction on Dale's most recent Telegram message."""
-    ALLOWED_EMOJI = {"👍", "✅", "❤️", "🔥", "🤔", "😂", "👀", "🎉"}
+    ALLOWED_EMOJI = {"👍", "❤️", "🔥", "🤔", "👀", "🎉", "🤩", "🤣"}
 
     emoji = tool_input.get("emoji", "").strip()
     if not emoji:

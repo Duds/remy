@@ -56,8 +56,8 @@ async def exec_read_file(registry: ToolRegistry, inp: dict) -> str:
     except Exception as e:
         return f"Could not read file: {e}"
 
-    if len(content) > 8000:
-        content = content[:8000] + f"\n\n[… truncated — {len(content)} chars total]"
+    if len(content) > 50000:
+        content = content[:50000] + f"\n\n[… truncated — {len(content)} chars total]"
     return f"Contents of {safe_path}:\n\n{content}"
 
 
