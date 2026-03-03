@@ -406,3 +406,29 @@ _Last updated: see file history_
 - **Location:** `remy/google/calendar.py` — `_parse_event_start()` and `format_event()`
 - **Fix:** Added `today` parameter to `_parse_event_start()`. When an all-day event's start date is before today, returns `"(ongoing)"` instead of the raw past date. `format_event()` now passes `datetime.now(timezone.utc).date()` as `today`.
 - **Reported:** 2026-03-03
+
+---
+
+## Bug 32: Google Calendar auth fails — `from __future__` import in wrong position
+
+- **Symptom:** `Google Workspace init failed: from __future__ imports must occur at the beginning of the file (calendar.py, line 9)` — Calendar tool returns "Google Calendar not configured" error.
+- **Impact:** `create_calendar_event` and `calendar_events` tools are broken. Calendar reads and writes silently fail.
+- **Root cause:** A `from __future__ import ...` statement appears at line 9 of `remy/google/calendar.py`, after other import or module-level statements. Python requires all `__future__` imports to be the very first code in the file (after the module docstring). This raises a `SyntaxError` at import time, causing the entire Google Workspace module to fail to load.
+- **Priority:** High
+- **Status:** ✅ Fixed
+- **Location:** `remy/google/calendar.py` — line 9
+- **Fix:** Moved `from __future__ import annotations` to be the first statement after the module docstring (before `import asyncio`, `import logging`, `import re`).
+- **Reported:** 2026-03-03
+
+---
+
+## Bug 33: Afternoon and evening proactive pings silently skipped after bot restart
+
+- **Symptom:** Afternoon focus (2pm) and evening check-in (7pm) are never delivered. Morning briefing (7am) arrives correctly. User receives no proactive contact after the morning.
+- **Impact:** Two-thirds of daily proactive touchpoints are lost on any day where the bot restarts in the early hours (e.g. after a deploy or crash recovery overnight).
+- **Root cause:** APScheduler's `misfire_grace_time` (currently 7200s) only catches up jobs missed by less than 2 hours. When the bot restarts at ~1am AEDT, the 2pm and 7pm jobs are registered fresh and fire correctly that day — but on days where the bot was *already running* through those times and then restarts later (e.g. mid-evening), the jobs are treated as already-run for that calendar day and won't fire again. More critically: if the previous run delivered the 2pm and 7pm jobs and then the bot restarted, APScheduler has no memory of that — but the jobs' next scheduled time is already set to *tomorrow*, so they don't misfire at all. The real issue is that there is no startup reconciliation: no check of "what should have fired today that I have no delivery record for?"
+- **Fix:** Added `run_startup_reconciliation()` in `ProactiveScheduler`. On startup (called from `main.py` after `load_user_automations`), checks a persistent delivery log (`data/proactive_delivery_log.json`) for whether each daily job (afternoon_focus, evening_checkin, end_of_day_consolidation) has fired today. If current time is past the scheduled hour and no record exists, fires the missed job after a 5s delay. Each job records its delivery on successful completion via `_record_delivery()`.
+- **Location:** `remy/scheduler/proactive.py` — `run_startup_reconciliation()`, `_record_delivery()`, `_load_delivery_log()`
+- **Priority:** Medium
+- **Status:** ✅ Fixed
+- **Reported:** 2026-03-03

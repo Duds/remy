@@ -1,5 +1,7 @@
 .PHONY: run test test-cov lint build docker-run docker-stop setup db db-init \
         deploy deploy-update deploy-logs deploy-delete health \
+        relay-up relay-run relay-check relay-setup-check \
+        install-launchd uninstall-launchd \
         tunnel-up tunnel-stop tunnel-logs telemetry logs
 
 # ── Local development ─────────────────────────────────────────────────────────
@@ -27,6 +29,43 @@ db-init:
 
 db: db-init
 	python3 -m datasette serve data/remy.db --metadata config/datasette.yml --open
+
+# ── Relay MCP (Claude Desktop / Claude Code) ─────────────────────────────────────
+# Start relay via Docker (with remy + ollama)
+relay-up:
+	docker compose up -d remy relay ollama
+
+# Run relay server locally (no Docker) — for dev or when Claude Desktop needs relay
+relay-run:
+	@mkdir -p data
+	python3 relay_mcp/server.py --db data/relay.db
+
+# Check if relay is reachable on port 8765
+relay-check:
+	@python3 -c "import socket; s = socket.create_connection(('127.0.0.1', 8765), timeout=3); s.close(); print('relay OK')" || \
+		echo "relay not reachable — run 'make relay-up' or 'make relay-run'"
+
+# Verify Claude Desktop relay setup (relay + uv)
+relay-setup-check: relay-check
+	@command -v uvx >/dev/null 2>&1 || (echo "uv not found — install with: brew install uv"; exit 1)
+	@echo "relay setup OK — relay running, uv available"
+
+# ── LaunchAgent (start at login) ───────────────────────────────────────────────
+# Install LaunchAgent so remy + relay + ollama start when you log in
+LAUNCH_AGENTS := $(HOME)/Library/LaunchAgents
+REMY_PLIST := com.dalerogers.remy.plist
+
+install-launchd:
+	@mkdir -p data
+	@sed "s|__PROJECT_DIR__|$(CURDIR)|g" config/com.dalerogers.remy.plist.template > $(LAUNCH_AGENTS)/$(REMY_PLIST)
+	@launchctl load $(LAUNCH_AGENTS)/$(REMY_PLIST)
+	@echo "LaunchAgent installed — remy stack will start at next login"
+	@echo "To start now: make relay-up"
+
+uninstall-launchd:
+	@launchctl unload $(LAUNCH_AGENTS)/$(REMY_PLIST) 2>/dev/null || true
+	@rm -f $(LAUNCH_AGENTS)/$(REMY_PLIST)
+	@echo "LaunchAgent uninstalled"
 
 # ── Docker (local) ────────────────────────────────────────────────────────────
 build:

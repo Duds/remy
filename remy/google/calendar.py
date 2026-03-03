@@ -3,10 +3,11 @@ Google Calendar API client.
 Thin async wrapper around the synchronous google-api-python-client.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
-from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 

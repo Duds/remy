@@ -103,13 +103,28 @@ def test_format_event_all_day():
     from remy.google.calendar import CalendarClient
 
     client = CalendarClient.__new__(CalendarClient)
+    # Use a far-future date so it never shows as "(ongoing)"
     event = {
         "summary": "Public Holiday",
-        "start": {"date": "2026-03-01"},
+        "start": {"date": "2099-12-25"},
     }
     result = client.format_event(event)
-    assert "2026-03-01" in result
+    assert "2099-12-25" in result
     assert "Public Holiday" in result
+
+
+def test_format_event_all_day_ongoing():
+    from remy.google.calendar import CalendarClient
+
+    client = CalendarClient.__new__(CalendarClient)
+    # A past date should show as "(ongoing)" — Bug 31 fix
+    event = {
+        "summary": "Alex Care",
+        "start": {"date": "2026-01-01"},
+    }
+    result = client.format_event(event)
+    assert "(ongoing)" in result
+    assert "Alex Care" in result
 
 
 def test_format_event_with_location():

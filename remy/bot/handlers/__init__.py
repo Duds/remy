@@ -37,7 +37,6 @@ from .base import (
     _rate_limiter,
     _task_start_times,
     _pending_writes,
-    _pending_archive,
     TASK_TIMEOUT_SECONDS,
 )
 from .core import make_core_handlers
@@ -53,6 +52,7 @@ from .admin import make_admin_handlers
 from .privacy import make_privacy_handlers
 from .chat import make_chat_handlers
 from .reactions import make_reaction_handler
+from .callbacks import make_callback_handler
 
 if TYPE_CHECKING:
     from ..session import SessionManager
@@ -106,119 +106,153 @@ def make_handlers(
     """
     Factory that returns handler functions bound to shared dependencies.
     Register the returned handlers with the Telegram Application.
-    
+
     This function composes handlers from all submodules into a single dict.
     """
     handlers = {}
 
     # Core commands (start, help, cancel, status, setmychat, briefing)
-    handlers.update(make_core_handlers(
-        session_manager=session_manager,
-        tool_registry=tool_registry,
-        proactive_scheduler=proactive_scheduler,
-        scheduler_ref=scheduler_ref,
-    ))
+    handlers.update(
+        make_core_handlers(
+            session_manager=session_manager,
+            tool_registry=tool_registry,
+            proactive_scheduler=proactive_scheduler,
+            scheduler_ref=scheduler_ref,
+        )
+    )
 
     # File operations
-    handlers.update(make_file_handlers(
-        claude_client=claude_client,
-        fact_store=fact_store,
-    ))
+    handlers.update(
+        make_file_handlers(
+            claude_client=claude_client,
+            fact_store=fact_store,
+        )
+    )
 
     # Gmail
-    handlers.update(make_email_handlers(
+    handlers.update(
+        make_email_handlers(
+            google_gmail=google_gmail,
+        )
+    )
+
+    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done)
+    handlers["callback"] = make_callback_handler(
         google_gmail=google_gmail,
-    ))
+        google_calendar=google_calendar,
+        automation_store=automation_store,
+        scheduler_ref=scheduler_ref,
+    )
 
     # Calendar
-    handlers.update(make_calendar_handlers(
-        google_calendar=google_calendar,
-    ))
+    handlers.update(
+        make_calendar_handlers(
+            google_calendar=google_calendar,
+        )
+    )
 
     # Contacts
-    handlers.update(make_contacts_handlers(
-        google_contacts=google_contacts,
-    ))
+    handlers.update(
+        make_contacts_handlers(
+            google_contacts=google_contacts,
+        )
+    )
 
     # Docs
-    handlers.update(make_docs_handlers(
-        google_docs=google_docs,
-        claude_client=claude_client,
-    ))
+    handlers.update(
+        make_docs_handlers(
+            google_docs=google_docs,
+            claude_client=claude_client,
+        )
+    )
 
     # Web search, research, bookmarks, grocery
-    handlers.update(make_web_handlers(
-        claude_client=claude_client,
-        fact_store=fact_store,
-    ))
+    handlers.update(
+        make_web_handlers(
+            claude_client=claude_client,
+            fact_store=fact_store,
+        )
+    )
 
     # Memory and goals
-    handlers.update(make_memory_handlers(
-        session_manager=session_manager,
-        conv_store=conv_store,
-        claude_client=claude_client,
-        goal_store=goal_store,
-        plan_store=plan_store,
-        job_store=job_store,
-        scheduler_ref=scheduler_ref,
-    ))
+    handlers.update(
+        make_memory_handlers(
+            session_manager=session_manager,
+            conv_store=conv_store,
+            claude_client=claude_client,
+            goal_store=goal_store,
+            plan_store=plan_store,
+            job_store=job_store,
+            scheduler_ref=scheduler_ref,
+        )
+    )
 
     # Automations and Board
-    handlers.update(make_automation_handlers(
-        claude_client=claude_client,
-        board_orchestrator=board_orchestrator,
-        memory_injector=memory_injector,
-        automation_store=automation_store,
-        job_store=job_store,
-        proactive_scheduler=proactive_scheduler,
-        scheduler_ref=scheduler_ref,
-    ))
+    handlers.update(
+        make_automation_handlers(
+            claude_client=claude_client,
+            board_orchestrator=board_orchestrator,
+            memory_injector=memory_injector,
+            automation_store=automation_store,
+            job_store=job_store,
+            proactive_scheduler=proactive_scheduler,
+            scheduler_ref=scheduler_ref,
+        )
+    )
 
     # Admin and analytics
-    handlers.update(make_admin_handlers(
-        db=db,
-        claude_client=claude_client,
-        conversation_analyzer=conversation_analyzer,
-        job_store=job_store,
-        diagnostics_runner=diagnostics_runner,
-        scheduler_ref=scheduler_ref,
-    ))
+    handlers.update(
+        make_admin_handlers(
+            db=db,
+            claude_client=claude_client,
+            conversation_analyzer=conversation_analyzer,
+            job_store=job_store,
+            diagnostics_runner=diagnostics_runner,
+            scheduler_ref=scheduler_ref,
+        )
+    )
 
     # Privacy audit
-    handlers.update(make_privacy_handlers(
-        session_manager=session_manager,
-        conv_store=conv_store,
-        claude_client=claude_client,
-        tool_registry=tool_registry,
-    ))
+    handlers.update(
+        make_privacy_handlers(
+            session_manager=session_manager,
+            conv_store=conv_store,
+            claude_client=claude_client,
+            tool_registry=tool_registry,
+        )
+    )
 
     # Emoji reaction handler
-    handlers.update(make_reaction_handler(
-        claude_client=claude_client,
-        conv_store=conv_store,
-        memory_injector=memory_injector,
-        session_manager=session_manager,
-    ))
+    handlers.update(
+        make_reaction_handler(
+            claude_client=claude_client,
+            conv_store=conv_store,
+            memory_injector=memory_injector,
+            session_manager=session_manager,
+        )
+    )
 
     # Chat handlers (message, voice, photo, document)
-    handlers.update(make_chat_handlers(
-        session_manager=session_manager,
-        router=router,
-        conv_store=conv_store,
-        claude_client=claude_client,
-        fact_extractor=fact_extractor,
-        fact_store=fact_store,
-        goal_extractor=goal_extractor,
-        goal_store=goal_store,
-        memory_injector=memory_injector,
-        voice_transcriber=voice_transcriber,
-        db=db,
-        tool_registry=tool_registry,
-        google_gmail=google_gmail,
-        diagnostics_runner=diagnostics_runner,
-        scheduler_ref=scheduler_ref,
-        proactive_scheduler=proactive_scheduler,
-    ))
+    handlers.update(
+        make_chat_handlers(
+            session_manager=session_manager,
+            router=router,
+            conv_store=conv_store,
+            claude_client=claude_client,
+            fact_extractor=fact_extractor,
+            fact_store=fact_store,
+            goal_extractor=goal_extractor,
+            goal_store=goal_store,
+            memory_injector=memory_injector,
+            voice_transcriber=voice_transcriber,
+            db=db,
+            tool_registry=tool_registry,
+            google_gmail=google_gmail,
+            diagnostics_runner=diagnostics_runner,
+            scheduler_ref=scheduler_ref,
+            proactive_scheduler=proactive_scheduler,
+        )
+    )
 
     return handlers
 

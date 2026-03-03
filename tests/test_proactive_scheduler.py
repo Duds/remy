@@ -28,6 +28,7 @@ from remy.scheduler.proactive import (
 # Fixtures                                                                     #
 # --------------------------------------------------------------------------- #
 
+
 @pytest_asyncio.fixture
 async def db(tmp_path):
     manager = DatabaseManager(db_path=str(tmp_path / "sched_test.db"))
@@ -68,8 +69,10 @@ def make_scheduler(bot, goal_store):
 # _parse_cron tests                                                            #
 # --------------------------------------------------------------------------- #
 
+
 def test_parse_cron_valid():
     from apscheduler.triggers.cron import CronTrigger
+
     trigger = _parse_cron("0 7 * * *")
     assert isinstance(trigger, CronTrigger)
 
@@ -82,6 +85,7 @@ def test_parse_cron_invalid_raises():
 # --------------------------------------------------------------------------- #
 # _read_primary_chat_id tests                                                  #
 # --------------------------------------------------------------------------- #
+
 
 def test_read_primary_chat_id_returns_none_when_missing(tmp_path):
     with patch("remy.scheduler.proactive.settings") as mock_settings:
@@ -121,6 +125,7 @@ def test_read_primary_chat_id_returns_none_for_invalid_content(tmp_path):
 # Morning briefing tests                                                       #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_morning_briefing_skipped_when_no_chat_id(db, goal_store, tmp_path):
     """No send if primary_chat_id not set."""
@@ -136,8 +141,10 @@ async def test_morning_briefing_skipped_when_no_allowed_users(db, goal_store):
     """No send if allowed users list is empty."""
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("remy.scheduler.proactive.settings") as mock_settings:
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
         mock_settings.telegram_allowed_users = []
         mock_settings.briefing_cron = "0 7 * * *"
         mock_settings.checkin_cron = "0 19 * * *"
@@ -153,15 +160,21 @@ async def test_morning_briefing_sends_with_goals(db, goal_store):
 
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("remy.scheduler.proactive.settings") as mock_settings:
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
         mock_settings.telegram_allowed_users = [1]
         mock_settings.scheduler_timezone = "Australia/Sydney"
         await sched._morning_briefing()
 
     bot.send_message.assert_called_once()
     call_kwargs = bot.send_message.call_args
-    text = call_kwargs.kwargs.get("text") or call_kwargs.args[1] if call_kwargs.args else ""
+    text = (
+        call_kwargs.kwargs.get("text") or call_kwargs.args[1]
+        if call_kwargs.args
+        else ""
+    )
     if not text:
         text = call_kwargs.kwargs.get("text", "")
     assert "Launch remy" in text
@@ -175,8 +188,10 @@ async def test_morning_briefing_no_goals_message(db, goal_store):
     """With no goals, briefing should mention 'no active goals'."""
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=99), \
-         patch("remy.scheduler.proactive.settings") as mock_settings:
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=99),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
         mock_settings.telegram_allowed_users = [1]
         mock_settings.scheduler_timezone = "Australia/Sydney"
         await sched._morning_briefing()
@@ -192,8 +207,10 @@ async def test_morning_briefing_swallows_send_error(db, goal_store):
     bot = make_bot()
     bot.send_message = AsyncMock(side_effect=RuntimeError("Telegram API down"))
     sched = make_scheduler(bot, goal_store)
-    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=99), \
-         patch("remy.scheduler.proactive.settings") as mock_settings:
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=99),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
         mock_settings.telegram_allowed_users = [1]
         mock_settings.scheduler_timezone = "Australia/Sydney"
         # Should not raise
@@ -203,6 +220,7 @@ async def test_morning_briefing_swallows_send_error(db, goal_store):
 # --------------------------------------------------------------------------- #
 # Evening check-in tests                                                       #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_evening_checkin_skipped_when_no_chat_id(db, goal_store):
@@ -220,8 +238,10 @@ async def test_evening_checkin_skipped_when_no_stale_goals(db, goal_store):
 
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("remy.scheduler.proactive.settings") as mock_settings:
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
         mock_settings.telegram_allowed_users = [1]
         # Don't patch stale detection — goal was just inserted, so not stale
         await sched._evening_checkin()
@@ -247,8 +267,11 @@ async def test_evening_checkin_sends_for_stale_goals(db, goal_store):
 
     bot = make_bot()
     sched = make_scheduler(bot, goal_store)
-    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345), \
-         patch("remy.scheduler.proactive.settings") as mock_settings:
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive._record_delivery"),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
         mock_settings.telegram_allowed_users = [1]
         await sched._evening_checkin()
 
@@ -260,6 +283,7 @@ async def test_evening_checkin_sends_for_stale_goals(db, goal_store):
 # --------------------------------------------------------------------------- #
 # Scheduler start / stop                                                       #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_scheduler_start_and_stop(db, goal_store):
@@ -291,6 +315,7 @@ async def test_scheduler_start_with_bad_cron_does_not_crash(db, goal_store):
 # One-time reminder memory logging tests                                       #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_log_completed_reminder_stores_fact(db, goal_store, fact_store):
     """Completed one-time reminder should be logged as a fact."""
@@ -318,6 +343,7 @@ async def test_log_completed_reminder_includes_date(db, goal_store, fact_store):
     assert len(facts) == 1
     # Check that date is in ISO format (YYYY-MM-DD)
     from datetime import datetime, timezone
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     assert today in facts[0]["content"]
 
@@ -344,7 +370,9 @@ async def test_run_automation_logs_fact_for_one_time(
 
     # Create a one-time automation
     auto_id = await automation_store.add(
-        user_id=1, label="Collect parcel from post office", fire_at="2026-02-28T10:00:00"
+        user_id=1,
+        label="Collect parcel from post office",
+        fire_at="2026-02-28T10:00:00",
     )
 
     # Set up primary chat ID
@@ -352,7 +380,9 @@ async def test_run_automation_logs_fact_for_one_time(
     chat_file.write_text("12345")
 
     with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345):
-        await sched._run_automation(auto_id, user_id=1, label="Collect parcel from post office", one_time=True)
+        await sched._run_automation(
+            auto_id, user_id=1, label="Collect parcel from post office", one_time=True
+        )
 
     # Verify fact was stored
     facts = await fact_store.get_for_user(1)
@@ -377,7 +407,9 @@ async def test_run_automation_does_not_log_fact_for_recurring(
     )
 
     with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345):
-        await sched._run_automation(auto_id, user_id=1, label="Daily standup reminder", one_time=False)
+        await sched._run_automation(
+            auto_id, user_id=1, label="Daily standup reminder", one_time=False
+        )
 
     # Verify no fact was stored
     facts = await fact_store.get_for_user(1)

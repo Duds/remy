@@ -100,7 +100,9 @@ def main() -> None:
     moonshot_client = MoonshotClient()
     ollama_client = OllamaClient()
     db = DatabaseManager()
-    router = ModelRouter(claude_client, mistral_client, moonshot_client, ollama_client, db=db)
+    router = ModelRouter(
+        claude_client, mistral_client, moonshot_client, ollama_client, db=db
+    )
     session_manager = SessionManager()
     conv_store = ConversationStore(settings.sessions_dir)
 
@@ -125,16 +127,19 @@ def main() -> None:
     # Unified Knowledge Store (supersedes fact_store + goal_store for new data)
     knowledge_store = KnowledgeStore(db, embeddings)
     knowledge_extractor = KnowledgeExtractor(claude_client)
-    
+
     # Tone detector for affectionate language selection (Option A + C)
     from .ai.tone import ToneDetector
+
     tone_detector = ToneDetector(
         knowledge_store=knowledge_store,
         embeddings=embeddings,
         claude_client=claude_client,
     )
-    
-    memory_injector = MemoryInjector(db, embeddings, knowledge_store, fts, tone_detector)
+
+    memory_injector = MemoryInjector(
+        db, embeddings, knowledge_store, fts, tone_detector
+    )
     automation_store = AutomationStore(db)
     job_store = BackgroundJobStore(db)
     plan_store = PlanStore(db)
@@ -146,11 +151,13 @@ def main() -> None:
         embeddings=embeddings,
         index_paths=(
             [p.strip() for p in settings.rag_index_paths.split(",") if p.strip()]
-            if settings.rag_index_paths else None
+            if settings.rag_index_paths
+            else None
         ),
         index_extensions=(
             {e.strip() for e in settings.rag_index_extensions.split(",") if e.strip()}
-            if settings.rag_index_extensions else None
+            if settings.rag_index_extensions
+            else None
         ),
         enabled=settings.rag_index_enabled,
     )
@@ -167,17 +174,23 @@ def main() -> None:
     google_contacts = None
     try:
         from .google.auth import is_configured, GCLOUD_ADC_COMMAND
+
         token_file = settings.google_token_file
         if is_configured(token_file):
             from .google.calendar import CalendarClient
             from .google.gmail import GmailClient
             from .google.docs import DocsClient
             from .google.contacts import ContactsClient
-            google_calendar = CalendarClient(token_file, timezone=settings.scheduler_timezone)
+
+            google_calendar = CalendarClient(
+                token_file, timezone=settings.scheduler_timezone
+            )
             google_gmail = GmailClient(token_file)
             google_docs = DocsClient(token_file)
             google_contacts = ContactsClient(token_file)
-            logger.info("Google Workspace integration enabled (Calendar, Gmail, Docs, Contacts)")
+            logger.info(
+                "Google Workspace integration enabled (Calendar, Gmail, Docs, Contacts)"
+            )
         else:
             logger.info(
                 "Google Workspace not configured. Authenticate with:\n  %s\n"
@@ -185,7 +198,9 @@ def main() -> None:
                 GCLOUD_ADC_COMMAND,
             )
     except ImportError:
-        logger.info("Google API libraries not installed — Workspace integration disabled")
+        logger.info(
+            "Google API libraries not installed — Workspace integration disabled"
+        )
     except Exception as e:
         logger.warning("Google Workspace init failed: %s", e)
 
@@ -251,6 +266,7 @@ def main() -> None:
     set_data_dir(settings.data_dir)
     # Hook manager is wired after import to avoid circular dependency
     from .hooks import hook_manager
+
     set_hook_manager(hook_manager)
 
     async def _briefing_proxy(update, context):
@@ -324,7 +340,9 @@ def main() -> None:
 
         # Initialise database schema
         await db.init()
-        await job_store.mark_interrupted()  # crash recovery: flip stale 'running' → 'failed'
+        await (
+            job_store.mark_interrupted()
+        )  # crash recovery: flip stale 'running' → 'failed'
         logger.info("Database initialised")
 
         # Initialise outbound queue with bot reference and replay pending messages
@@ -337,7 +355,11 @@ def main() -> None:
 
         # Wire proactive scheduler (requires live bot reference from PTB)
         sched = ProactiveScheduler(
-            app.bot, goal_store, fact_store, google_calendar, google_contacts,
+            app.bot,
+            goal_store,
+            fact_store,
+            google_calendar,
+            google_contacts,
             automation_store=automation_store,
             claude_client=claude_client,
             conversation_analyzer=conv_analyzer,
@@ -358,13 +380,19 @@ def main() -> None:
         # Load user-defined automations from DB into the live scheduler
         await sched.load_user_automations()
 
+        # Fire any daily jobs missed while the bot was down (Bug 33)
+        await sched.run_startup_reconciliation()
+
         # Trigger initial file index if the index is empty (background task)
         if file_indexer.enabled:
+
             async def _initial_index():
                 try:
                     status = await file_indexer.get_status()
                     if status.files_indexed == 0:
-                        logger.info("File index is empty — running initial index in background")
+                        logger.info(
+                            "File index is empty — running initial index in background"
+                        )
                         stats = await file_indexer.run_incremental()
                         logger.info(
                             "Initial file index complete: %d files, %d chunks",
@@ -373,6 +401,7 @@ def main() -> None:
                         )
                 except Exception as e:
                     logger.warning("Initial file index failed: %s", e)
+
             asyncio.create_task(_initial_index())
 
         asyncio.create_task(health_monitor(claude_client, app.bot))

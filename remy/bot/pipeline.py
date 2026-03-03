@@ -14,10 +14,19 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from .handlers import _TOOL_TURN_PREFIX, _build_message_from_turn, _trim_messages_to_budget
+from .handlers import (
+    _TOOL_TURN_PREFIX,
+    _build_message_from_turn,
+    _trim_messages_to_budget,
+)
 from .session import SessionManager
 from .streaming import StreamingReply
-from ..ai.claude_client import TextChunk, ToolResultChunk, ToolStatusChunk, ToolTurnComplete
+from ..ai.claude_client import (
+    TextChunk,
+    ToolResultChunk,
+    ToolStatusChunk,
+    ToolTurnComplete,
+)
 from ..config import settings
 from ..models import ConversationTurn
 
@@ -60,6 +69,8 @@ async def run_proactive_trigger(
     session_manager: SessionManager,
     conv_store: "ConversationStore",
     db=None,
+    automation_id: int = 0,
+    one_time: bool = False,
 ) -> None:
     """
     Run a scheduler-triggered reminder through the full Claude pipeline.
@@ -82,8 +93,10 @@ async def run_proactive_trigger(
 
         # Drop any orphaned tool turns at the end of history (can't end on a
         # tool_use block without a following tool_result).
-        while messages and messages[-1].get("role") == "assistant" and isinstance(
-            messages[-1].get("content"), list
+        while (
+            messages
+            and messages[-1].get("role") == "assistant"
+            and isinstance(messages[-1].get("content"), list)
         ):
             messages.pop()
 
@@ -106,7 +119,9 @@ async def run_proactive_trigger(
             )
         except Exception as e:
             logger.error(
-                "Proactive trigger: could not send placeholder to chat %d: %s", chat_id, e
+                "Proactive trigger: could not send placeholder to chat %d: %s",
+                chat_id,
+                e,
             )
             return
 
@@ -116,11 +131,12 @@ async def run_proactive_trigger(
         streamer = StreamingReply(sent, session_manager, user_id)
         tool_turns: list[tuple[list[dict], list[dict]]] = []
         in_tool_turn = False
-        
+
         import time
         from ..models import TokenUsage
         from ..analytics.call_log import log_api_call
         import asyncio
+
         usage = TokenUsage()
         t0 = time.monotonic()
 
@@ -160,10 +176,14 @@ async def run_proactive_trigger(
         except Exception as exc:
             logger.error(
                 "Proactive pipeline stream error for user %d (automation label %r): %s",
-                user_id, label, exc,
+                user_id,
+                label,
+                exc,
             )
             try:
-                await sent.edit_text(f"⏰ Reminder: {label}\n\n_(Error generating response: {exc})_")
+                await sent.edit_text(
+                    f"⏰ Reminder: {label}\n\n_(Error generating response: {exc})_"
+                )
             except Exception as edit_err:
                 logger.debug("Failed to edit error message in pipeline: %s", edit_err)
             return
@@ -172,11 +192,37 @@ async def run_proactive_trigger(
         final_text = streamer.full_text.strip()
 
         # ------------------------------------------------------------------ #
+        # 4b. Attach [Snooze 5m] [Snooze 15m] [Done] keyboard to reminder     #
+        # ------------------------------------------------------------------ #
+        try:
+            from .handlers.callbacks import (
+                make_reminder_keyboard,
+                store_reminder_payload,
+            )
+
+            token = store_reminder_payload(
+                user_id=user_id,
+                chat_id=chat_id,
+                label=label,
+                automation_id=automation_id,
+                one_time=one_time,
+            )
+            keyboard = make_reminder_keyboard(token)
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=sent.message_id,
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.debug("Could not attach reminder keyboard: %s", e)
+
+        # ------------------------------------------------------------------ #
         # 5. Persist conversation history                                       #
         # ------------------------------------------------------------------ #
         # Save the synthetic user trigger turn
         await conv_store.append_turn(
-            user_id, session_key,
+            user_id,
+            session_key,
             ConversationTurn(role="user", content=trigger_text),
         )
 
@@ -184,20 +230,31 @@ async def run_proactive_trigger(
         for assistant_blocks, result_blocks in tool_turns:
             asst_serialised = _TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
             await conv_store.append_turn(
-                user_id, session_key,
-                ConversationTurn(role="assistant", content=asst_serialised, model_used=f"anthropic:{settings.model_complex}"),
+                user_id,
+                session_key,
+                ConversationTurn(
+                    role="assistant",
+                    content=asst_serialised,
+                    model_used=f"anthropic:{settings.model_complex}",
+                ),
             )
             usr_serialised = _TOOL_TURN_PREFIX + json.dumps(result_blocks)
             await conv_store.append_turn(
-                user_id, session_key,
+                user_id,
+                session_key,
                 ConversationTurn(role="user", content=usr_serialised),
             )
 
         # Save the final assistant text turn
         if final_text:
             await conv_store.append_turn(
-                user_id, session_key,
-                ConversationTurn(role="assistant", content=final_text, model_used=f"anthropic:{settings.model_complex}"),
+                user_id,
+                session_key,
+                ConversationTurn(
+                    role="assistant",
+                    content=final_text,
+                    model_used=f"anthropic:{settings.model_complex}",
+                ),
             )
 
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -220,5 +277,9 @@ async def run_proactive_trigger(
         logger.info(
             "Proactive trigger complete for user %d (chat %d, label=%r, "
             "tool_turns=%d, response_len=%d)",
-            user_id, chat_id, label, len(tool_turns), len(final_text),
+            user_id,
+            chat_id,
+            label,
+            len(tool_turns),
+            len(final_text),
         )

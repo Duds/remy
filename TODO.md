@@ -1,6 +1,6 @@
 # Remy Roadmap & Development Plan
 
-**Last Updated:** February 28, 2026 (Document image support complete)
+**Last Updated:** March 3, 2026 (Telegram + Claude UX roadmap added)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -13,13 +13,13 @@ Remy's success relies on being **lean, secure, and continuously useful**. We avo
 
 ## 📐 Development Rule: Natural Language First
 
-> **Every slash command MUST have a corresponding tool in `remy/ai/tool_registry.py`.**
+> **Every slash command MUST have a corresponding tool in `remy/ai/tools/`.**
 
 When adding a new command:
 
-1. Implement the slash command handler in `bot/handlers.py`
-2. Add a tool schema to `TOOL_SCHEMAS` in `tool_registry.py`
-3. Add an executor method `_exec_<tool_name>()` to `ToolRegistry`
+1. Implement the slash command handler in `remy/bot/handlers.py`
+2. Add a tool schema to `TOOL_SCHEMAS` in `remy/ai/tools/schemas.py`
+3. Add an executor in `remy/ai/tools/` and register in `ToolRegistry`
 4. Wire any new dependencies through `main.py` into both `make_handlers` and `ToolRegistry`
 
 This ensures users never need to remember slash commands — Claude detects intent and calls the right tool automatically.
@@ -167,13 +167,9 @@ This is a **cherry-pick from my-agent** (which had partial support) but implemen
   - Natural language: "draft an email to Kathryn about the hockey schedule"
   - User reviews and sends manually from Gmail — no send capability exposed to Remy
 
-- [ ] **Gmail label/folder support** _(feature request)_
-  - Current search only queries the default inbox view; emails in Promotions, All Mail,
-    or custom labels are invisible to Remy even when unread
-  - Extend `GmailClient` to accept a `label` parameter (e.g. `label:all`, `label:promotions`)
+- [x] **Gmail label/folder support** (`US-gmail-label-search`) — done
+  - `search_gmail` tool accepts optional `labels` parameter (INBOX, ALL_MAIL, PROMOTIONS, etc.)
   - Natural language: "search all my mail for emails from Kathryn about hockey"
-  - Tool schema update: add optional `labels` field to `search_gmail` tool
-  - Suggested labels to support: `INBOX`, `ALL_MAIL`, `PROMOTIONS`, `UPDATES`, `FORUMS`
 
 ### 3.3 Google Docs Integration (Minimal)
 
@@ -360,6 +356,43 @@ Deferred until Steps 1 & 2 are proven insufficient. Requires replacing `ClaudeCl
 
 ---
 
+## 📱 Phase 8: Telegram + Claude UX Enhancements
+
+**Solves: "One-tap actions instead of typing," "Safer destructive flows," "Richer proactive reminders"**
+
+Combines Telegram Bot API (inline keyboards, callbacks, chat actions) with Claude's reasoning and tool use. Prioritised for a single-user personal assistant. See `docs/backlog/US-confirmation-flows.md` through `US-send-to-cowork.md` for specs; full ideation in plan.
+
+### Tier 1 — Do first (highest daily impact)
+
+- [ ] **Confirmation flows** (`US-confirmation-flows`) — [Confirm] [Cancel] inline buttons for destructive actions (archive emails, delete automation). Replaces "Reply yes" text flow.
+- [x] **Smart reply buttons** (`US-smart-reply-buttons`) — Contextual [Add to calendar], [Forward to cowork], [Break down] on substantive replies. Requires `CallbackQueryHandler` + pipeline `suggested_actions`.
+- [x] **Snooze/Complete on reminders** (`US-snooze-complete-reminders`) — [Snooze 5m] [Snooze 15m] [Done] on proactive reminder messages.
+- [ ] **Emoji reactions as task feedback** (`US-emoji-reactions-feedback`) — Automatic ✅ on user's message when tools complete. Builds on `US-emoji-reaction-handling` (done).
+- [ ] **One-tap automation templates** (`US-one-tap-automations`) — `/list_automations` as inline buttons; tap to run on-demand.
+
+### Tier 2 — High value, moderate effort
+
+- [ ] **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice. See `docs/backlog/US-conversational-briefing-via-remy.md`.
+- [ ] **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions in briefings/summaries.
+- [x] **Send to cowork** (`US-send-to-cowork`) — [Send to cowork] on notes/summaries for one-tap relay handoff.
+- [ ] **Chat actions for long tasks** — `upload_document` / `upload_photo` when research/board runs (instead of only `typing`).
+- [ ] **Run again / different params** — [Run again] [New topic] on tool-heavy flows (research, board, Gmail quick wins).
+- [ ] **Document/photo action buttons** — [Summarise] [Extract tasks] [Save] on attachments.
+
+### Tier 3 — Nice to have
+
+- [ ] **Deep links for reminders** — `t.me/RemyBot?start=reminder_<id>` for notification tap → context.
+- [ ] **Bookmarks with tag buttons** — [Preferences] [Work] [Personal] when saving facts.
+- [ ] **Rich media summaries** — Week-at-a-glance image + caption for briefings.
+- [ ] **Web login for dashboards** — Telegram Login Widget for stats/costs in browser.
+- [ ] **Webhooks for third-party** — CI, Zapier → Remy notification + actions.
+
+### Lower priority (single user)
+
+- Message threading (done), inline quick actions from any chat, workflow checklist, location reminders, polls, dice, voice replies, price alerts, multi-language, Mini App settings — see plan for rationale.
+
+---
+
 ## 🗑️ Features to Deliberately Avoid (Lessons from my-agent)
 
 These were in my-agent and caused bloat. **Do not implement.**
@@ -425,6 +458,14 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **S**    | Cloudflare Tunnel — remote log/telemetry access                    | US-cloudflare-tunnel-remote-observability | ✅ Done — https://remy.dalerogers.com.au |
 | **S**    | Claude Agent SDK subagents                                         | US-claude-agent-sdk-subagents       | ⬜ Deferred (major refactor) |
 | **S**    | Gmail send                                                         | —                                   | ⬜ Deferred (security)       |
+| **S**    | Confirmation flows (inline Confirm/Cancel)                          | US-confirmation-flows               | ⬜ Phase 8                   |
+| **S**    | Smart reply buttons (Add to calendar, Forward to cowork)             | US-smart-reply-buttons              | ✅ Done                      |
+| **S**    | Snooze/Complete on proactive reminders                              | US-snooze-complete-reminders        | ✅ Done                      |
+| **C**    | Emoji reactions as task completion feedback                         | US-emoji-reactions-feedback         | ⬜ Phase 8                   |
+| **C**    | One-tap automation templates                                        | US-one-tap-automations              | ⬜ Phase 8                   |
+| **C**    | Conversational briefing via Remy (morning)                           | US-conversational-briefing-via-remy | ⬜ Phase 8                   |
+| **C**    | Calendar quick add from inline suggestions                           | US-calendar-quick-add               | ⬜ Phase 8                   |
+| **C**    | Send to cowork with one tap                                          | US-send-to-cowork                   | ✅ Done                      |
 | **W**    | Headless browser automation                                        | —                                   | ❌ Avoid                     |
 | **W**    | Knowledge graph + vector store                                     | —                                   | ❌ Avoid                     |
 
@@ -434,71 +475,94 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 ### P1 — Immediate (small–medium, clear value)
 
-1. ~~**Cloudflare Tunnel setup** (`US-cloudflare-tunnel-remote-observability`) — ✅ Done — https://remy.dalerogers.com.au~~
+**Phase 8: Telegram + Claude UX** (recommended build order)
 
-1. ~~**Multi-Model Orchestration** — complete~~
-1. ~~**Fix tool dispatch exception recovery** — complete~~
-1. ~~**Fix final reply duplication** — complete~~
-1. ~~**Persistent job tracking + `/jobs`** — complete~~
+1. **Confirmation flows** (`US-confirmation-flows`) — [Confirm] [Cancel] for archive/delete. Safety first; small change.
+2. ~~**Smart reply buttons** (`US-smart-reply-buttons`)~~ — Done
+3. ~~**Snooze/Complete on reminders** (`US-snooze-complete-reminders`)~~ — Done
+4. **Emoji reactions as task feedback** (`US-emoji-reactions-feedback`) — Automatic ✅ on task completion.
+5. **One-tap automations** (`US-one-tap-automations`) — `/list_automations` as inline buttons.
+6. **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice.
+7. **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions.
+8. ~~**Send to cowork** (`US-send-to-cowork`)~~ — Done
 
-1. ~~**Gmail label/folder search** — complete~~
+---
 
-1. ~~**Analytics: token capture** (`US-analytics-token-capture`) — complete~~
+**Completed (P1)**
 
-1. ~~**Analytics: API call log** (`US-analytics-call-log`) — complete~~
+8. ~~**Cloudflare Tunnel setup** (`US-cloudflare-tunnel-remote-observability`) — https://remy.dalerogers.com.au~~
 
-1. ~~**Analytics: `/costs` command** (`US-analytics-costs-command`) — complete~~
+9. ~~**Multi-Model Orchestration**~~
+
+10. ~~**Fix tool dispatch exception recovery**~~
+
+11. ~~**Fix final reply duplication**~~
+
+12. ~~**Persistent job tracking + `/jobs`**~~
+
+13. ~~**Gmail label/folder search**~~
+
+14. ~~**Analytics: token capture** (`US-analytics-token-capture`)~~
+
+15. ~~**Analytics: API call log** (`US-analytics-call-log`)~~
+
+16. ~~**Analytics: `/costs` command** (`US-analytics-costs-command`)~~
 
 ### P2 — Next quarter (moderate, high value)
 
-5. ~~**Document image support** (`US-document-image-support`) — complete~~
+**Completed (P2)**
 
-6. ~~**Plan tracking** (`US-plan-tracking`) — complete~~
+1. ~~**Document image support** (`US-document-image-support`)~~
 
-7. ~~**Improved persistent memory** (`US-improved-persistent-memory`) — complete~~
+2. ~~**Plan tracking** (`US-plan-tracking`)~~
 
-8. ~~**Privacy audit** (`US-digital-fingerprint-audit`) — complete~~
+3. ~~**Improved persistent memory** (`US-improved-persistent-memory`)~~
 
-9. ~~**Telegram catch-all error handler** (`US-telegram-error-handler`) — complete~~
+4. ~~**Privacy audit** (`US-digital-fingerprint-audit`)~~
+
+5. ~~**Telegram catch-all error handler** (`US-telegram-error-handler`)~~
    - Gap: unhandled exceptions produce noisy "No error handlers are registered" log spam; no Telegram notification for unexpected errors
    - Files: `bot/telegram_bot.py` — ~30 lines, zero dependencies, isolated change
    - Suppress transient errors (NetworkError, TimedOut); alert Dale for unexpected exceptions
 
-10. ~~**Telegram Markdown header/formatting fixes** (`US-telegram-markdown-fix`) — complete~~
-    - Headers H1–H4 converted to bold/italic hierarchy; tables converted to bulleted lists
-    - Files: `utils/telegram_formatting.py`, `tests/test_telegram_formatting.py`
+6. ~~**Telegram Markdown header/formatting fixes** (`US-telegram-markdown-fix`)~~
+   - Headers H1–H4 converted to bold/italic hierarchy; tables converted to bulleted lists
+   - Files: `utils/telegram_formatting.py`, `tests/test_telegram_formatting.py`
 
 ### P3 — Future (new infrastructure or deferred)
 
-9. ~~**Home directory RAG index** (`US-home-directory-rag`) — complete~~
+**Completed (P3)**
 
-10. ~~**Native Telegram Message Threading** (`US-telegram-message-threading`) — complete~~
-    - Implement support for Telegram Topics to maintain separate conversation contexts.
-    - Files: `bot/session.py`, `bot/handlers.py`, `memory/conversations.py`, `bot/streaming.py`
-    - Requires 'Threaded Mode' enabled in @BotFather.
+1. ~~**Home directory RAG index** (`US-home-directory-rag`)~~
 
-11. **Context-aware reminders** (`US-context-aware-reminders`)
+2. ~~**Native Telegram Message Threading** (`US-telegram-message-threading`)~~
+   - Implement support for Telegram Topics to maintain separate conversation contexts.
+   - Files: `bot/session.py`, `bot/handlers.py`, `memory/conversations.py`, `bot/streaming.py`
+   - Requires 'Threaded Mode' enabled in @BotFather.
+
+**Pending (P3)**
+
+3. **Context-aware reminders** (`US-context-aware-reminders`)
     - Dedup evening check-in against today's conversation; snooze support
-    - Only implement if the current evening check-in proves insufficient in practice
+   - Only implement if the current evening check-in proves insufficient in practice
 
-12. **SMS ingestion** (`US-sms-ingestion`)
-    - Android gateway integration; P3 due to hardware dependency.
-    - Files: `api/sms_webhook.py`, `memory/database.py`, `bot/handlers.py`
+4. **SMS ingestion** (`US-sms-ingestion`)
+   - Android SMS via SMS Gateway app + Tailscale tunnel + `/webhook/sms` endpoint.
+   - P3 due to hardware dependency. Prerequisite: Tailscale on phone and Mac.
+   - Files: `api/sms_webhook.py`, `memory/database.py`, `bot/handlers.py`
 
-13. ~~**Funny/nonsensical "working" messages for Telegram** (`US-working-messages`) — complete~~
-    - SimCity style status updates ("Reticulating splines...") while bot is "thinking".
-    - Files: `bot/working_message.py`, `bot/handlers.py`, `agents/background.py`
-    - Android SMS via SMS Gateway app + Tailscale tunnel + `/webhook/sms` endpoint
-    - Prerequisite: Tailscale installed on phone and Mac
+5. ~~**Funny/nonsensical "working" messages for Telegram** (`US-working-messages`)~~
+   - SimCity style status updates ("Reticulating splines...") while bot is "thinking".
+   - Files: `bot/working_message.py`, `bot/handlers.py`, `agents/background.py`
 
-14. **Google Wallet alerts** (`US-google-wallet-monitoring`)
-    - Tasker profile → `/webhook/notification`; depends on SMS infrastructure
+6. **Google Wallet alerts** (`US-google-wallet-monitoring`)
+   - Tasker profile → `/webhook/notification`; depends on SMS infrastructure
 
 ### Deferred (explicit non-starters for now)
 
-9. **Claude Agent SDK subagents** (`US-claude-agent-sdk-subagents`) — major refactor; only revisit if BackgroundTaskRunner + persistent jobs prove insufficient
-10. **Gmail send** — security risk; draft creation is sufficient
-11. **Research alternative** (`US-research-alternative`) — no code needed; tune `web_research` tool description if quality is poor in practice
+1. **Claude Agent SDK subagents** (`US-claude-agent-sdk-subagents`) — major refactor; only revisit if BackgroundTaskRunner + persistent jobs prove insufficient
+2. **Gmail send** — security risk; draft creation is sufficient
+3. **Research alternative** (`US-research-alternative`) — no code needed; tune `web_research` tool description if quality is poor in practice
 
 ---
 
@@ -547,7 +611,7 @@ Phase 2.1 gave Dale a `/write` command to write files via a two-step flow. What 
 
 ---
 
-## 🖼️ Phase 7: Image Consumption ⚠️ Partial
+## 🖼️ Image Consumption ⚠️ Partial
 
 **Solves: "Send Remy a photo and ask questions about it"**
 
@@ -559,7 +623,7 @@ Dale can currently send voice messages (transcribed via Whisper) and text. Image
 
 ---
 
-### 7.1 Telegram Image Ingestion
+### Telegram Image Ingestion
 
 - [x] **Handle `photo` messages** — Telegram-compressed JPEG; MIME hardcoded correctly
 - [ ] **Handle `document` messages** — uncompressed PNG/WebP/GIF sent as files; currently silently ignored
@@ -569,12 +633,12 @@ Dale can currently send voice messages (transcribed via Whisper) and text. Image
 
 ---
 
-### 7.2 Natural Language Image Queries ✅
+### Natural Language Image Queries ✅
 
 No slash command — just send an image with or without a caption. Works with whiteboard photos,
 receipts, screenshots, food photos, etc.
 
-### 7.3–7.4 Security & Implementation ✅
+### Security & Implementation ✅
 
 All constraints from the spec implemented: in-memory only, 5MB cap, MIME allowlist, no URL fetching.
 

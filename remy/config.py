@@ -128,6 +128,11 @@ class Settings(BaseSettings):
     health_check_interval: int = 300
     stale_goal_days: int = 3
 
+    # ── Claude Desktop (Claude Code CLI) routing ────────────────────────────────
+    # When enabled, Claude-bound requests prefer the CLI (subscription) over API.
+    claude_desktop_enabled: bool = False
+    claude_desktop_cli_path: str = "claude"  # Path to `claude` binary (or just "claude" for PATH)
+
     # ── Claude client ───────────────────────────────────────────────────────────
     claude_max_retries: int = 3
     claude_retry_base_delay: float = 2.0

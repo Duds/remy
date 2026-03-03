@@ -31,12 +31,12 @@ from .base import (
     _rate_limiter,
     _task_start_times,
     _pending_writes,
-    _pending_archive,
     _user_active_requests,
     _user_request_lock,
     TASK_TIMEOUT_SECONDS,
     _TOOL_TURN_PREFIX,
 )
+from .callbacks import make_suggested_actions_keyboard
 from ..session import SessionManager
 from ..streaming import stream_to_telegram
 from ...ai.claude_client import TextChunk, ToolResultChunk, ToolStatusChunk, ToolTurnComplete
@@ -179,26 +179,33 @@ def make_chat_handlers(
         rotator = MessageRotator(sent, user_id)
         rotator_stopped = False
 
-        async def _flush_display(final: bool = False) -> None:
+        async def _flush_display(final: bool = False, reply_markup=None) -> None:
             nonlocal last_edit_len
             full = "".join(current_display)
             suffix = "" if final else " …"
             candidate = full + suffix
 
-            if not candidate.strip():
+            if not candidate.strip() and not (final and reply_markup):
                 return
 
             if len(full) > last_edit_len + 50 or final:
-                truncated = candidate[:4000]
+                truncated = candidate[:4000] if candidate.strip() else "✓"
+                kwargs = {}
+                if final and reply_markup is not None:
+                    kwargs["reply_markup"] = reply_markup
                 try:
-                    await sent.edit_text(format_telegram_message(truncated), parse_mode="MarkdownV2")
+                    await sent.edit_text(
+                        format_telegram_message(truncated),
+                        parse_mode="MarkdownV2",
+                        **kwargs,
+                    )
                     last_edit_len = len(full)
                 except BadRequest as e:
                     if "message is not modified" in str(e).lower():
                         return  # already up to date — don't overwrite with plain text
                     # Real MarkdownV2 parse error — fall back to plain text
                     try:
-                        await sent.edit_text(truncated)
+                        await sent.edit_text(truncated, **kwargs)
                         last_edit_len = len(full)
                     except Exception as e2:
                         logger.debug("Message edit failed (flood control): %s", e2)
@@ -359,17 +366,30 @@ def make_chat_handlers(
             {"user_id": user_id, "text_preview": final_text_preview},
         )
 
-        await _flush_display(final=True)
+        # Extract suggested_actions from any suggest_actions tool call in tool_turns
+        suggested_actions = None
+        for assistant_blocks, _ in tool_turns:
+            for block in assistant_blocks:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    if block.get("name") == "suggest_actions":
+                        actions = (block.get("input") or {}).get("actions")
+                        if isinstance(actions, list) and actions:
+                            suggested_actions = actions
+                            break
+
+        reply_markup = make_suggested_actions_keyboard(suggested_actions, user_id) if suggested_actions else None
+
+        await _flush_display(final=True, reply_markup=reply_markup)
         # Retry once if there's text to display — the first attempt may have failed
         # due to a transient Telegram disconnect, leaving the " …" suffix showing.
         if "".join(current_display).strip():
             await asyncio.sleep(0.3)
-            await _flush_display(final=True)
+            await _flush_display(final=True, reply_markup=reply_markup)
         elif tool_turns:
             # Claude ended with a tool call and produced no text. The message still
             # shows "⚙️ Using tool_name…" — clear it with a minimal indicator.
             try:
-                await sent.edit_text("✓")
+                await sent.edit_text("✓", reply_markup=reply_markup)
             except Exception:
                 pass
 
@@ -493,22 +513,6 @@ def make_chat_handlers(
         async with session_manager.get_lock(user_id):
             session_manager.clear_cancel(user_id)
             session_key = SessionManager.get_session_key(user_id, thread_id)
-
-            if user_id in _pending_archive:
-                message_ids = _pending_archive.pop(user_id)
-                if text.strip().lower() == "yes":
-                    if google_gmail is not None:
-                        try:
-                            n = await google_gmail.archive_messages(message_ids)
-                            await update.message.reply_text(f"✅ Archived {n} email(s).")
-                        except Exception as e:
-                            await update.message.reply_text(f"❌ Archive failed: {e}")
-                    else:
-                        await update.message.reply_text("❌ Gmail not configured.")
-                else:
-                    await update.message.reply_text("Archive cancelled.")
-                _task_start_times.pop(user_id, None)
-                return
 
             if user_id in _pending_writes:
                 pending_path = _pending_writes.pop(user_id)

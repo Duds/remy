@@ -639,9 +639,10 @@ async def relay_get_notes(params: GetNotesInput, ctx) -> str:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="relay_mcp — inter-agent communication server")
-    p.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"HTTP port (default: {DEFAULT_PORT})")
-    p.add_argument("--host", type=str, default="127.0.0.1",  help="Bind host (default: 127.0.0.1)")
-    p.add_argument("--db",   type=str, default=str(DEFAULT_DB), help="Path to SQLite database file")
+    p.add_argument("--port",  type=int,            default=DEFAULT_PORT,      help=f"HTTP port (default: {DEFAULT_PORT})")
+    p.add_argument("--host",  type=str,            default="127.0.0.1",       help="Bind host (default: 127.0.0.1)")
+    p.add_argument("--db",    type=str,            default=str(DEFAULT_DB),   help="Path to SQLite database file")
+    p.add_argument("--stdio", action="store_true", default=False,             help="Run as stdio MCP server (for .mcp.json / Claude Code)")
     return p.parse_args()
 
 
@@ -650,11 +651,14 @@ if __name__ == "__main__":
     _db_path = Path(args.db)
     _db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mcp.settings.host = args.host
-    mcp.settings.port = args.port
-
-    print(f"relay_mcp starting on http://{args.host}:{args.port}", file=sys.stderr)
     print(f"Database: {_db_path}", file=sys.stderr)
     print(f"Known agents: {', '.join(KNOWN_AGENTS)}", file=sys.stderr)
 
-    mcp.run(transport="streamable-http")
+    if args.stdio:
+        print("relay_mcp starting in stdio mode", file=sys.stderr)
+        mcp.run(transport="stdio")
+    else:
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        print(f"relay_mcp starting on http://{args.host}:{args.port}", file=sys.stderr)
+        mcp.run(transport="streamable-http")

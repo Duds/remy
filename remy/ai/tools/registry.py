@@ -337,6 +337,8 @@ class ToolRegistry:
                 case "react_to_message":
                     from .session import exec_react_to_message
                     return await exec_react_to_message(self, tool_input, chat_id, message_id)
+                case "suggest_actions":
+                    return "Attached."
 
                 case _:
                     return f"Unknown tool: {tool_name}"

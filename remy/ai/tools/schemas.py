@@ -1600,6 +1600,43 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "suggest_actions",
+        "description": (
+            "Attach inline action buttons to your reply so Dale can tap instead of typing. "
+            "Call this at the END of your turn when your response suggests clear next steps. "
+            "Use when: calendar summary → [Add to calendar]; research result → [Break down] or [Forward to cowork]; "
+            "email triage → [Add to calendar] if event mentioned. "
+            "Do NOT use for every message — only when 2–4 contextual actions would save Dale a follow-up. "
+            "Supported callback_id: add_to_calendar, forward_to_cowork, break_down, dismiss."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "description": "List of action buttons (max 4).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string", "description": "Button text (e.g. 'Add to calendar')"},
+                            "callback_id": {
+                                "type": "string",
+                                "enum": ["add_to_calendar", "forward_to_cowork", "break_down", "dismiss"],
+                                "description": "Action type",
+                            },
+                            "payload": {
+                                "type": "object",
+                                "description": "Context for the action. add_to_calendar: title, when (ISO). break_down: topic. forward_to_cowork: text.",
+                            },
+                        },
+                        "required": ["label", "callback_id"],
+                    },
+                },
+            },
+            "required": ["actions"],
+        },
+    },
+    {
         "name": "react_to_message",
         "description": (
             "Set an emoji reaction on Dale's most recent Telegram message. "

@@ -15,14 +15,19 @@ Primary chat ID is read from `data/primary_chat_id.txt` (written by /setmychat).
 If that file doesn't exist, the scheduler runs silently.
 """
 
+import asyncio
+import json
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
 from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from ..config import settings
 from ..memory.facts import FactStore
@@ -86,6 +91,47 @@ def _parse_cron(cron_str: str) -> CronTrigger:
     )
 
 
+def _cron_hour(cron_str: str) -> int:
+    """Extract the hour (0–23) from a 5-field cron string."""
+    parts = cron_str.split()
+    if len(parts) < 2:
+        return 0
+    try:
+        return int(parts[1])
+    except ValueError:
+        return 0
+
+
+def _delivery_log_path() -> Path:
+    """Path to the persistent delivery log for startup reconciliation."""
+    return Path(settings.data_dir) / "proactive_delivery_log.json"
+
+
+def _load_delivery_log() -> dict[str, str]:
+    """Load the delivery log: {job_id: date_str}."""
+    path = _delivery_log_path()
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _record_delivery(job_id: str) -> None:
+    """Record that a job fired today (for startup reconciliation)."""
+    path = _delivery_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    log = _load_delivery_log()
+    tz = ZoneInfo(settings.scheduler_timezone)
+    today = datetime.now(tz).strftime("%Y-%m-%d")
+    log[job_id] = today
+    try:
+        with open(path, "w") as f:
+            json.dump(log, f, indent=0)
+    except OSError as e:
+        logger.warning("Could not write delivery log: %s", e)
+
+
 class ProactiveScheduler:
     """
     Wraps APScheduler and schedules the morning briefing, afternoon focus,
@@ -104,11 +150,11 @@ class ProactiveScheduler:
         bot: "Bot",
         goal_store: GoalStore,
         fact_store: FactStore | None = None,
-        calendar_client=None,   # remy.google.calendar.CalendarClient | None
-        contacts_client=None,   # remy.google.contacts.ContactsClient | None
+        calendar_client=None,  # remy.google.calendar.CalendarClient | None
+        contacts_client=None,  # remy.google.contacts.ContactsClient | None
         automation_store: "AutomationStore | None" = None,
         claude_client: "ClaudeClient | None" = None,
-        conversation_analyzer=None,     # remy.analytics.analyzer.ConversationAnalyzer | None
+        conversation_analyzer=None,  # remy.analytics.analyzer.ConversationAnalyzer | None
         session_manager: "SessionManager | None" = None,
         conv_store: "ConversationStore | None" = None,
         tool_registry: "ToolRegistry | None" = None,
@@ -137,7 +183,9 @@ class ProactiveScheduler:
         try:
             briefing_trigger = _parse_cron(settings.briefing_cron)
             checkin_trigger = _parse_cron(settings.checkin_cron)
-            afternoon_cron = getattr(settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT)
+            afternoon_cron = getattr(
+                settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT
+            )
             afternoon_trigger = _parse_cron(afternoon_cron)
         except ValueError as e:
             logger.error("Invalid cron config, scheduler not started: %s", e)
@@ -171,7 +219,9 @@ class ProactiveScheduler:
         self._scheduler.add_job(
             self._monthly_retrospective,
             trigger=CronTrigger(
-                day="last", hour=18, minute=0,
+                day="last",
+                hour=18,
+                minute=0,
                 timezone=settings.scheduler_timezone,
             ),
             id="monthly_retrospective",
@@ -195,10 +245,14 @@ class ProactiveScheduler:
                 )
                 logger.info("File reindex job scheduled: %s", reindex_cron)
             except ValueError as e:
-                logger.warning("Invalid reindex cron %r, job not scheduled: %s", reindex_cron, e)
+                logger.warning(
+                    "Invalid reindex cron %r, job not scheduled: %s", reindex_cron, e
+                )
 
         # End-of-day memory consolidation (22:00 by default)
-        consolidation_cron = getattr(settings, "consolidation_cron", _CONSOLIDATION_CRON_DEFAULT)
+        consolidation_cron = getattr(
+            settings, "consolidation_cron", _CONSOLIDATION_CRON_DEFAULT
+        )
         try:
             consolidation_trigger = _parse_cron(consolidation_cron)
             self._scheduler.add_job(
@@ -211,7 +265,21 @@ class ProactiveScheduler:
             )
             logger.info("Memory consolidation job scheduled: %s", consolidation_cron)
         except ValueError as e:
-            logger.warning("Invalid consolidation cron %r, job not scheduled: %s", consolidation_cron, e)
+            logger.warning(
+                "Invalid consolidation cron %r, job not scheduled: %s",
+                consolidation_cron,
+                e,
+            )
+
+        # Relay inbox poller — check for messages/tasks from cowork every 60s
+        self._scheduler.add_job(
+            self._poll_relay_inbox,
+            trigger=IntervalTrigger(seconds=60),
+            id="relay_inbox_poll",
+            replace_existing=True,
+            misfire_grace_time=30,
+            coalesce=True,
+        )
 
         self._scheduler.start()
         logger.info(
@@ -243,14 +311,90 @@ class ProactiveScheduler:
 
         for row in rows:
             self._register_automation_job(
-                row["id"], row["user_id"], row["label"], row["cron"],
+                row["id"],
+                row["user_id"],
+                row["label"],
+                row["cron"],
                 fire_at=row.get("fire_at"),
             )
         if rows:
             logger.info("Loaded %d user automation(s) into scheduler", len(rows))
 
+    async def run_startup_reconciliation(self) -> None:
+        """
+        On startup, fire any daily jobs (afternoon, evening, consolidation) that
+        should have run today but were missed because the bot was down.
+
+        Uses a persistent delivery log to avoid double-firing. If the current time
+        is past a job's scheduled hour and we have no delivery record for today,
+        fire it now (with a short delay to let the bot fully initialise).
+        """
+        if _read_primary_chat_id() is None:
+            return
+
+        tz = ZoneInfo(settings.scheduler_timezone)
+        now = datetime.now(tz)
+        today = now.strftime("%Y-%m-%d")
+        current_hour = now.hour
+        log = _load_delivery_log()
+
+        afternoon_cron = getattr(settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT)
+        consolidation_cron = getattr(
+            settings, "consolidation_cron", _CONSOLIDATION_CRON_DEFAULT
+        )
+
+        jobs_to_fire: list[tuple[str, str]] = []  # (job_id, delay_reason)
+        if (
+            current_hour >= _cron_hour(afternoon_cron)
+            and log.get("afternoon_focus") != today
+        ):
+            jobs_to_fire.append(("afternoon_focus", "afternoon focus missed"))
+        if (
+            current_hour >= _cron_hour(settings.checkin_cron)
+            and log.get("evening_checkin") != today
+        ):
+            jobs_to_fire.append(("evening_checkin", "evening check-in missed"))
+        if (
+            current_hour >= _cron_hour(consolidation_cron)
+            and log.get("end_of_day_consolidation") != today
+        ):
+            jobs_to_fire.append(
+                ("end_of_day_consolidation", "memory consolidation missed")
+            )
+
+        if not jobs_to_fire:
+            return
+
+        logger.info(
+            "Startup reconciliation: firing %d missed job(s): %s",
+            len(jobs_to_fire),
+            [j[0] for j in jobs_to_fire],
+        )
+
+        # Short delay so the bot is fully ready
+        await asyncio.sleep(5)
+
+        for job_id, delay_reason in jobs_to_fire:
+            try:
+                if job_id == "afternoon_focus":
+                    await self._afternoon_focus()
+                elif job_id == "evening_checkin":
+                    await self._evening_checkin()
+                elif job_id == "end_of_day_consolidation":
+                    await self._end_of_day_consolidation()
+            except Exception as e:
+                logger.warning(
+                    "Startup reconciliation: %s failed: %s",
+                    delay_reason,
+                    e,
+                )
+
     def add_automation(
-        self, automation_id: int, user_id: int, label: str, cron: str,
+        self,
+        automation_id: int,
+        user_id: int,
+        label: str,
+        cron: str,
         fire_at: str | None = None,
     ) -> None:
         """Register a single automation job.
@@ -258,7 +402,9 @@ class ProactiveScheduler:
         For recurring reminders pass a 5-field *cron* string.
         For one-time reminders pass a *fire_at* ISO 8601 datetime string.
         """
-        self._register_automation_job(automation_id, user_id, label, cron, fire_at=fire_at)
+        self._register_automation_job(
+            automation_id, user_id, label, cron, fire_at=fire_at
+        )
 
     def remove_automation(self, automation_id: int) -> None:
         """Remove an automation job from the scheduler."""
@@ -267,10 +413,16 @@ class ProactiveScheduler:
             self._scheduler.remove_job(job_id)
             logger.info("Removed automation job %s", job_id)
         except Exception as e:
-            logger.debug("Job %s not found in scheduler (may have been restarted): %s", job_id, e)
+            logger.debug(
+                "Job %s not found in scheduler (may have been restarted): %s", job_id, e
+            )
 
     def _register_automation_job(
-        self, automation_id: int, user_id: int, label: str, cron: str,
+        self,
+        automation_id: int,
+        user_id: int,
+        label: str,
+        cron: str,
         fire_at: str | None = None,
     ) -> None:
         job_id = f"automation_{automation_id}"
@@ -281,22 +433,33 @@ class ProactiveScheduler:
             except ValueError as e:
                 logger.warning(
                     "Skipping one-time automation %d — invalid fire_at %r: %s",
-                    automation_id, fire_at, e,
+                    automation_id,
+                    fire_at,
+                    e,
                 )
                 return
-            trigger = DateTrigger(run_date=run_date, timezone=settings.scheduler_timezone)
+            trigger = DateTrigger(
+                run_date=run_date, timezone=settings.scheduler_timezone
+            )
             one_time = True
-            logger.debug("Registered one-time automation job %s (fire_at: %s)", job_id, fire_at)
+            logger.debug(
+                "Registered one-time automation job %s (fire_at: %s)", job_id, fire_at
+            )
         else:
             try:
                 trigger = _parse_cron(cron)
             except ValueError as e:
                 logger.warning(
-                    "Skipping automation %d — invalid cron %r: %s", automation_id, cron, e,
+                    "Skipping automation %d — invalid cron %r: %s",
+                    automation_id,
+                    cron,
+                    e,
                 )
                 return
             one_time = False
-            logger.debug("Registered recurring automation job %s (cron: %s)", job_id, cron)
+            logger.debug(
+                "Registered recurring automation job %s (cron: %s)", job_id, cron
+            )
 
         async def _job():
             await self._run_automation(automation_id, user_id, label, one_time=one_time)
@@ -315,7 +478,10 @@ class ProactiveScheduler:
     ) -> None:
         """Fire a user-defined automation through the full Claude pipeline."""
         logger.info(
-            "Automation %d dispatching (one_time=%s, label=%r)", automation_id, one_time, label
+            "Automation %d dispatching (one_time=%s, label=%r)",
+            automation_id,
+            one_time,
+            label,
         )
         chat_id = _read_primary_chat_id()
         if chat_id is None:
@@ -333,10 +499,14 @@ class ProactiveScheduler:
             if one_time:
                 try:
                     await self._automation_store.delete(automation_id)
-                    logger.info("Deleted one-time automation %d before firing", automation_id)
+                    logger.info(
+                        "Deleted one-time automation %d before firing", automation_id
+                    )
                 except Exception as e:
                     logger.warning(
-                        "Could not delete one-time automation %d: %s", automation_id, e,
+                        "Could not delete one-time automation %d: %s",
+                        automation_id,
+                        e,
                     )
                 # Log the completed reminder as a memory fact for future reference
                 await self._log_completed_reminder(user_id, label)
@@ -345,7 +515,9 @@ class ProactiveScheduler:
                     await self._automation_store.update_last_run(automation_id)
                 except Exception as e:
                     logger.warning(
-                        "Could not update last_run for automation %d: %s", automation_id, e,
+                        "Could not update last_run for automation %d: %s",
+                        automation_id,
+                        e,
                     )
 
         # Agentic path: invoke the full Claude pipeline so Remy can reason,
@@ -359,6 +531,7 @@ class ProactiveScheduler:
         if pipeline_available:
             try:
                 from ..bot.pipeline import run_proactive_trigger
+
                 await run_proactive_trigger(
                     label=label,
                     user_id=user_id,
@@ -369,16 +542,28 @@ class ProactiveScheduler:
                     session_manager=self._session_manager,
                     conv_store=self._conv_store,
                     db=self._db,
+                    automation_id=0 if one_time else automation_id,
+                    one_time=one_time,
                 )
                 return
             except Exception as e:
                 logger.warning(
                     "Proactive pipeline failed for automation %d, falling back to raw send: %s",
-                    automation_id, e,
+                    automation_id,
+                    e,
                 )
 
-        # Fallback: raw string send (pipeline unavailable or errored)
-        await self._send(chat_id, f"⏰ *Reminder:* {label}")
+        # Fallback: raw string send with snooze/done buttons
+        user_ids = settings.telegram_allowed_users
+        uid = user_ids[0] if user_ids else user_id
+        await self._send_reminder(
+            chat_id=chat_id,
+            text=f"⏰ *Reminder:* {label}",
+            user_id=uid,
+            label=label,
+            automation_id=automation_id if not one_time else 0,
+            one_time=one_time,
+        )
 
     async def _log_completed_reminder(self, user_id: int, label: str) -> None:
         """Store a fact recording that a one-time reminder was completed.
@@ -397,25 +582,121 @@ class ProactiveScheduler:
             await self._fact_store.add(user_id, fact_content, category="other")
             logger.info(
                 "Logged completed one-time reminder as fact for user %d: %s",
-                user_id, label[:50],
+                user_id,
+                label[:50],
             )
         except Exception as e:
             logger.warning(
-                "Could not log completed reminder as fact: %s", e,
+                "Could not log completed reminder as fact: %s",
+                e,
             )
 
     async def _send(self, chat_id: int, text: str) -> None:
         """Send a message, swallowing errors so a bad send never kills the scheduler."""
         try:
             formatted = format_telegram_message(text)
-            await self._bot.send_message(chat_id=chat_id, text=formatted, parse_mode="MarkdownV2")
-            logger.info("Proactive send succeeded (chat %d, %d chars)", chat_id, len(text))
+            await self._bot.send_message(
+                chat_id=chat_id, text=formatted, parse_mode="MarkdownV2"
+            )
+            logger.info(
+                "Proactive send succeeded (chat %d, %d chars)", chat_id, len(text)
+            )
         except Exception:
             try:
                 await self._bot.send_message(chat_id=chat_id, text=text)
-                logger.info("Proactive send succeeded (plain text fallback, chat %d)", chat_id)
+                logger.info(
+                    "Proactive send succeeded (plain text fallback, chat %d)", chat_id
+                )
             except Exception as e:
                 logger.warning("Proactive send failed (chat %d): %s", chat_id, e)
+
+    async def _send_reminder(
+        self,
+        chat_id: int,
+        text: str,
+        user_id: int,
+        label: str,
+        automation_id: int = 0,
+        one_time: bool = False,
+    ) -> None:
+        """Send a reminder message with [Snooze 5m] [Snooze 15m] [Done] inline keyboard."""
+        from ..bot.handlers.callbacks import (
+            make_reminder_keyboard,
+            store_reminder_payload,
+        )
+
+        token = store_reminder_payload(
+            user_id=user_id,
+            chat_id=chat_id,
+            label=label,
+            automation_id=automation_id,
+            one_time=one_time,
+        )
+        keyboard = make_reminder_keyboard(token)
+        try:
+            formatted = format_telegram_message(text)
+            await self._bot.send_message(
+                chat_id=chat_id,
+                text=formatted,
+                parse_mode="MarkdownV2",
+                reply_markup=keyboard,
+            )
+            logger.info(
+                "Proactive reminder sent (chat %d, %d chars, with snooze/done buttons)",
+                chat_id,
+                len(text),
+            )
+        except Exception:
+            try:
+                await self._bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=keyboard,
+                )
+                logger.info(
+                    "Proactive reminder sent (plain text fallback, chat %d)", chat_id
+                )
+            except Exception as e:
+                logger.warning(
+                    "Proactive reminder send failed (chat %d): %s", chat_id, e
+                )
+
+    async def _poll_relay_inbox(self) -> None:
+        """Every-60s job — deliver unread relay messages and pending tasks to Dale via Telegram."""
+        chat_id = _read_primary_chat_id()
+        if chat_id is None:
+            return
+
+        try:
+            from ..relay.client import get_messages_for_remy, get_tasks_for_remy
+        except ImportError:
+            return
+
+        try:
+            messages = await get_messages_for_remy()
+            for msg in messages:
+                from_agent = msg.get("from_agent") or "cowork"
+                content = (msg.get("content") or "").strip()
+                if content:
+                    await self._send(
+                        chat_id, f"📨 *Message from {from_agent}:*\n\n{content}"
+                    )
+        except Exception as e:
+            logger.warning("Relay inbox poll (messages) failed: %s", e)
+
+        try:
+            tasks = await get_tasks_for_remy()
+            for task in tasks:
+                task_id = task.get("id") or "?"
+                task_type = task.get("task_type") or "general"
+                from_agent = task.get("from_agent") or "cowork"
+                description = (task.get("description") or "").strip()
+                await self._send(
+                    chat_id,
+                    f"📋 *New task from {from_agent}* (`{task_id}`):\n*Type:* `{task_type}`\n\n{description}",
+                )
+        except Exception as e:
+            logger.warning("Relay inbox poll (tasks) failed: %s", e)
 
     async def _morning_briefing(self) -> None:
         """07:00 job — send a summary of active goals, calendar, birthdays, downloads."""
@@ -467,6 +748,7 @@ class ProactiveScheduler:
         )
         content = await generator.generate()
         await self._send(chat_id, content)
+        _record_delivery("afternoon_focus")
 
     async def _evening_checkin(self) -> None:
         """19:00 job — nudge about goals that haven't been mentioned recently."""
@@ -490,6 +772,7 @@ class ProactiveScheduler:
 
         logger.info("Sending evening check-in to chat %d", chat_id)
         await self._send(chat_id, content)
+        _record_delivery("evening_checkin")
 
     async def _monthly_retrospective(self) -> None:
         """Last-day-of-month job — generate and send a monthly retrospective."""
@@ -557,7 +840,9 @@ class ProactiveScheduler:
             return
 
         if self._conv_store is None:
-            logger.debug("Memory consolidation skipped — conversation store not configured")
+            logger.debug(
+                "Memory consolidation skipped — conversation store not configured"
+            )
             return
 
         if self._claude_client is None:
@@ -574,13 +859,20 @@ class ProactiveScheduler:
         for user_id in user_ids:
             try:
                 result = await self._consolidate_user_memory(user_id)
-                if result.get("facts_stored", 0) > 0 or result.get("goals_stored", 0) > 0:
+                if (
+                    result.get("facts_stored", 0) > 0
+                    or result.get("goals_stored", 0) > 0
+                ):
                     logger.info(
                         "Memory consolidation for user %d: %d facts, %d goals stored",
-                        user_id, result.get("facts_stored", 0), result.get("goals_stored", 0),
+                        user_id,
+                        result.get("facts_stored", 0),
+                        result.get("goals_stored", 0),
                     )
             except Exception as e:
                 logger.error("Memory consolidation failed for user %d: %s", user_id, e)
+
+        _record_delivery("end_of_day_consolidation")
 
     async def _consolidate_user_memory(self, user_id: int) -> dict:
         """
@@ -588,8 +880,6 @@ class ProactiveScheduler:
 
         Returns dict with facts_stored and goals_stored counts.
         """
-        from ..memory.knowledge import KnowledgeStore
-
         turns = await self._conv_store.get_today_messages(user_id)
         if not turns:
             logger.debug("No conversations today for user %d", user_id)
@@ -601,7 +891,9 @@ class ProactiveScheduler:
             role_label = "Dale" if turn.role == "user" else "Remy"
             content = turn.content
             # Skip tool turns and compacted summaries
-            if content.startswith("__TOOL_TURN__:") or content.startswith("[COMPACTED SUMMARY]"):
+            if content.startswith("__TOOL_TURN__:") or content.startswith(
+                "[COMPACTED SUMMARY]"
+            ):
                 continue
             # Truncate very long messages
             if len(content) > 500:
@@ -638,7 +930,7 @@ class ProactiveScheduler:
             "- Trivial chat ('it's hot today')\n"
             "- Information already stored (assume Remy stores facts proactively)\n"
             "- Temporary states that will change soon\n\n"
-            "If nothing worth storing, return: {\"facts\": [], \"goals\": []}"
+            'If nothing worth storing, return: {"facts": [], "goals": []}'
         )
 
         try:
@@ -659,6 +951,7 @@ class ProactiveScheduler:
 
         # Parse Claude's response
         import json
+
         try:
             # Handle response that might have markdown code blocks
             response_text = response if isinstance(response, str) else str(response)
@@ -732,7 +1025,7 @@ class ProactiveScheduler:
 
     async def run_file_reindex_now(self) -> dict:
         """Trigger file reindexing immediately (e.g. via /reindex command).
-        
+
         Returns stats dict with files_indexed, chunks_created, etc.
         """
         if self._file_indexer is None:

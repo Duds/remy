@@ -70,6 +70,12 @@ class TestSubmoduleImports:
         from remy.bot.handlers import chat
         assert hasattr(chat, "make_chat_handlers")
 
+    def test_import_callbacks(self):
+        from remy.bot.handlers import callbacks
+        assert hasattr(callbacks, "make_callback_handler")
+        assert hasattr(callbacks, "store_pending_archive")
+        assert hasattr(callbacks, "make_archive_keyboard")
+
 
 class TestReExportedUtilities:
     """Verify utilities are accessible from package root."""

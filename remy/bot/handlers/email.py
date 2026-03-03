@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .base import reject_unauthorized, google_not_configured, _pending_archive
+from .base import reject_unauthorized, google_not_configured
+from .callbacks import store_pending_archive, make_archive_keyboard
 
 if TYPE_CHECKING:
     from ...google.gmail import GmailClient
@@ -103,16 +104,20 @@ def make_email_handlers(
             await update.message.reply_text("✅ No promotional emails detected.")
             return
         user_id = update.effective_user.id
-        _pending_archive[user_id] = [e["id"] for e in promos]
+        message_ids = [e["id"] for e in promos]
+        token = store_pending_archive(user_id, message_ids)
         lines = [f"🗑 *{len(promos)} promotional email(s) found:*\n"]
         for e in promos[:10]:
             lines.append(f"• {e['subject'][:80]}\n  _From: {e['from_addr'][:60]}_")
         if len(promos) > 10:
             lines.append(f"…and {len(promos) - 10} more")
-        lines.append(
-            f"\nReply *yes* to archive all {len(promos)} emails, or anything else to cancel."
+        lines.append(f"\nTap [Confirm] to archive all {len(promos)} emails.")
+        keyboard = make_archive_keyboard(token)
+        await update.message.reply_text(
+            "\n".join(lines),
+            parse_mode="Markdown",
+            reply_markup=keyboard,
         )
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def gmail_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/gmail-search <query> — search all Gmail with Gmail query syntax."""

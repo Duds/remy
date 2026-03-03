@@ -12,6 +12,7 @@ import os
 import telegram.error
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -155,6 +156,8 @@ class TelegramBot:
             MessageHandler(filters.Document.ALL, handlers["document"])
         )
         app.add_handler(MessageReactionHandler(handlers["reaction"]))
+        if handlers.get("callback"):
+            app.add_handler(CallbackQueryHandler(handlers["callback"]))
         app.add_error_handler(_error_handler)
 
     def run(self) -> None:

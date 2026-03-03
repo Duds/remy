@@ -25,6 +25,8 @@ build/
 
 # Editor / tooling (local only)
 .claude/
+.cursor/settings.local.json
+.cursor/audit.log
 .vscode/settings.local.json
 remy-system-prompt.md
 .hf_token
