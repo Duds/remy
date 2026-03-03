@@ -1,6 +1,6 @@
 # User Story: Cloudflare Tunnel — Remote Observability
 
-**Status:** 🔄 In Progress
+**Status:** ✅ Done
 
 ## Summary
 
@@ -31,7 +31,9 @@ The `/logs` and `/telemetry` endpoints were added in March 2026 (see `remy/healt
 - [x] `.env.example` — `CLOUDFLARE_TUNNEL_TOKEN=` added with setup comments
 - [x] `Makefile` — `tunnel-up`, `tunnel-stop`, `tunnel-logs`, `telemetry`, `logs` targets added
 
-**Remaining:** One-time infrastructure setup on the Mac Mini (no code changes needed).
+**Public URL:** `https://remy.dalerogers.com.au`
+
+**Completed:** Tunnel live as of 2026-03-03. `/health` returns 200 from any network. `/telemetry` and `/logs` return 401 without Bearer token.
 
 ---
 

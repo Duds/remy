@@ -422,7 +422,7 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **C**    | Telegram Markdown header/formatting fixes                          | US-telegram-markdown-fix            | ✅ Done                      |
 | **S**    | Telegram catch-all error handler                                   | US-telegram-error-handler           | ✅ Done                      |
 | **S**    | Multi-Model Orchestration (Mistral, Moonshot)                      | US-model-orchestration              | ✅ Done                      |
-| **S**    | Cloudflare Tunnel — remote log/telemetry access                    | US-cloudflare-tunnel-remote-observability | 🔄 In Progress (setup on Mac Mini pending) |
+| **S**    | Cloudflare Tunnel — remote log/telemetry access                    | US-cloudflare-tunnel-remote-observability | ✅ Done — https://remy.dalerogers.com.au |
 | **S**    | Claude Agent SDK subagents                                         | US-claude-agent-sdk-subagents       | ⬜ Deferred (major refactor) |
 | **S**    | Gmail send                                                         | —                                   | ⬜ Deferred (security)       |
 | **W**    | Headless browser automation                                        | —                                   | ❌ Avoid                     |
@@ -434,10 +434,7 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 ### P1 — Immediate (small–medium, clear value)
 
-1. **Cloudflare Tunnel setup** (`US-cloudflare-tunnel-remote-observability`) — code done; one-time infra setup on Mac Mini still needed
-   - Create tunnel in Cloudflare Zero Trust dashboard, name it `remy`
-   - Set `CLOUDFLARE_TUNNEL_TOKEN` and `HEALTH_API_TOKEN` in `.env` on Mac Mini
-   - Run `make tunnel-up` — then verify with `make telemetry HOST=remy.<domain> TOKEN=<token>`
+1. ~~**Cloudflare Tunnel setup** (`US-cloudflare-tunnel-remote-observability`) — ✅ Done — https://remy.dalerogers.com.au~~
 
 1. ~~**Multi-Model Orchestration** — complete~~
 1. ~~**Fix tool dispatch exception recovery** — complete~~
