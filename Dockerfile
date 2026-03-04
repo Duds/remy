@@ -35,9 +35,9 @@ RUN --mount=type=secret,id=HF_TOKEN,env=HF_TOKEN \
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
-# ffmpeg required by faster-whisper for audio format conversion
+# ffmpeg required by faster-whisper; curl for healthcheck; git for git_log/git_diff/git_status (US-git-commits-and-diffs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg curl \
+    ffmpeg curl git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user for security

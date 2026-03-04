@@ -2976,7 +2976,22 @@ Start by introducing the audit and asking for the first identifier to check."""
         from ..bot.handlers.callbacks import make_step_limit_keyboard
 
         reply_markup = make_step_limit_keyboard() if step_limit_reached else None
-        await _flush_display(final=True, reply_markup=reply_markup)
+        # Bug 35/42: When the only tool is react_to_message and there's no text,
+        # delete the status message — the emoji reaction is the complete response.
+        _REACTION_ONLY_TOOLS = frozenset({"react_to_message"})
+        tool_names = set()
+        for assistant_blocks, _ in tool_turns:
+            for block in assistant_blocks:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_names.add(block.get("name"))
+        final_text = "".join(current_display).strip()
+        if tool_turns and not final_text and tool_names == _REACTION_ONLY_TOOLS:
+            try:
+                await sent.delete()
+            except Exception as e:
+                logger.debug("Could not delete react_to_message status message: %s", e)
+        else:
+            await _flush_display(final=True, reply_markup=reply_markup)
 
         # Calculate streaming time (total - ttft - tool execution)
         streaming_ms = (
@@ -3012,7 +3027,6 @@ Start by introducing the audit and asking for the first identifier to check."""
         # current_display is reset on every ToolTurnComplete, so it contains only
         # the final iteration's text — pre-tool preambles from intermediate iterations
         # are already stored inside each tool_turn's assistant_blocks.
-        final_text = "".join(current_display).strip()
         if final_text:
             await conv_store.append_turn(
                 user_id,

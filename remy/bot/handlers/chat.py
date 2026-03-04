@@ -446,27 +446,31 @@ def make_chat_handlers(
         if bot is not None and tool_turns:
             await apply_completion_reaction(bot, chat_id, message_id, tool_turns)
 
-        await _flush_display(final=True, reply_markup=reply_markup)
-        # Retry once if there's text to display — the first attempt may have failed
-        # due to a transient Telegram disconnect, leaving the " …" suffix showing.
-        if "".join(current_display).strip():
-            await asyncio.sleep(0.3)
+        # Bug 35/42: When the only tool is react_to_message and there's no text,
+        # delete the status message — the emoji reaction is the complete response.
+        # Do this BEFORE _flush_display to avoid any "✓" edit (Bug 42 regression).
+        _REACTION_ONLY_TOOLS = frozenset({"react_to_message"})
+        tool_names = set()
+        for assistant_blocks, _ in tool_turns:
+            for block in assistant_blocks:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_names.add(block.get("name"))
+        final_text_accum = "".join(current_display).strip()
+        if tool_turns and not final_text_accum and tool_names == _REACTION_ONLY_TOOLS:
+            try:
+                await sent.delete()
+            except BadRequest as e:
+                logger.debug("Could not delete react_to_message status message: %s", e)
+            except Exception as e:
+                logger.debug("Could not delete react_to_message status message: %s", e)
+        else:
             await _flush_display(final=True, reply_markup=reply_markup)
-        elif tool_turns:
-            # Claude ended with a tool call and produced no text. The message still
-            # shows "⚙️ Using tool_name…". For react_to_message alone, delete the
-            # message — the emoji reaction is the complete response (Bug 35).
-            tool_names = set()
-            for assistant_blocks, _ in tool_turns:
-                for block in assistant_blocks:
-                    if isinstance(block, dict) and block.get("type") == "tool_use":
-                        tool_names.add(block.get("name"))
-            if tool_names == {"react_to_message"}:
-                try:
-                    await sent.delete()
-                except Exception:
-                    pass
-            else:
+            # Retry once if there's text to display — the first attempt may have failed
+            # due to a transient Telegram disconnect, leaving the " …" suffix showing.
+            if final_text_accum:
+                await asyncio.sleep(0.3)
+                await _flush_display(final=True, reply_markup=reply_markup)
+            elif tool_turns:
                 try:
                     await sent.edit_text("✓", reply_markup=reply_markup)
                 except Exception:

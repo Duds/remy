@@ -228,6 +228,20 @@ async def run_proactive_trigger(
         await streamer.finalize()
         final_text = streamer.full_text.strip()
 
+        # Bug 35/42: When the only tool is react_to_message and there's no text,
+        # delete the status message — the emoji reaction is the complete response.
+        _REACTION_ONLY_TOOLS = frozenset({"react_to_message"})
+        tool_names = set()
+        for assistant_blocks, _ in tool_turns:
+            for block in assistant_blocks:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_names.add(block.get("name"))
+        if tool_turns and not final_text and tool_names == _REACTION_ONLY_TOOLS:
+            try:
+                await sent.delete()
+            except Exception as e:
+                logger.debug("Could not delete react_to_message status message: %s", e)
+
         # ------------------------------------------------------------------ #
         # 4b. Attach keyboard to message                                      #
         #     Reminders: [Snooze 5m] [Snooze 15m] [Done]                       #

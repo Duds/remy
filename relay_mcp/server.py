@@ -28,14 +28,15 @@ from pydantic import BaseModel, ConfigDict, Field
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 DEFAULT_PORT = 8765
-DEFAULT_DB   = Path(__file__).parent / "relay.db"
+DEFAULT_DB = Path(__file__).parent / "relay.db"
 
-KNOWN_AGENTS = ["cowork", "remy"]   # informational only — not enforced
+KNOWN_AGENTS = ["cowork", "remy"]  # informational only — not enforced
 
-TASK_STATUSES  = {"pending", "in_progress", "done", "failed", "needs_clarification"}
+TASK_STATUSES = {"pending", "in_progress", "done", "failed", "needs_clarification"}
 VALID_STATUSES = ", ".join(sorted(TASK_STATUSES))
 
 # ── Database ───────────────────────────────────────────────────────────────────
+
 
 def get_db(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -86,19 +87,35 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-# DB connection lives for the server lifetime, injected via lifespan state
+# DB connection lives for the server lifetime; set in lifespan for use by tool handlers.
+# (Tool handlers do not use ctx.request_context — the MCP SDK can pass a string as the
+# second argument, causing 'str' object has no attribute 'request_context'.)
 _db_path: Path = DEFAULT_DB
+_db_connection: Optional[sqlite3.Connection] = None
+
+
+def _get_db() -> sqlite3.Connection:
+    """Return the lifespan DB connection. Raises RuntimeError if server not ready."""
+    if _db_connection is None:
+        raise RuntimeError("relay_mcp: database not initialised (lifespan not started)")
+    return _db_connection
 
 
 @asynccontextmanager
 async def lifespan(app):
+    global _db_connection
     conn = get_db(_db_path)
     init_db(conn)
-    yield {"db": conn}
-    conn.close()
+    _db_connection = conn
+    try:
+        yield {"db": conn}
+    finally:
+        _db_connection = None
+        conn.close()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -121,13 +138,32 @@ mcp = FastMCP("relay_mcp", lifespan=lifespan)
 # MESSAGING TOOLS
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class PostMessageInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    from_agent: str = Field(..., description="Name of the sending agent (e.g. 'cowork', 'remy')", min_length=1, max_length=50)
-    to_agent:   str = Field(..., description="Name of the receiving agent (e.g. 'remy', 'cowork')", min_length=1, max_length=50)
-    content:    str = Field(..., description="Message body — plain text or markdown", min_length=1, max_length=8000)
-    thread_id:  Optional[str] = Field(default=None, description="Thread ID to group related messages. Omit to start a new thread.")
+    from_agent: str = Field(
+        ...,
+        description="Name of the sending agent (e.g. 'cowork', 'remy')",
+        min_length=1,
+        max_length=50,
+    )
+    to_agent: str = Field(
+        ...,
+        description="Name of the receiving agent (e.g. 'remy', 'cowork')",
+        min_length=1,
+        max_length=50,
+    )
+    content: str = Field(
+        ...,
+        description="Message body — plain text or markdown",
+        min_length=1,
+        max_length=8000,
+    )
+    thread_id: Optional[str] = Field(
+        default=None,
+        description="Thread ID to group related messages. Omit to start a new thread.",
+    )
 
 
 @mcp.tool(
@@ -140,7 +176,7 @@ class PostMessageInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_post_message(params: PostMessageInput, ctx) -> str:
+async def relay_post_message(params: PostMessageInput) -> str:
     """Send a message from one agent to another.
 
     Use this to communicate across agent boundaries — ask questions, share
@@ -163,14 +199,20 @@ async def relay_post_message(params: PostMessageInput, ctx) -> str:
         - Use when: asking Remy "how many emails were trashed in the last run?"
         - Use when: Remy needs to ask cowork "should I also delete read AusTender?"
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
-    msg_id    = new_id()
-    thread_id = params.thread_id or msg_id   # new thread if none given
+    db = _get_db()
+    msg_id = new_id()
+    thread_id = params.thread_id or msg_id  # new thread if none given
 
     db.execute(
         "INSERT INTO messages VALUES (?,?,?,?,?,0,?)",
-        (msg_id, params.from_agent, params.to_agent,
-         params.content, thread_id, now_iso()),
+        (
+            msg_id,
+            params.from_agent,
+            params.to_agent,
+            params.content,
+            thread_id,
+            now_iso(),
+        ),
     )
     db.commit()
 
@@ -179,26 +221,39 @@ async def relay_post_message(params: PostMessageInput, ctx) -> str:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class GetMessagesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent:       str  = Field(..., description="Agent name to fetch messages for (e.g. 'remy')", min_length=1, max_length=50)
-    unread_only: bool = Field(default=True,  description="If true, only return unread messages (default: true)")
-    limit:       int  = Field(default=20,    description="Maximum messages to return (1–100)", ge=1, le=100)
-    mark_read:   bool = Field(default=True,  description="Automatically mark returned messages as read (default: true)")
+    agent: str = Field(
+        ...,
+        description="Agent name to fetch messages for (e.g. 'remy')",
+        min_length=1,
+        max_length=50,
+    )
+    unread_only: bool = Field(
+        default=True, description="If true, only return unread messages (default: true)"
+    )
+    limit: int = Field(
+        default=20, description="Maximum messages to return (1–100)", ge=1, le=100
+    )
+    mark_read: bool = Field(
+        default=True,
+        description="Automatically mark returned messages as read (default: true)",
+    )
 
 
 @mcp.tool(
     name="relay_get_messages",
     annotations={
         "title": "Get messages for an agent",
-        "readOnlyHint": False,   # may mark as read
+        "readOnlyHint": False,  # may mark as read
         "destructiveHint": False,
         "idempotentHint": False,
         "openWorldHint": False,
     },
 )
-async def relay_get_messages(params: GetMessagesInput, ctx) -> str:
+async def relay_get_messages(params: GetMessagesInput) -> str:
     """Retrieve messages sent to this agent, optionally marking them as read.
 
     Call this at the start of a session to check for new instructions or
@@ -229,7 +284,7 @@ async def relay_get_messages(params: GetMessagesInput, ctx) -> str:
             ]
         }
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
 
     where = "to_agent = ?"
     args: list[Any] = [params.agent]
@@ -248,7 +303,7 @@ async def relay_get_messages(params: GetMessagesInput, ctx) -> str:
     if params.mark_read and messages:
         ids = [m["id"] for m in messages]
         db.execute(
-            f"UPDATE messages SET read = 1 WHERE id IN ({','.join('?'*len(ids))})",
+            f"UPDATE messages SET read = 1 WHERE id IN ({','.join('?' * len(ids))})",
             ids,
         )
         db.commit()
@@ -258,25 +313,52 @@ async def relay_get_messages(params: GetMessagesInput, ctx) -> str:
         (params.agent,),
     ).fetchone()[0]
 
-    return json.dumps({
-        "agent": params.agent,
-        "unread_count": total_unread,
-        "messages": messages,
-    }, indent=2)
+    return json.dumps(
+        {
+            "agent": params.agent,
+            "unread_count": total_unread,
+            "messages": messages,
+        },
+        indent=2,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK TOOLS
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class PostTaskInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    from_agent:  str            = Field(..., description="Agent delegating the task (e.g. 'cowork')", min_length=1, max_length=50)
-    to_agent:    str            = Field(..., description="Agent who should execute the task (e.g. 'remy')", min_length=1, max_length=50)
-    task_type:   str            = Field(..., description="Short type identifier, e.g. 'gmail_label', 'gmail_delete', 'web_search'", min_length=1, max_length=100)
-    description: str            = Field(..., description="Human-readable description of what needs to be done", min_length=1, max_length=2000)
-    params:      dict[str, Any] = Field(default_factory=dict, description="Structured parameters for the task (free-form JSON object)")
+    from_agent: str = Field(
+        ...,
+        description="Agent delegating the task (e.g. 'cowork')",
+        min_length=1,
+        max_length=50,
+    )
+    to_agent: str = Field(
+        ...,
+        description="Agent who should execute the task (e.g. 'remy')",
+        min_length=1,
+        max_length=50,
+    )
+    task_type: str = Field(
+        ...,
+        description="Short type identifier, e.g. 'gmail_label', 'gmail_delete', 'web_search'",
+        min_length=1,
+        max_length=100,
+    )
+    description: str = Field(
+        ...,
+        description="Human-readable description of what needs to be done",
+        min_length=1,
+        max_length=2000,
+    )
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured parameters for the task (free-form JSON object)",
+    )
 
 
 @mcp.tool(
@@ -289,7 +371,7 @@ class PostTaskInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_post_task(params: PostTaskInput, ctx) -> str:
+async def relay_post_task(params: PostTaskInput) -> str:
     """Delegate a structured task to another agent for async execution.
 
     Use this when you want another agent to do something and report back.
@@ -313,16 +395,25 @@ async def relay_post_task(params: PostTaskInput, ctx) -> str:
         - Use when: asking Remy to search for something and return findings
           → task_type='research', params={'topic': '...'}
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
     task_id = new_id()
-    ts      = now_iso()
+    ts = now_iso()
 
     db.execute(
         "INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (task_id, params.from_agent, params.to_agent,
-         params.task_type, params.description,
-         json.dumps(params.params), "pending",
-         None, None, ts, ts),
+        (
+            task_id,
+            params.from_agent,
+            params.to_agent,
+            params.task_type,
+            params.description,
+            json.dumps(params.params),
+            "pending",
+            None,
+            None,
+            ts,
+            ts,
+        ),
     )
     db.commit()
 
@@ -331,12 +422,23 @@ async def relay_post_task(params: PostTaskInput, ctx) -> str:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class GetTasksInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent:  str           = Field(..., description="Agent name — returns tasks assigned TO this agent", min_length=1, max_length=50)
-    status: Optional[str] = Field(default=None, description=f"Filter by status. One of: {VALID_STATUSES}. Omit for all.")
-    limit:  int           = Field(default=20, description="Max tasks to return (1–100)", ge=1, le=100)
+    agent: str = Field(
+        ...,
+        description="Agent name — returns tasks assigned TO this agent",
+        min_length=1,
+        max_length=50,
+    )
+    status: Optional[str] = Field(
+        default=None,
+        description=f"Filter by status. One of: {VALID_STATUSES}. Omit for all.",
+    )
+    limit: int = Field(
+        default=20, description="Max tasks to return (1–100)", ge=1, le=100
+    )
 
 
 @mcp.tool(
@@ -349,7 +451,7 @@ class GetTasksInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_get_tasks(params: GetTasksInput, ctx) -> str:
+async def relay_get_tasks(params: GetTasksInput) -> str:
     """Retrieve tasks assigned to this agent, with optional status filter.
 
     Call this to discover what work has been delegated to you. Tasks are
@@ -383,10 +485,12 @@ async def relay_get_tasks(params: GetTasksInput, ctx) -> str:
             ]
         }
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
 
     if params.status and params.status not in TASK_STATUSES:
-        return f"Error: Invalid status '{params.status}'. Valid values: {VALID_STATUSES}"
+        return (
+            f"Error: Invalid status '{params.status}'. Valid values: {VALID_STATUSES}"
+        )
 
     where = "to_agent = ?"
     args: list[Any] = [params.agent]
@@ -410,22 +514,37 @@ async def relay_get_tasks(params: GetTasksInput, ctx) -> str:
         (params.agent,),
     ).fetchone()[0]
 
-    return json.dumps({
-        "agent": params.agent,
-        "pending_count": pending_count,
-        "tasks": tasks,
-    }, indent=2)
+    return json.dumps(
+        {
+            "agent": params.agent,
+            "pending_count": pending_count,
+            "tasks": tasks,
+        },
+        indent=2,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class UpdateTaskInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    task_id: str           = Field(..., description="Task ID to update (from relay_get_tasks)", min_length=1, max_length=20)
-    status:  str           = Field(..., description=f"New status. One of: {VALID_STATUSES}")
-    result:  Optional[str] = Field(default=None, description="Result or output of the task (set when status='done' or 'failed')")
-    notes:   Optional[str] = Field(default=None, description="Any additional context, errors, or questions for the delegating agent")
+    task_id: str = Field(
+        ...,
+        description="Task ID to update (from relay_get_tasks)",
+        min_length=1,
+        max_length=20,
+    )
+    status: str = Field(..., description=f"New status. One of: {VALID_STATUSES}")
+    result: Optional[str] = Field(
+        default=None,
+        description="Result or output of the task (set when status='done' or 'failed')",
+    )
+    notes: Optional[str] = Field(
+        default=None,
+        description="Any additional context, errors, or questions for the delegating agent",
+    )
 
 
 @mcp.tool(
@@ -438,7 +557,7 @@ class UpdateTaskInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_update_task(params: UpdateTaskInput, ctx) -> str:
+async def relay_update_task(params: UpdateTaskInput) -> str:
     """Update the status and result of a task you're executing.
 
     Use this to claim a task ('in_progress'), complete it ('done'),
@@ -461,10 +580,12 @@ async def relay_update_task(params: UpdateTaskInput, ctx) -> str:
         - Report a problem: status='failed', result='Label not found', notes='The label "4-Personal & Family" does not exist in the account'
         - Ask for guidance: status='needs_clarification', notes='Should I include emails older than 2025?'
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
 
     if params.status not in TASK_STATUSES:
-        return f"Error: Invalid status '{params.status}'. Valid values: {VALID_STATUSES}"
+        return (
+            f"Error: Invalid status '{params.status}'. Valid values: {VALID_STATUSES}"
+        )
 
     row = db.execute("SELECT id FROM tasks WHERE id = ?", (params.task_id,)).fetchone()
     if not row:
@@ -476,18 +597,23 @@ async def relay_update_task(params: UpdateTaskInput, ctx) -> str:
     )
     db.commit()
 
-    return json.dumps({
-        "task_id": params.task_id,
-        "status": params.status,
-        "updated": True,
-    })
+    return json.dumps(
+        {
+            "task_id": params.task_id,
+            "status": params.status,
+            "updated": True,
+        }
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class GetTaskStatusInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    task_id: str = Field(..., description="Task ID to check", min_length=1, max_length=20)
+    task_id: str = Field(
+        ..., description="Task ID to check", min_length=1, max_length=20
+    )
 
 
 @mcp.tool(
@@ -500,7 +626,7 @@ class GetTaskStatusInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_get_task_status(params: GetTaskStatusInput, ctx) -> str:
+async def relay_get_task_status(params: GetTaskStatusInput) -> str:
     """Get the current status and result of a specific task by ID.
 
     Use this to check whether a task you delegated has been completed,
@@ -513,7 +639,7 @@ async def relay_get_task_status(params: GetTaskStatusInput, ctx) -> str:
     Returns:
         str: JSON with full task details including status, result, and notes.
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
 
     row = db.execute("SELECT * FROM tasks WHERE id = ?", (params.task_id,)).fetchone()
     if not row:
@@ -528,12 +654,24 @@ async def relay_get_task_status(params: GetTaskStatusInput, ctx) -> str:
 # SHARED NOTES
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class PostNoteInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    from_agent: str       = Field(..., description="Agent posting the note", min_length=1, max_length=50)
-    content:    str       = Field(..., description="Note content — markdown supported", min_length=1, max_length=8000)
-    tags:       list[str] = Field(default_factory=list, description="Tags for categorisation, e.g. ['gmail', 'audit']", max_length=10)
+    from_agent: str = Field(
+        ..., description="Agent posting the note", min_length=1, max_length=50
+    )
+    content: str = Field(
+        ...,
+        description="Note content — markdown supported",
+        min_length=1,
+        max_length=8000,
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Tags for categorisation, e.g. ['gmail', 'audit']",
+        max_length=10,
+    )
 
 
 @mcp.tool(
@@ -546,7 +684,7 @@ class PostNoteInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_post_note(params: PostNoteInput, ctx) -> str:
+async def relay_post_note(params: PostNoteInput) -> str:
     """Post a shared note that any agent can read.
 
     Use this for observations, findings, or context that both agents
@@ -562,13 +700,18 @@ async def relay_post_note(params: PostNoteInput, ctx) -> str:
     Returns:
         str: JSON with the new note id.
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
     note_id = new_id()
 
     db.execute(
         "INSERT INTO shared_notes VALUES (?,?,?,?,?)",
-        (note_id, params.from_agent, params.content,
-         json.dumps(params.tags), now_iso()),
+        (
+            note_id,
+            params.from_agent,
+            params.content,
+            json.dumps(params.tags),
+            now_iso(),
+        ),
     )
     db.commit()
 
@@ -577,11 +720,17 @@ async def relay_post_note(params: PostNoteInput, ctx) -> str:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class GetNotesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tags:  list[str] = Field(default_factory=list, description="Filter by tag (any match). Omit for all notes.")
-    limit: int       = Field(default=20, description="Max notes to return (1–100)", ge=1, le=100)
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Filter by tag (any match). Omit for all notes.",
+    )
+    limit: int = Field(
+        default=20, description="Max notes to return (1–100)", ge=1, le=100
+    )
 
 
 @mcp.tool(
@@ -594,7 +743,7 @@ class GetNotesInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def relay_get_notes(params: GetNotesInput, ctx) -> str:
+async def relay_get_notes(params: GetNotesInput) -> str:
     """Read shared notes posted by any agent.
 
     Use this to catch up on context, findings, or observations left by
@@ -608,7 +757,7 @@ async def relay_get_notes(params: GetNotesInput, ctx) -> str:
     Returns:
         str: JSON list of notes, newest first.
     """
-    db: sqlite3.Connection = ctx.request_context.lifespan_state["db"]
+    db = _get_db()
 
     if params.tags:
         # SQLite JSON — match any tag using LIKE
@@ -637,12 +786,29 @@ async def relay_get_notes(params: GetNotesInput, ctx) -> str:
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="relay_mcp — inter-agent communication server")
-    p.add_argument("--port",  type=int,            default=DEFAULT_PORT,      help=f"HTTP port (default: {DEFAULT_PORT})")
-    p.add_argument("--host",  type=str,            default="127.0.0.1",       help="Bind host (default: 127.0.0.1)")
-    p.add_argument("--db",    type=str,            default=str(DEFAULT_DB),   help="Path to SQLite database file")
-    p.add_argument("--stdio", action="store_true", default=False,             help="Run as stdio MCP server (for .mcp.json / Claude Code)")
+    p = argparse.ArgumentParser(
+        description="relay_mcp — inter-agent communication server"
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"HTTP port (default: {DEFAULT_PORT})",
+    )
+    p.add_argument(
+        "--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)"
+    )
+    p.add_argument(
+        "--db", type=str, default=str(DEFAULT_DB), help="Path to SQLite database file"
+    )
+    p.add_argument(
+        "--stdio",
+        action="store_true",
+        default=False,
+        help="Run as stdio MCP server (for .mcp.json / Claude Code)",
+    )
     return p.parse_args()
 
 
