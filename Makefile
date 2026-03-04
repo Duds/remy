@@ -1,6 +1,6 @@
-.PHONY: run test test-cov lint build docker-run docker-stop fix-it setup db db-init \
+.PHONY: run test test-cov lint build docker-run docker-stop setup db db-init \
         deploy deploy-update deploy-logs deploy-delete health \
-        relay-up relay-run relay-stop relay-check relay-setup-check relay-verify \
+        remy-up relay-up relay-run relay-stop relay-check relay-setup-check relay-verify \
         install-launchd uninstall-launchd \
         tunnel-up tunnel-stop tunnel-logs telemetry logs
 
@@ -31,11 +31,13 @@ db-init:
 db: db-init
 	python3 -m datasette serve data/remy.db --metadata config/datasette.yml --open
 
-# ── Relay MCP (Claude Desktop / Claude Code, US-relay-shared-backend) ───────────
-# One relay process, one DB (data/relay.db). Cursor and Claude Desktop both use this.
-# Start relay via Docker (with remy + ollama)
-relay-up:
+# ── Remy stack & Relay MCP (Claude Desktop / Claude Code, US-relay-shared-backend) ─
+# Start full stack (remy bot + relay + ollama) via Docker. One relay process, one DB (data/relay.db).
+remy-up:
 	docker compose up -d remy relay ollama
+
+# Alias: relay-up kept for backward compatibility
+relay-up: remy-up
 
 # Run relay server locally (no Docker) — single process, single DB at data/relay.db
 # Prefer venv Python so mcp is available (pip install -r requirements.txt first)
@@ -52,7 +54,7 @@ relay-stop:
 
 relay-check:
 	@python3 -c "import socket; s = socket.create_connection(('127.0.0.1', 8765), timeout=3); s.close(); print('relay OK')" || \
-		echo "relay not reachable — run 'make relay-up' or 'make relay-run'"
+		echo "relay not reachable — run 'make remy-up' or 'make relay-run'"
 
 # Verify Claude Desktop relay setup (relay + uv)
 relay-setup-check: relay-check
@@ -74,7 +76,7 @@ install-launchd:
 	@sed "s|__PROJECT_DIR__|$(CURDIR)|g" config/com.dalerogers.remy.plist.template > $(LAUNCH_AGENTS)/$(REMY_PLIST)
 	@launchctl load $(LAUNCH_AGENTS)/$(REMY_PLIST)
 	@echo "LaunchAgent installed — remy stack will start at next login"
-	@echo "To start now: make relay-up"
+	@echo "To start now: make remy-up"
 
 uninstall-launchd:
 	@launchctl unload $(LAUNCH_AGENTS)/$(REMY_PLIST) 2>/dev/null || true
@@ -90,12 +92,6 @@ docker-run:
 
 docker-stop:
 	docker compose down
-
-# Rebuild all images and restart remy, relay, ollama. Use after code/config changes.
-fix-it:
-	docker compose build --no-cache
-	docker compose up -d --force-recreate remy relay ollama
-	@echo "Stack rebuilt and restarted. Check: make relay-check && make health"
 
 # Quick health check against local or remote container
 # Usage: make health HOST=localhost PORT=8080

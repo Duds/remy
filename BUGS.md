@@ -49,7 +49,7 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Status:** ✅ Fixed
 - **Priority:** High
 - **Location:** `relay_mcp/server.py`, relay MCP config (both Remy and cowork sides)
-- **Fix:** Use a **single shared relay backend** per [US-relay-shared-backend](docs/backlog/US-relay-shared-backend.md): run one relay server (`make relay-run` or `make relay-up`), point both Cursor (Remy) and Claude Desktop (cowork) at `http://127.0.0.1:8765/mcp`, and use agent names `remy` and `cowork`. Setup: [docs/relay-setup.md](docs/relay-setup.md). Automated shared-DB test: `make relay-verify`.
+- **Fix:** Use a **single shared relay backend** per [US-relay-shared-backend](docs/backlog/US-relay-shared-backend.md): run one relay server (`make remy-up` or `make relay-run`), point both Cursor (Remy) and Claude Desktop (cowork) at `http://127.0.0.1:8765/mcp`, and use agent names `remy` and `cowork`. Setup: [docs/relay-setup.md](docs/relay-setup.md). Automated shared-DB test: `make relay-verify`.
 - **Reported:** 2026-03-04 (Dale Rogers)
 - **Fixed:** 2026-03-04
 

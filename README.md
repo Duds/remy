@@ -92,7 +92,7 @@ This stores tokens in `data/google_token.json`. The Docker container picks them 
 
 ## Claude Desktop & Cursor (relay MCP)
 
-Remy and cowork (Claude Desktop) share one relay backend so messages and tasks flow both ways. **Use a single relay process** (e.g. `make relay-run` or `make relay-up`) and point both Cursor and Claude Desktop at it.
+Remy and cowork (Claude Desktop) share one relay backend so messages and tasks flow both ways. **Use a single relay process** (e.g. `make remy-up` or `make relay-run`) and point both Cursor and Claude Desktop at it.
 
 **Cursor:** The Remy project includes `.cursor/mcp.json` with the relay — it uses the shared HTTP endpoint `http://127.0.0.1:8765/mcp` (no per-session stdio). Restart Cursor after pulling.
 
@@ -102,7 +102,7 @@ Remy and cowork (Claude Desktop) share one relay backend so messages and tasks f
 
 1. **Relay server running** — Start before using Claude Desktop:
    ```bash
-   make relay-up      # Docker (remy + relay + ollama)
+   make remy-up       # Docker (remy + relay + ollama)
    # or
    make relay-run     # Local Python (relay only)
    ```
@@ -152,7 +152,7 @@ make lint           # ruff + mypy
 ### Relay (Claude Desktop)
 
 ```bash
-make relay-up           # Start remy + relay + ollama (Docker)
+make remy-up            # Start remy + relay + ollama (Docker)
 make relay-run          # Run relay server locally (no Docker)
 make relay-check        # Verify relay is reachable on port 8765
 make relay-setup-check  # Verify relay + uv (full Claude Desktop setup)
