@@ -9,12 +9,12 @@ Verifies that the refactored handlers package:
 """
 
 
-
 class TestSubmoduleImports:
     """Verify all handler submodules import without error."""
 
     def test_import_base(self):
         from remy.bot.handlers import base
+
         assert hasattr(base, "is_allowed")
         assert hasattr(base, "reject_unauthorized")
         assert hasattr(base, "_build_message_from_turn")
@@ -23,54 +23,67 @@ class TestSubmoduleImports:
 
     def test_import_core(self):
         from remy.bot.handlers import core
+
         assert hasattr(core, "make_core_handlers")
 
     def test_import_files(self):
         from remy.bot.handlers import files
+
         assert hasattr(files, "make_file_handlers")
 
     def test_import_email(self):
         from remy.bot.handlers import email
+
         assert hasattr(email, "make_email_handlers")
 
     def test_import_calendar(self):
         from remy.bot.handlers import calendar
+
         assert hasattr(calendar, "make_calendar_handlers")
 
     def test_import_contacts(self):
         from remy.bot.handlers import contacts
+
         assert hasattr(contacts, "make_contacts_handlers")
 
     def test_import_docs(self):
         from remy.bot.handlers import docs
+
         assert hasattr(docs, "make_docs_handlers")
 
     def test_import_web(self):
         from remy.bot.handlers import web
+
         assert hasattr(web, "make_web_handlers")
 
     def test_import_memory(self):
         from remy.bot.handlers import memory
+
         assert hasattr(memory, "make_memory_handlers")
 
     def test_import_automations(self):
         from remy.bot.handlers import automations
+
         assert hasattr(automations, "make_automation_handlers")
 
     def test_import_admin(self):
         from remy.bot.handlers import admin
+
         assert hasattr(admin, "make_admin_handlers")
 
     def test_import_privacy(self):
         from remy.bot.handlers import privacy
+
         assert hasattr(privacy, "make_privacy_handlers")
 
     def test_import_chat(self):
         from remy.bot.handlers import chat
+
         assert hasattr(chat, "make_chat_handlers")
 
     def test_import_callbacks(self):
         from remy.bot.handlers import callbacks
+
         assert hasattr(callbacks, "make_callback_handler")
         assert hasattr(callbacks, "store_pending_archive")
         assert hasattr(callbacks, "make_archive_keyboard")
@@ -81,14 +94,17 @@ class TestReExportedUtilities:
 
     def test_build_message_from_turn_exported(self):
         from remy.bot.handlers import _build_message_from_turn
+
         assert callable(_build_message_from_turn)
 
     def test_trim_messages_to_budget_exported(self):
         from remy.bot.handlers import _trim_messages_to_budget
+
         assert callable(_trim_messages_to_budget)
 
     def test_tool_turn_prefix_exported(self):
         from remy.bot.handlers import _TOOL_TURN_PREFIX
+
         assert isinstance(_TOOL_TURN_PREFIX, str)
 
 
@@ -122,6 +138,7 @@ class TestMakeHandlersFactories:
             "gmail-search",
             "gmail-read",
             "gmail-labels",
+            "gmail-create-label",
         }
         assert expected.issubset(set(handlers.keys()))
 

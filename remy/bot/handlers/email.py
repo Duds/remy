@@ -245,6 +245,41 @@ def make_email_handlers(
             err = exc
             await update.message.reply_text(f"❌ Gmail error: {err}")
 
+    async def gmail_create_label_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """/gmail-create-label <name> — create a Gmail label (use Parent/Child for nested)."""
+        if update.message is None or update.effective_user is None:
+            return
+        if await reject_unauthorized(update):
+            return
+        if google_gmail is None:
+            await update.message.reply_text(google_not_configured("Gmail"))
+            return
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: `/gmail_create_label <label name>`\n"
+                "Use slash for nested labels, e.g. `4-Personal & Family/Hockey`",
+                parse_mode="Markdown",
+            )
+            return
+        name = " ".join(context.args).strip()
+        if not name:
+            await update.message.reply_text("Please provide a label name.")
+            return
+        await update.message.reply_text(
+            f"🏷 Creating label _{name}_…", parse_mode="Markdown"
+        )
+        try:
+            result = await google_gmail.create_label(name)
+            await update.message.reply_text(
+                f"✅ Label created: **{result['name']}** (ID: `{result['id']}`)\n"
+                "Use label_emails or /gmail-search to apply it to messages.",
+                parse_mode="Markdown",
+            )
+        except Exception as exc:
+            await update.message.reply_text(f"❌ Could not create label: {exc}")
+
     return {
         "gmail-unread": gmail_unread_command,
         "gmail-unread-summary": gmail_unread_summary_command,
@@ -252,4 +287,5 @@ def make_email_handlers(
         "gmail-search": gmail_search_command,
         "gmail-read": gmail_read_command,
         "gmail-labels": gmail_labels_command,
+        "gmail-create-label": gmail_create_label_command,
     }

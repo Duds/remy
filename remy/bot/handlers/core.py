@@ -73,6 +73,7 @@ def make_core_handlers(
             "  /gmail-search <query> — search all Gmail (supports from:, subject:, label:, etc.)\n"
             "  /gmail-read <id> — read the full body of an email by ID\n"
             "  /gmail-labels — list all Gmail labels and their IDs\n"
+            "  /gmail-create-label <name> — create a label (use Parent/Child for nested)\n"
             "  /gdoc <url-or-id> — read a Google Doc\n"
             "  /gdoc-append <url-or-id> <text> — append text to a Google Doc\n"
             "  /contacts [query] — list or search Google Contacts\n"

@@ -195,6 +195,8 @@ class TelegramBot:
             app.add_handler(CommandHandler("gmail_read", h))
         if (h := handlers.get("gmail-labels")) is not None:
             app.add_handler(CommandHandler("gmail_labels", h))
+        if (h := handlers.get("gmail-create-label")) is not None:
+            app.add_handler(CommandHandler("gmail_create_label", h))
         app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, handlers["message"])
         )
