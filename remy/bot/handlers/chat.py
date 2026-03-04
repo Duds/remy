@@ -183,6 +183,8 @@ def make_chat_handlers(
                 f"❌ Diagnostics failed: {type(e).__name__}: {e}"
             )
 
+    _CHAT_ACTION_INTERVAL = 4  # seconds — Telegram shows action for ~5s
+
     async def _stream_with_tools_path(
         user_id: int,
         text: str,
@@ -192,10 +194,16 @@ def make_chat_handlers(
         sent,
         chat_id: int | None = None,
         message_id: int | None = None,
+        thread_id: int | None = None,
         bot=None,
         timing: RequestTiming | None = None,
     ) -> None:
-        """Tool-aware streaming path using native Anthropic function calling."""
+        """Tool-aware streaming path using native Anthropic function calling.
+
+        While tools run (research, board, etc.), sends upload_document chat action
+        every few seconds so the user sees a document-upload indicator instead of
+        only typing (Phase 8 Tier 2).
+        """
         current_display: list[str] = []
         tool_turns: list[tuple[list[dict], list[dict]]] = []
         step_limit_reached = False
@@ -204,6 +212,25 @@ def make_chat_handlers(
         last_edit_len = 0
         rotator = MessageRotator(sent, user_id)
         rotator_stopped = False
+
+        async def _upload_document_heartbeat() -> None:
+            """Send UPLOAD_DOCUMENT every _CHAT_ACTION_INTERVAL until cancelled."""
+            try:
+                while True:
+                    try:
+                        kwargs = {}
+                        if thread_id is not None:
+                            kwargs["message_thread_id"] = thread_id
+                        await bot.send_chat_action(
+                            chat_id,
+                            ChatAction.UPLOAD_DOCUMENT,
+                            **kwargs,
+                        )
+                    except Exception as e:
+                        logger.debug("Chat action heartbeat failed: %s", e)
+                    await asyncio.sleep(_CHAT_ACTION_INTERVAL)
+            except asyncio.CancelledError:
+                pass
 
         async def _flush_display(final: bool = False, reply_markup=None) -> None:
             nonlocal last_edit_len
@@ -266,6 +293,7 @@ def make_chat_handlers(
                 step_limit_reached = False
                 in_tool_turn = False
                 last_edit_len = 0
+                chat_action_heartbeat_task: asyncio.Task | None = None
 
                 ttft_recorded = False
                 ttft_timer = PhaseTimer()
@@ -285,87 +313,109 @@ def make_chat_handlers(
                 # Sanitize to prevent orphaned tool_use_id (Bug 36)
                 safe_messages = _sanitize_messages_for_claude(messages)
 
-                async for event in claude_client.stream_with_tools(
-                    messages=safe_messages,
-                    tool_registry=tool_registry,
-                    user_id=user_id,
-                    system=system_prompt,
-                    usage_out=usage,
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    model=stream_model,
-                ):
-                    if not ttft_recorded:
-                        ttft_timer.stop()
-                        ttft_recorded = True
+                try:
+                    async for event in claude_client.stream_with_tools(
+                        messages=safe_messages,
+                        tool_registry=tool_registry,
+                        user_id=user_id,
+                        system=system_prompt,
+                        usage_out=usage,
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        model=stream_model,
+                    ):
+                        if not ttft_recorded:
+                            ttft_timer.stop()
+                            ttft_recorded = True
 
-                    if not rotator_stopped:
-                        await rotator.stop()
-                        rotator_stopped = True
-                    if session_manager.is_cancelled(user_id):
-                        shown = "".join(current_display)
+                        if not rotator_stopped:
+                            await rotator.stop()
+                            rotator_stopped = True
+                        if session_manager.is_cancelled(user_id):
+                            shown = "".join(current_display)
+                            try:
+                                await sent.edit_text(
+                                    (shown + "\n\n_[cancelled]_").strip(),
+                                    parse_mode="Markdown",
+                                )
+                            except Exception as e:
+                                logger.debug("Failed to edit cancelled message: %s", e)
+                            return
+
+                        if isinstance(event, TextChunk):
+                            if in_tool_turn:
+                                logger.debug(
+                                    "Suppressing in-tool TextChunk (%d chars) for user %d",
+                                    len(event.text),
+                                    user_id,
+                                )
+                            else:
+                                current_display.append(event.text)
+                                if len("".join(current_display)) - last_edit_len >= 200:
+                                    await _flush_display()
+
+                        elif isinstance(event, ToolStatusChunk):
+                            in_tool_turn = True
+                            tool_exec_start = time.monotonic()
+                            if (
+                                bot is not None
+                                and chat_id is not None
+                                and (
+                                    chat_action_heartbeat_task is None
+                                    or chat_action_heartbeat_task.done()
+                                )
+                            ):
+                                chat_action_heartbeat_task = asyncio.create_task(
+                                    _upload_document_heartbeat()
+                                )
+                            await hook_manager.emit(
+                                HookEvents.BEFORE_TOOL_CALL,
+                                {"user_id": user_id, "tool_name": event.tool_name},
+                            )
+                            try:
+                                await sent.edit_text(
+                                    f"_⚙️ Using {event.tool_name}…_",
+                                    parse_mode="Markdown",
+                                )
+                            except Exception as e:
+                                logger.debug(
+                                    "Failed to update tool status message: %s", e
+                                )
+
+                        elif isinstance(event, ToolResultChunk):
+                            pass
+
+                        elif isinstance(event, ToolTurnComplete):
+                            in_tool_turn = False
+                            tool_duration_ms = 0
+                            if tool_exec_start is not None:
+                                tool_duration_ms = int(
+                                    (time.monotonic() - tool_exec_start) * 1000
+                                )
+                                tool_exec_total_ms += tool_duration_ms
+                                tool_exec_start = None
+                            await hook_manager.emit(
+                                HookEvents.AFTER_TOOL_CALL,
+                                {"user_id": user_id, "duration_ms": tool_duration_ms},
+                            )
+                            tool_turns.append(
+                                (event.assistant_blocks, event.tool_result_blocks)
+                            )
+                            current_display = []
+                            last_edit_len = 0
+
+                        elif isinstance(event, StepLimitReached):
+                            step_limit_reached = True
+
+                    break  # stream completed successfully
+
+                finally:
+                    if chat_action_heartbeat_task is not None:
+                        chat_action_heartbeat_task.cancel()
                         try:
-                            await sent.edit_text(
-                                (shown + "\n\n_[cancelled]_").strip(),
-                                parse_mode="Markdown",
-                            )
-                        except Exception as e:
-                            logger.debug("Failed to edit cancelled message: %s", e)
-                        return
-
-                    if isinstance(event, TextChunk):
-                        if in_tool_turn:
-                            logger.debug(
-                                "Suppressing in-tool TextChunk (%d chars) for user %d",
-                                len(event.text),
-                                user_id,
-                            )
-                        else:
-                            current_display.append(event.text)
-                            if len("".join(current_display)) - last_edit_len >= 200:
-                                await _flush_display()
-
-                    elif isinstance(event, ToolStatusChunk):
-                        in_tool_turn = True
-                        tool_exec_start = time.monotonic()
-                        await hook_manager.emit(
-                            HookEvents.BEFORE_TOOL_CALL,
-                            {"user_id": user_id, "tool_name": event.tool_name},
-                        )
-                        try:
-                            await sent.edit_text(
-                                f"_⚙️ Using {event.tool_name}…_",
-                                parse_mode="Markdown",
-                            )
-                        except Exception as e:
-                            logger.debug("Failed to update tool status message: %s", e)
-
-                    elif isinstance(event, ToolResultChunk):
-                        pass
-
-                    elif isinstance(event, ToolTurnComplete):
-                        in_tool_turn = False
-                        tool_duration_ms = 0
-                        if tool_exec_start is not None:
-                            tool_duration_ms = int(
-                                (time.monotonic() - tool_exec_start) * 1000
-                            )
-                            tool_exec_total_ms += tool_duration_ms
-                            tool_exec_start = None
-                        await hook_manager.emit(
-                            HookEvents.AFTER_TOOL_CALL,
-                            {"user_id": user_id, "duration_ms": tool_duration_ms},
-                        )
-                        tool_turns.append(
-                            (event.assistant_blocks, event.tool_result_blocks)
-                        )
-                        current_display = []
-                        last_edit_len = 0
-
-                    elif isinstance(event, StepLimitReached):
-                        step_limit_reached = True
-
-                break  # stream completed successfully
+                            await chat_action_heartbeat_task
+                        except asyncio.CancelledError:
+                            pass
 
             except AnthropicOverloadFallbackAvailable as e:
                 # Retry once with fallback model (US-anthropic-overload-fallback)
@@ -736,6 +786,7 @@ def make_chat_handlers(
                     sent=sent,
                     chat_id=update.effective_chat.id if update.effective_chat else None,
                     message_id=update.message.message_id if update.message else None,
+                    thread_id=thread_id,
                     bot=context.bot,
                     timing=req_timing,
                 )
@@ -1006,6 +1057,7 @@ def make_chat_handlers(
                     sent=sent,
                     chat_id=update.effective_chat.id if update.effective_chat else None,
                     message_id=update.message.message_id if update.message else None,
+                    thread_id=thread_id,
                     bot=context.bot,
                 )
             else:
@@ -1156,6 +1208,7 @@ def make_chat_handlers(
                     sent=sent,
                     chat_id=update.effective_chat.id if update.effective_chat else None,
                     message_id=update.message.message_id if update.message else None,
+                    thread_id=thread_id,
                     bot=context.bot,
                 )
             else:

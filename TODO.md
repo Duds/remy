@@ -380,7 +380,7 @@ Combines Telegram Bot API (inline keyboards, callbacks, chat actions) with Claud
 - [x] **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice. See `docs/backlog/US-conversational-briefing-via-remy.md`.
 - [x] **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions in briefings/summaries.
 - [x] **Send to cowork** (`US-send-to-cowork`) — [Send to cowork] on notes/summaries for one-tap relay handoff.
-- [ ] **Chat actions for long tasks** — `upload_document` / `upload_photo` when research/board runs (instead of only `typing`).
+- [x] **Chat actions for long tasks** — `upload_document` / `upload_photo` when research/board runs (instead of only `typing`).
 - [ ] **Run again / different params** — [Run again] [New topic] on tool-heavy flows (research, board, Gmail quick wins).
 - [ ] **Document/photo action buttons** — [Summarise] [Extract tasks] [Save] on attachments.
 
