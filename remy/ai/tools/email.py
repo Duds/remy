@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ...ai.input_validator import sanitize_memory_injection
 from ...google.gmail import PRIMARY_TABS_LABEL_IDS
@@ -22,9 +22,11 @@ def _scope_to_label_ids_and_description(
     if scope == "inbox" or not scope:
         return None, "Inbox"
     if scope == "primary_tabs":
-        return PRIMARY_TABS_LABEL_IDS, "Inbox, Promotions, and Updates"
+        return cast(
+            list[str | None], PRIMARY_TABS_LABEL_IDS
+        ), "Inbox, Promotions, and Updates"
     if scope == "all_mail":
-        return [None], "all mail"
+        return cast(list[str | None], [None]), "all mail"
     return None, "Inbox"
 
 

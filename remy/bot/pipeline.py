@@ -74,7 +74,8 @@ def _briefing_system_prompt(context: dict) -> str:
         "- Prioritise what matters most; don't list everything verbatim\n"
         "- Be concise and natural — you're Remy, not a bulletin\n"
         "- Include calendar highlights, top goals, and any urgent items\n"
-        "- Optionally mention downloads cleanup or stale plans if relevant\n\n"
+        "- Optionally mention downloads cleanup or stale plans if relevant\n"
+        "- If relay_unread or relay_pending are non-zero, add one line: e.g. '📬 N unread message(s) from cowork.' and/or '📋 N pending task(s) from cowork.'\n\n"
         "Structured context:\n"
         f"```json\n{ctx_json}\n```"
     )

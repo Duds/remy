@@ -19,3 +19,5 @@ google-auth-oauthlib>=1.1
 google-auth-httplib2>=0.2
 # Prometheus metrics (telemetry)
 prometheus-client>=0.20.0
+# Relay MCP (make relay-run — shared backend for Cursor/Claude Desktop)
+mcp[cli]>=1.6.0

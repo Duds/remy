@@ -472,6 +472,7 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **C**    | Conversational briefing via Remy (morning)                           | US-conversational-briefing-via-remy | ✅ Done                      |
 | **C**    | Calendar quick add from inline suggestions                           | US-calendar-quick-add               | ✅ Done                      |
 | **C**    | Send to cowork with one tap                                          | US-send-to-cowork                   | ✅ Done                      |
+| **S**    | Two-way Claude Desktop ↔ Remy relay (tools, /relay, briefing hook)   | US-claude-desktop-relay             | ✅ Done                      |
 | **S**    | Fix save_bookmark KnowledgeStore AttributeError                     | US-fix-save-bookmark-knowledge-store | ✅ Done                      |
 | **S**    | Cap tool iterations per turn (reduce latency)                         | US-cap-tool-iterations-per-turn    | ✅ Done                      |
 | **S**    | Step-limit message inline buttons (Continue / Break down / Stop)      | US-step-limit-buttons              | ✅ Done                      |
@@ -723,11 +724,11 @@ Enable bidirectional communication between Claude Desktop and Remy (Telegram), s
 
 ### Acceptance Criteria
 
-- [ ] Dale can send a message from Claude Desktop to Remy's relay inbox
-- [ ] Remy can read the relay inbox and reply
-- [ ] Claude Desktop can read Remy's reply
-- [ ] Full round-trip tested: Desktop → Remy → Desktop
-- [ ] No exposed public endpoint required (relay uses shared file or SQLite, not HTTP)
+- [x] Dale can send a message from Claude Desktop to Remy's relay inbox
+- [x] Remy can read the relay inbox and reply
+- [x] Claude Desktop can read Remy's reply
+- [x] Full round-trip tested: Desktop → Remy → Desktop
+- [x] No exposed public endpoint required (relay uses shared file or SQLite, not HTTP)
 
 ### Notes
 
@@ -742,7 +743,7 @@ Enable bidirectional communication between Claude Desktop and Remy (Telegram), s
 **Added:** March 2026 (US written)
 **Backlog ref:** `US-claude-desktop-relay` → `docs/backlog/US-claude-desktop-relay.md`
 **Priority:** S (Should Have)
-**MoSCoW table entry:** Add to table — `US-claude-desktop-relay` | ⬜ Backlog
+**MoSCoW table entry:** `US-claude-desktop-relay` | ✅ Done
 
 ### Summary
 

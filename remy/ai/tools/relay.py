@@ -24,9 +24,9 @@ REMY_AGENT = "remy"
 COWORK_AGENT = "cowork"
 
 
-def _relay_db_path() -> str | None:
-    """Use remy's DB for relay when we have relay tables there (shared with relay_mcp)."""
-    return getattr(settings, "db_path", None) or None
+def _relay_db_path() -> str:
+    """Path to relay DB — same as shared relay server (data/relay.db when run from repo)."""
+    return settings.relay_db_path_resolved
 
 
 async def exec_relay_get_messages(

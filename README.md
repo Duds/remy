@@ -92,11 +92,11 @@ This stores tokens in `data/google_token.json`. The Docker container picks them 
 
 ## Claude Desktop & Cursor (relay MCP)
 
-Remy can communicate with Cowork via the relay MCP when you use Claude Desktop, Claude Code, or Cursor. The relay lets agents exchange messages, delegate tasks, and share notes across sessions.
+Remy and cowork (Claude Desktop) share one relay backend so messages and tasks flow both ways. **Use a single relay process** (e.g. `make relay-run` or `make relay-up`) and point both Cursor and Claude Desktop at it.
 
-**Cursor:** The Remy project includes `.cursor/mcp.json` with the relay — it merges with your global `~/.cursor/mcp.json`. Restart Cursor after pulling.
+**Cursor:** The Remy project includes `.cursor/mcp.json` with the relay — it uses the shared HTTP endpoint `http://127.0.0.1:8765/mcp` (no per-session stdio). Restart Cursor after pulling.
 
-**Full setup:** See [docs/agent-tooling-setup.md](docs/agent-tooling-setup.md) for MCP, hooks, and skills.
+**Full setup:** See [docs/relay-setup.md](docs/relay-setup.md) for the shared backend and [docs/agent-tooling-setup.md](docs/agent-tooling-setup.md) for MCP, hooks, and skills.
 
 ### Requirements
 

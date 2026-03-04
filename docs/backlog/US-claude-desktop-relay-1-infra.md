@@ -1,6 +1,6 @@
 # User Story: Relay Infrastructure (SQLite + Tool Executors)
 
-**Status:** ⬜ Backlog  
+**Status:** ✅ Done  
 **Parent:** [US-claude-desktop-relay](US-claude-desktop-relay.md)
 
 ## Summary

@@ -679,12 +679,15 @@ class ProactiveScheduler:
             return
 
         try:
+            from ..config import settings
             from ..relay.client import get_messages_for_remy, get_tasks_for_remy
         except ImportError:
             return
 
         try:
-            messages, _ = await get_messages_for_remy()
+            messages, _ = await get_messages_for_remy(
+                db_path=settings.relay_db_path_resolved,
+            )
             for msg in messages:
                 from_agent = msg.get("from_agent") or "cowork"
                 content = (msg.get("content") or "").strip()
@@ -696,7 +699,9 @@ class ProactiveScheduler:
             logger.warning("Relay inbox poll (messages) failed: %s", e)
 
         try:
-            tasks, _ = await get_tasks_for_remy()
+            tasks, _ = await get_tasks_for_remy(
+                db_path=settings.relay_db_path_resolved,
+            )
             for task in tasks:
                 task_id = task.get("id") or "?"
                 task_type = task.get("task_type") or "general"

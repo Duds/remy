@@ -18,7 +18,7 @@ def make_registry() -> MagicMock:
 
 @pytest.fixture
 def temp_db_path():
-    """Temp path for relay DB (used as settings.db_path)."""
+    """Temp path for relay DB (used as settings.relay_db_path_resolved)."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name
     yield path
@@ -29,7 +29,7 @@ def temp_db_path():
 async def test_exec_relay_get_messages_empty(temp_db_path):
     """relay_get_messages returns JSON with agent, unread_count, messages."""
     with patch("remy.ai.tools.relay.settings") as mock_settings:
-        mock_settings.db_path = temp_db_path
+        mock_settings.relay_db_path_resolved = temp_db_path
         registry = make_registry()
         result = await relay.exec_relay_get_messages(registry, {}, user_id=1)
     data = json.loads(result)
@@ -48,7 +48,7 @@ async def test_exec_relay_post_message_success(temp_db_path):
     await _ensure_db(Path(temp_db_path))
 
     with patch("remy.ai.tools.relay.settings") as mock_settings:
-        mock_settings.db_path = temp_db_path
+        mock_settings.relay_db_path_resolved = temp_db_path
         registry = make_registry()
         post_result = await relay.exec_relay_post_message(
             registry, {"content": "Hello from Remy"}, user_id=1
@@ -61,7 +61,7 @@ async def test_exec_relay_post_message_success(temp_db_path):
 async def test_exec_relay_get_tasks_empty(temp_db_path):
     """relay_get_tasks returns JSON with agent, pending_count, tasks."""
     with patch("remy.ai.tools.relay.settings") as mock_settings:
-        mock_settings.db_path = temp_db_path
+        mock_settings.relay_db_path_resolved = temp_db_path
         registry = make_registry()
         result = await relay.exec_relay_get_tasks(
             registry, {"status": "pending"}, user_id=1

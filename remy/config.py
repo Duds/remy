@@ -181,10 +181,21 @@ class Settings(BaseSettings):
     # If set, git_log / git_diff / etc. run from this directory. Empty = use cwd.
     workspace_root: str = ""
 
-    # ── Relay (US-claude-desktop-relay) ────────────────────────────────────────
-    # If set, Remy uses HTTP to talk to relay_mcp. Empty = use shared SQLite (db_path).
+    # ── Relay (US-claude-desktop-relay, US-relay-shared-backend) ───────────────
+    # If set, Remy uses HTTP to talk to relay_mcp. Empty = use shared SQLite.
     relay_mcp_url: str = ""
     relay_mcp_secret: str = ""
+    # Optional path to relay SQLite DB; empty = data_dir/relay.db (same as shared server).
+    relay_db_path: str = ""
+
+    @property
+    def relay_db_path_resolved(self) -> str:
+        """Path to relay.db; same as shared relay server when run from repo (data/relay.db)."""
+        return (
+            self.relay_db_path.strip()
+            if self.relay_db_path
+            else os.path.join(self.data_dir, "relay.db")
+        )
 
     @property
     def google_token_file(self) -> str:

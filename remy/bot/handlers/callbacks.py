@@ -371,29 +371,47 @@ def make_callback_handler(
                 if relay_post_message is not None:
                     ok = await relay_post_message(content=text)
                 else:
+                    from ...config import settings
                     from ...relay import post_message_to_cowork
 
-                    ok = await post_message_to_cowork(content=text)
+                    ok = await post_message_to_cowork(
+                        content=text,
+                        db_path=settings.relay_db_path_resolved,
+                    )
                 if ok is not None and ok:
+                    if isinstance(ok, dict):
+                        logger.info(
+                            "Forward to cowork: relay message_id=%s",
+                            ok.get("message_id"),
+                        )
                     try:
                         await query.edit_message_text("✅ Sent to cowork.")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Forward to cowork: could not edit message to success state: %s",
+                            e,
+                        )
                 else:
                     try:
                         await query.edit_message_text(
                             "❌ Could not send to cowork. Try again later."
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Forward to cowork: could not edit message to error state: %s",
+                            e,
+                        )
             except Exception as e:
                 logger.warning("Forward to cowork failed: %s", e)
                 try:
                     await query.edit_message_text(
                         "❌ Could not send to cowork. Try again later."
                     )
-                except Exception:
-                    pass
+                except Exception as edit_e:
+                    logger.warning(
+                        "Forward to cowork: could not edit message to error state: %s",
+                        edit_e,
+                    )
 
         elif data.startswith("break_down_"):
             token = data[len("break_down_") :]

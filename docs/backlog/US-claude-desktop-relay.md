@@ -1,6 +1,6 @@
 # User Story: Two-Way Claude Desktop ↔ Remy Relay
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done
 
 ## Summary
 

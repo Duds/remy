@@ -1,6 +1,6 @@
 # User Story: /relay Command + Briefing Hook
 
-**Status:** ⬜ Backlog  
+**Status:** ✅ Done  
 **Parent:** [US-claude-desktop-relay](US-claude-desktop-relay.md)  
 **Depends on:** [US-claude-desktop-relay-1-infra](US-claude-desktop-relay-1-infra.md)
 

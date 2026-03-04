@@ -1,6 +1,6 @@
 .PHONY: run test test-cov lint build docker-run docker-stop setup db db-init \
         deploy deploy-update deploy-logs deploy-delete health \
-        relay-up relay-run relay-check relay-setup-check \
+        relay-up relay-run relay-stop relay-check relay-setup-check \
         install-launchd uninstall-launchd \
         tunnel-up tunnel-stop tunnel-logs telemetry logs
 
@@ -9,6 +9,7 @@ run:
 	python3 -m remy.main
 
 setup:
+	rm -rf .venv
 	python3 -m venv .venv
 	.venv/bin/pip install -r requirements-dev.txt
 
@@ -30,17 +31,25 @@ db-init:
 db: db-init
 	python3 -m datasette serve data/remy.db --metadata config/datasette.yml --open
 
-# ── Relay MCP (Claude Desktop / Claude Code) ─────────────────────────────────────
+# ── Relay MCP (Claude Desktop / Claude Code, US-relay-shared-backend) ───────────
+# One relay process, one DB (data/relay.db). Cursor and Claude Desktop both use this.
 # Start relay via Docker (with remy + ollama)
 relay-up:
 	docker compose up -d remy relay ollama
 
-# Run relay server locally (no Docker) — for dev or when Claude Desktop needs relay
+# Run relay server locally (no Docker) — single process, single DB at data/relay.db
+# Prefer venv Python so mcp is available (pip install -r requirements.txt first)
+PYTHON ?= $(if $(wildcard .venv/bin/python3),.venv/bin/python3,python3)
 relay-run:
 	@mkdir -p data
-	python3 relay_mcp/server.py --db data/relay.db
+	$(PYTHON) relay_mcp/server.py --db data/relay.db
 
 # Check if relay is reachable on port 8765
+# Stop any process listening on relay port (e.g. previous relay-run or relay-up)
+relay-stop:
+	@lsof -ti:8765 | xargs kill -9 2>/dev/null || true
+	@echo "relay port 8765 cleared"
+
 relay-check:
 	@python3 -c "import socket; s = socket.create_connection(('127.0.0.1', 8765), timeout=3); s.close(); print('relay OK')" || \
 		echo "relay not reachable — run 'make relay-up' or 'make relay-run'"

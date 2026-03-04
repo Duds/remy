@@ -7,7 +7,7 @@ Contains handlers for Gmail operations: reading, searching, classifying, and lab
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -54,10 +54,10 @@ def make_email_handlers(
         except (ValueError, IndexError):
             limit = 5
         if use_all:
-            label_ids: list[str | None] | None = [None]
+            label_ids: list[str | None] | None = cast(list[str | None], [None])
             scope_label = "all mail"
         elif use_tabs:
-            label_ids = PRIMARY_TABS_LABEL_IDS
+            label_ids = cast(list[str | None], PRIMARY_TABS_LABEL_IDS)
             scope_label = "Inbox, Promotions, and Updates"
         else:
             label_ids = None
@@ -100,10 +100,10 @@ def make_email_handlers(
         use_tabs = "--tabs" in args
         use_all = "--all" in args
         if use_all:
-            label_ids: list[str | None] | None = [None]
+            label_ids: list[str | None] | None = cast(list[str | None], [None])
             scope_label = "all mail"
         elif use_tabs:
-            label_ids = PRIMARY_TABS_LABEL_IDS
+            label_ids = cast(list[str | None], PRIMARY_TABS_LABEL_IDS)
             scope_label = "Inbox, Promotions, and Updates"
         else:
             label_ids = None

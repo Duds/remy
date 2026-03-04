@@ -13,7 +13,7 @@ import logging
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ...config import settings
@@ -229,10 +229,10 @@ class MorningBriefingGenerator(BriefingGenerator):
         if self._gmail:
             try:
                 if scope == "all_mail":
-                    label_ids: list[str | None] | None = [None]
+                    label_ids: list[str | None] | None = cast(list[str | None], [None])
                     scope_desc = "all mail"
                 elif scope == "primary_tabs":
-                    label_ids = PRIMARY_TABS_LABEL_IDS
+                    label_ids = cast(list[str | None], PRIMARY_TABS_LABEL_IDS)
                     scope_desc = "Inbox, Promotions, and Updates"
                 else:
                     label_ids = None
@@ -249,7 +249,7 @@ class MorningBriefingGenerator(BriefingGenerator):
         else:
             payload["unread_email"] = {"count": 0, "senders": [], "scope": ""}
 
-        # Relay inbox (US-claude-desktop-relay)
+        # Relay inbox (US-claude-desktop-relay, US-relay-shared-backend)
         try:
             from ...relay.client import get_messages_for_remy, get_tasks_for_remy
 
@@ -258,13 +258,13 @@ class MorningBriefingGenerator(BriefingGenerator):
                 unread_only=True,
                 mark_read=False,
                 limit=1,
-                db_path=settings.db_path,
+                db_path=settings.relay_db_path_resolved,
             )
             _, pending = await get_tasks_for_remy(
                 agent="remy",
                 status="pending",
                 limit=1,
-                db_path=settings.db_path,
+                db_path=settings.relay_db_path_resolved,
             )
             payload["relay_unread"] = unread
             payload["relay_pending"] = pending
@@ -403,7 +403,7 @@ class MorningBriefingGenerator(BriefingGenerator):
         return "\n".join(lines)
 
     async def _build_relay_section(self) -> str:
-        """One-liner if there are unread relay messages or pending tasks from cowork (US-claude-desktop-relay)."""
+        """One-liner if there are unread relay messages or pending tasks from cowork (US-relay-shared-backend)."""
         try:
             from ...config import settings
             from ...relay.client import get_messages_for_remy, get_tasks_for_remy
@@ -413,13 +413,13 @@ class MorningBriefingGenerator(BriefingGenerator):
                 unread_only=True,
                 mark_read=False,
                 limit=5,
-                db_path=settings.db_path,
+                db_path=settings.relay_db_path_resolved,
             )
             tasks, pending = await get_tasks_for_remy(
                 agent="remy",
                 status="pending",
                 limit=5,
-                db_path=settings.db_path,
+                db_path=settings.relay_db_path_resolved,
             )
         except Exception:
             return ""
