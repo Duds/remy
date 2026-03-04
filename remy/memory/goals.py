@@ -160,6 +160,16 @@ class GoalStore:
             )
             return {row["title"] for row in rows}
 
+    async def exists_for_user(self, user_id: int, goal_id: int) -> bool:
+        """Return True if the goal exists and belongs to this user (any status)."""
+        async with self._db.get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT 1 FROM goals WHERE id = ? AND user_id = ? LIMIT 1",
+                (goal_id, user_id),
+            )
+            row = await cursor.fetchone()
+            return row is not None
+
     async def get_active(self, user_id: int, limit: int = 10) -> list[dict[str, Any]]:
         """Return active goals, newest first."""
         async with self._db.get_connection() as conn:

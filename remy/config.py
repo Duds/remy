@@ -4,10 +4,11 @@ Uses Pydantic BaseSettings for type-safe configuration from environment variable
 """
 
 import os
+import logging
 from functools import cached_property
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve .env relative to this file (remy/config.py → project root)
@@ -177,6 +178,12 @@ class Settings(BaseSettings):
     # Comma-separated list of base directories for file operations
     allowed_base_dirs_raw: str = "~/Projects,~/Documents,~/Downloads"
 
+    # ── Google Drive mount (US-google-drive-rag-indexing) ────────────────────────
+    # Comma-separated paths to locally mounted Google Drive; validated at first use
+    gdrive_mount_paths_raw: str = Field(
+        default="", validation_alias="GDRIVE_MOUNT_PATHS"
+    )
+
     # ── Git tool (US-git-commits-and-diffs) ─────────────────────────────────────
     # If set, git_log / git_diff / etc. run from this directory. Empty = use cwd.
     workspace_root: str = ""
@@ -213,13 +220,62 @@ class Settings(BaseSettings):
             return []
         return [int(x.strip()) for x in raw.split(",") if x.strip()]
 
-    @property
-    def allowed_base_dirs(self) -> list[str]:
-        """Parse and expand allowed base directories."""
-        raw = self.allowed_base_dirs_raw
+    @cached_property
+    def gdrive_mount_paths(self) -> list[str]:
+        """
+        Parse and validate Google Drive mount paths from GDRIVE_MOUNT_PATHS.
+
+        Only paths that exist, are directories, and are readable are returned.
+        Missing or invalid paths are logged at warning level and skipped (graceful degradation).
+        """
+        log = logging.getLogger(__name__)
+        raw = self.gdrive_mount_paths_raw
         if not raw:
             return []
-        return [str(Path(d.strip()).expanduser()) for d in raw.split(",") if d.strip()]
+        result = []
+        for d in raw.split(","):
+            s = d.strip()
+            if not s:
+                continue
+            path = Path(s).expanduser().resolve()
+            if not path.exists():
+                log.warning(
+                    "GDRIVE_MOUNT_PATHS: path does not exist or Drive not mounted — %s",
+                    path,
+                )
+                continue
+            if not path.is_dir():
+                log.warning(
+                    "GDRIVE_MOUNT_PATHS: not a directory — %s",
+                    path,
+                )
+                continue
+            try:
+                if not os.access(path, os.R_OK):
+                    log.warning(
+                        "GDRIVE_MOUNT_PATHS: path not readable — %s",
+                        path,
+                    )
+                    continue
+            except OSError:
+                log.warning(
+                    "GDRIVE_MOUNT_PATHS: cannot access — %s",
+                    path,
+                )
+                continue
+            result.append(str(path))
+        return result
+
+    @property
+    def allowed_base_dirs(self) -> list[str]:
+        """Parse and expand allowed base directories (includes validated GDrive mounts)."""
+        raw = self.allowed_base_dirs_raw
+        bases = (
+            [str(Path(d.strip()).expanduser()) for d in raw.split(",") if d.strip()]
+            if raw
+            else []
+        )
+        return bases + self.gdrive_mount_paths
 
     @model_validator(mode="after")
     def configure_data_dir(self) -> "Settings":

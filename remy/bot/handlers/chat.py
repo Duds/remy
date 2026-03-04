@@ -401,8 +401,9 @@ def make_chat_handlers(
                             tool_turns.append(
                                 (event.assistant_blocks, event.tool_result_blocks)
                             )
-                            current_display = []
-                            last_edit_len = 0
+                            # Bug 6: do not clear current_display here — preserve commentary
+                            # streamed before this tool call so final message shows text + buttons,
+                            # not "✓" + buttons.
 
                         elif isinstance(event, StepLimitReached):
                             step_limit_reached = True

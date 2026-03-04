@@ -774,7 +774,7 @@ If HTTP, use httpx. See US for full detail.
 
 ### Problem
 
-Remy's RAG file index only covers `~/Projects`, `~/Documents`, and `~/Downloads`. Dale's Google Drive is mounted locally (path TBC — e.g. `~/GoogleDrive` or `/mnt/gdrive`) and contains important personal documents including CVs, contracts, and other reference material. These are invisible to Remy's file search.
+Remy's RAG file index only covers `~/Projects`, `~/Documents`, and `~/Downloads`. Dale's Google Drive is mounted locally (macOS: `~/Library/CloudStorage/GoogleDrive-<email>`) and contains important personal documents including CVs, contracts, and other reference material. These are invisible to Remy's file search.
 
 ### Goal
 
@@ -782,7 +782,7 @@ Extend the RAG indexer to optionally include one or more configured Google Drive
 
 ### Proposed Approach
 
-- Add a `GDRIVE_MOUNT_PATHS` env var (comma-separated list of mount paths to index, e.g. `~/GoogleDrive`)
+- Add a `GDRIVE_MOUNT_PATHS` env var (comma-separated list of mount paths to index; macOS: `~/Library/CloudStorage/GoogleDrive-<email>`)
 - Validate that each configured path exists and is readable at startup; log a warning if not (Drive may be unmounted)
 - Treat configured mount paths as additional allowed base directories in the RAG indexer — same chunking, embedding, and retrieval pipeline
 - Add mount paths to the `index_status` tool output so Dale can see what's indexed
@@ -791,17 +791,17 @@ Extend the RAG indexer to optionally include one or more configured Google Drive
 
 ### Acceptance Criteria
 
-- [ ] `GDRIVE_MOUNT_PATHS` env var accepted and validated at startup
-- [ ] Files under configured mount path(s) are indexed by the RAG pipeline
-- [ ] `search_files` returns results from Drive-mounted files
-- [ ] `read_file` can open files from the mount path (path validation updated)
-- [ ] `index_status` reports the Drive mount path(s) and file count
-- [ ] If the mount is not available at startup, Remy logs a warning and continues (graceful degradation)
-- [ ] Actual mount path confirmed with Dale before implementation
+- [x] `GDRIVE_MOUNT_PATHS` env var accepted and validated at startup
+- [x] Files under configured mount path(s) are indexed by the RAG pipeline
+- [x] `search_files` returns results from Drive-mounted files
+- [x] `read_file` can open files from the mount path (path validation updated)
+- [x] `index_status` reports the Drive mount path(s) and file count
+- [x] If the mount is not available at startup, Remy logs a warning and continues (graceful degradation)
+- [x] Mount path configurable via `GDRIVE_MOUNT_PATHS` (macOS: `~/Library/CloudStorage/GoogleDrive-<email>`)
 
 ### Notes
 
-- Mount path needs to be confirmed — Dale to advise exact path (e.g. `~/GoogleDrive`, `/mnt/gdrive`)
+- macOS path confirmed: `~/Library/CloudStorage/GoogleDrive-<your-email>` (Google Drive for Desktop)
 - No new dependencies expected — same indexer, additional allowed base dirs
 - Security: path traversal protections already in place; mount path added to allowlist explicitly
 - Out of scope: real-time Drive sync watching, Google Drive API indexing (cloud-only files)

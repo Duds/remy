@@ -1,6 +1,6 @@
 # Remy Bug Report
 
-_Last updated: 2026-03-04_
+_Last updated: 2026-03-05_
 
 Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](docs/archive/BUGS-archived-2026-03-04.md)
 
@@ -65,5 +65,34 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Priority:** High (same as Bug 3)
 - **Location:** `remy/bot/handlers/callbacks.py` (forward_to_cowork), `remy/relay/client.py`
 - **Fix:** Once both agents use the shared relay per [docs/relay-setup.md](docs/relay-setup.md), [Send to cowork] writes to the same DB cowork reads from, so "✅ Sent to cowork." reflects actual delivery. See Bug 3 fix.
+- **Reported:** 2026-03-04 (Dale Rogers)
+- **Fixed:** 2026-03-04
+
+---
+
+## Bug 5: `create_plan` goal_id FK error — plan created without goal link
+
+- **Symptom:** When calling `create_plan` with a `goal_id`, the plan is created successfully but the goal link silently fails with a foreign key error. Plan exists but is not linked to the intended goal.
+- **Evidence:** During "Build Fig" plan creation (2026-03-05), plan was created but goal link (goal 61 — sailing adventure) was not applied.
+- **Impact:** Plans appear unlinked from goals in `get_goals(include_plans=True)` and `list_plans`. Goal tracking is incomplete.
+- **Root cause:** Invalid or out-of-scope goal_id (e.g. non-existent or belonging to another user) was not validated before INSERT; FK violation could be silent or surface as a raw DB error.
+- **Status:** ✅ Fixed
+- **Priority:** Medium
+- **Location:** `remy/memory/goals.py`, `remy/memory/plans.py`, `remy/ai/tools/plans.py`
+- **Fix:** (1) Added `GoalStore.exists_for_user(user_id, goal_id)` to check goal exists and belongs to the user. (2) In `exec_create_plan`, validate goal_id before calling create_plan: reject invalid or non-integer goal_id with a clear message; if goal_id set, require goal_store and call `exists_for_user` — otherwise return a helpful error. (3) In `PlanStore.create_plan`, catch `aiosqlite.IntegrityError` on INSERT and re-raise a clear `ValueError` so FK failures (e.g. goal deleted between check and insert) are user-friendly.
+- **Reported:** 2026-03-05 (Dale Rogers)
+- **Fixed:** 2026-03-05
+
+---
+
+## Bug 6: Commentary replaced by "✓" when Remy adds buttons during conversation
+
+- **Symptom:** When Remy adds inline buttons during a reply (e.g. via `suggest_actions` — [Add to calendar], [Send to cowork], etc.), her streamed commentary is often replaced by a single "✓" and the buttons. The lost text is often the useful part of the message (e.g. context, explanation, or summary).
+- **Impact:** User sees only "✓" and action buttons instead of Remy's full reply. Helpful commentary is lost; the tick is uninformative.
+- **Root cause:** In `remy/bot/handlers/chat.py`, on every `ToolTurnComplete` event (lines 388–405) the code does `current_display = []`, clearing the accumulated streamed text. When Remy streams commentary and then calls `suggest_actions` in the same turn, the sequence is: (1) text chunks fill `current_display`, (2) tool runs and `ToolTurnComplete` fires, (3) `current_display` is cleared, (4) stream ends with no further text, so `final_text_accum` is empty. The finalisation logic then either calls `_flush_display(final=True, reply_markup=…)` with empty content (so `_flush_display` uses `truncated = "✓"` at line 245) or hits the `elif tool_turns` branch (lines 522–526) and explicitly `sent.edit_text("✓", reply_markup=reply_markup)`. In both cases the pre–tool-turn commentary has already been discarded.
+- **Location:** `remy/bot/handlers/chat.py` — clearing of `current_display` at line 404 on `ToolTurnComplete`; finalisation branch at 522–526 that edits to "✓" when there are tool turns but no remaining text.
+- **Related:** Bug 1 (archived) — "✓" when only `react_to_message`; that fix avoided the tick for reaction-only. This bug is when there *is* preceding commentary but it is wiped by the tool-turn clear.
+- **Status:** ✅ Fixed
+- **Fix:** Stop clearing `current_display` (and `last_edit_len`) on `ToolTurnComplete`. Commentary streamed before the tool call is preserved, so `final_text_accum` is non-empty at finalisation and `_flush_display(final=True, reply_markup=…)` shows the full text with buttons; the "✓" branch is no longer taken when there was preceding commentary.
 - **Reported:** 2026-03-04 (Dale Rogers)
 - **Fixed:** 2026-03-04

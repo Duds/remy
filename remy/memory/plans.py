@@ -12,6 +12,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import aiosqlite
+
 from .database import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -34,13 +36,21 @@ class PlanStore:
         """Create a new plan with optional initial steps and optional goal link. Returns the plan ID."""
         now = datetime.now(timezone.utc).isoformat()
         async with self._db.get_connection() as conn:
-            cursor = await conn.execute(
-                """
-                INSERT INTO plans (user_id, title, description, status, goal_id, created_at, updated_at)
-                VALUES (?, ?, ?, 'active', ?, ?, ?)
-                """,
-                (user_id, title, description, goal_id, now, now),
-            )
+            try:
+                cursor = await conn.execute(
+                    """
+                    INSERT INTO plans (user_id, title, description, status, goal_id, created_at, updated_at)
+                    VALUES (?, ?, ?, 'active', ?, ?, ?)
+                    """,
+                    (user_id, title, description, goal_id, now, now),
+                )
+            except aiosqlite.IntegrityError as e:
+                if "foreign key" in str(e).lower():
+                    raise ValueError(
+                        f"Goal {goal_id} not found — it may have been deleted. "
+                        "Create the plan without goal_id or link to an existing goal (use get_goals)."
+                    ) from e
+                raise
             plan_id_raw = cursor.lastrowid
             if plan_id_raw is None:
                 raise RuntimeError("INSERT into plans did not return lastrowid")

@@ -19,14 +19,28 @@ async def exec_create_plan(registry: ToolRegistry, inp: dict, user_id: int) -> s
     title = inp.get("title", "").strip()
     description = inp.get("description", "").strip() or None
     steps = inp.get("steps", [])
-    goal_id = inp.get("goal_id")
+    goal_id_raw = inp.get("goal_id")
 
     if not title:
         return "Please provide a title for the plan."
     if not steps:
         return "Please provide at least one step for the plan."
 
-    goal_id_int: int | None = int(goal_id) if goal_id is not None else None
+    goal_id_int: int | None = None
+    if goal_id_raw is not None:
+        try:
+            goal_id_int = int(goal_id_raw)
+        except (TypeError, ValueError):
+            return (
+                "Invalid goal_id: must be an integer (use get_goals to list goal IDs)."
+            )
+        if registry._goal_store is None:
+            return "Goal linking not available; create the plan without goal_id."
+        if not await registry._goal_store.exists_for_user(user_id, goal_id_int):
+            return (
+                f"Goal {goal_id_int} not found or does not belong to you. "
+                "Use get_goals to list your goals and their IDs."
+            )
 
     try:
         plan_id = await registry._plan_store.create_plan(

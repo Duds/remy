@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def _sanitize_path(raw: str) -> tuple[str | None, str | None]:
     """Expand ~ and validate path is within allowed base dirs."""
     from ...ai.input_validator import sanitize_file_path
+
     expanded = str(Path(raw).expanduser())
     path_obj, err = sanitize_file_path(expanded, settings.allowed_base_dirs)
     if err:
@@ -81,7 +82,11 @@ async def exec_list_directory(registry: ToolRegistry, inp: dict) -> str:
         for entry in all_entries[:100]:
             prefix = "📁 " if entry.is_dir() else "📄 "
             lines.append(prefix + entry.name)
-        suffix = f"\n[…and {len(all_entries) - 100} more entries]" if len(all_entries) > 100 else ""
+        suffix = (
+            f"\n[…and {len(all_entries) - 100} more entries]"
+            if len(all_entries) > 100
+            else ""
+        )
         return lines, suffix
 
     try:
@@ -92,7 +97,11 @@ async def exec_list_directory(registry: ToolRegistry, inp: dict) -> str:
     lines, suffix = result
     if lines is None:
         return suffix
-    return f"Contents of {safe_path}/ ({len(lines)} items):\n" + "\n".join(lines) + (suffix or "")
+    return (
+        f"Contents of {safe_path}/ ({len(lines)} items):\n"
+        + "\n".join(lines)
+        + (suffix or "")
+    )
 
 
 async def exec_write_file(registry: ToolRegistry, inp: dict) -> str:
@@ -117,10 +126,7 @@ async def exec_write_file(registry: ToolRegistry, inp: dict) -> str:
     except Exception as e:
         return f"Could not write file: {e}"
 
-    return (
-        f"✅ Written {len(content):,} chars to {safe_path} "
-        f"({size:,} bytes on disk)."
-    )
+    return f"✅ Written {len(content):,} chars to {safe_path} ({size:,} bytes on disk)."
 
 
 async def exec_append_file(registry: ToolRegistry, inp: dict) -> str:
@@ -164,9 +170,12 @@ async def exec_find_files(registry: ToolRegistry, inp: dict) -> str:
 
     raw_results = []
     for base in settings.allowed_base_dirs:
-        raw_results.extend(glob_module.glob(os.path.join(base, "**", pattern), recursive=True))
+        raw_results.extend(
+            glob_module.glob(os.path.join(base, "**", pattern), recursive=True)
+        )
 
     from ...ai.input_validator import sanitize_file_path
+
     results = []
     for r in raw_results:
         safe, err = sanitize_file_path(r, settings.allowed_base_dirs)
@@ -198,12 +207,59 @@ async def exec_scan_downloads(registry: ToolRegistry) -> str:
     total_bytes = 0
 
     _EXTS: list[tuple[frozenset, str, str]] = [
-        (frozenset(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "svg"]), "🖼", "Images"),
+        (
+            frozenset(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "svg"]),
+            "🖼",
+            "Images",
+        ),
         (frozenset(["mp4", "mov", "avi", "mkv", "m4v", "wmv", "flv"]), "🎥", "Videos"),
         (frozenset(["mp3", "m4a", "wav", "flac", "aac", "ogg"]), "🎵", "Audio"),
-        (frozenset(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "pages", "numbers", "key"]), "📄", "Documents"),
-        (frozenset(["zip", "tar", "gz", "bz2", "7z", "rar", "dmg", "pkg", "iso"]), "📦", "Archives"),
-        (frozenset(["py", "js", "ts", "java", "cpp", "c", "h", "go", "rs", "sh", "json", "yaml", "yml", "toml"]), "💻", "Code"),
+        (
+            frozenset(
+                [
+                    "pdf",
+                    "doc",
+                    "docx",
+                    "xls",
+                    "xlsx",
+                    "ppt",
+                    "pptx",
+                    "txt",
+                    "pages",
+                    "numbers",
+                    "key",
+                ]
+            ),
+            "📄",
+            "Documents",
+        ),
+        (
+            frozenset(["zip", "tar", "gz", "bz2", "7z", "rar", "dmg", "pkg", "iso"]),
+            "📦",
+            "Archives",
+        ),
+        (
+            frozenset(
+                [
+                    "py",
+                    "js",
+                    "ts",
+                    "java",
+                    "cpp",
+                    "c",
+                    "h",
+                    "go",
+                    "rs",
+                    "sh",
+                    "json",
+                    "yaml",
+                    "yml",
+                    "toml",
+                ]
+            ),
+            "💻",
+            "Code",
+        ),
     ]
 
     def _classify(ext: str) -> tuple[str, str]:
@@ -218,12 +274,17 @@ async def exec_scan_downloads(registry: ToolRegistry) -> str:
             return f"{b}B"
         if b < 1024 * 1024:
             return f"{b // 1024}KB"
-        if b < 1024 ** 3:
+        if b < 1024**3:
             return f"{b // (1024 * 1024)}MB"
-        return f"{b / (1024 ** 3):.1f}GB"
+        return f"{b / (1024**3):.1f}GB"
 
     type_counts: dict[str, tuple[str, int, int]] = {}
-    age_buckets = {"Today (<1d)": 0, "This week (<7d)": 0, "This month (<30d)": 0, "Old (>30d)": 0}
+    age_buckets = {
+        "Today (<1d)": 0,
+        "This week (<7d)": 0,
+        "This month (<30d)": 0,
+        "Old (>30d)": 0,
+    }
     oldest: list[tuple[float, str, int]] = []
 
     for f in files:
@@ -243,10 +304,14 @@ async def exec_scan_downloads(registry: ToolRegistry) -> str:
             age_buckets["Old (>30d)"] += 1
         oldest.append((stat.st_mtime, f.name, stat.st_size))
 
-    lines = [f"📦 Downloads Scan — {len(files)} files ({_fmt_bytes(total_bytes)} total)\n"]
+    lines = [
+        f"📦 Downloads Scan — {len(files)} files ({_fmt_bytes(total_bytes)} total)\n"
+    ]
 
     lines.append("Type breakdown:")
-    for label, (icon, count, nbytes) in sorted(type_counts.items(), key=lambda x: -x[1][2]):
+    for label, (icon, count, nbytes) in sorted(
+        type_counts.items(), key=lambda x: -x[1][2]
+    ):
         lines.append(f"  {icon} {label}: {count} file(s), {_fmt_bytes(nbytes)}")
 
     lines.append("\nAge breakdown:")
@@ -293,15 +358,17 @@ async def exec_organize_directory(registry: ToolRegistry, inp: dict) -> str:
     listing = "\n".join(entries[:50])
     try:
         suggestions = await registry._claude_client.complete(
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Here is the contents of directory '{safe_path}':\n\n{listing}\n\n"
-                    "Suggest how to organise these files. "
-                    "Recommend folder names and which files should go where. "
-                    "Be specific and actionable."
-                ),
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Here is the contents of directory '{safe_path}':\n\n{listing}\n\n"
+                        "Suggest how to organise these files. "
+                        "Recommend folder names and which files should go where. "
+                        "Be specific and actionable."
+                    ),
+                }
+            ],
             system="You are a helpful file organisation assistant. Be concise and practical.",
             max_tokens=1024,
         )
@@ -325,7 +392,9 @@ async def exec_clean_directory(registry: ToolRegistry, inp: dict) -> str:
         return "Not a directory."
 
     try:
-        files = sorted([f for f in p.iterdir() if f.is_file()], key=lambda x: x.stat().st_mtime)
+        files = sorted(
+            [f for f in p.iterdir() if f.is_file()], key=lambda x: x.stat().st_mtime
+        )
     except Exception as e:
         return f"Could not list directory: {e}"
 
@@ -346,14 +415,16 @@ async def exec_clean_directory(registry: ToolRegistry, inp: dict) -> str:
 
     try:
         suggestions = await registry._claude_client.complete(
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Review these files from '{safe_path}' and suggest DELETE, ARCHIVE, or KEEP for each:\n\n{listing}\n\n"
-                    "Format your response as:\n"
-                    "• filename.ext — KEEP/ARCHIVE/DELETE — brief reason"
-                ),
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Review these files from '{safe_path}' and suggest DELETE, ARCHIVE, or KEEP for each:\n\n{listing}\n\n"
+                        "Format your response as:\n"
+                        "• filename.ext — KEEP/ARCHIVE/DELETE — brief reason"
+                    ),
+                }
+            ],
             system="You are a helpful file cleanup assistant. Be decisive and practical.",
             max_tokens=1024,
         )
@@ -393,7 +464,7 @@ async def exec_search_files(registry: ToolRegistry, inp: dict) -> str:
             msg += f" (searched in {path_filter})"
         return msg
 
-    lines = [f"📂 File search results for \"{query}\":"]
+    lines = [f'📂 File search results for "{query}":']
     lines.append("")
 
     for i, result in enumerate(results, 1):
@@ -407,7 +478,7 @@ async def exec_search_files(registry: ToolRegistry, inp: dict) -> str:
         content = content.replace("\n", " ").strip()
 
         lines.append(f"{i}. {path} (chunk {chunk_idx})")
-        lines.append(f"   \"{content}\"")
+        lines.append(f'   "{content}"')
         lines.append("")
 
     lines.append("Use read_file to see the full content of any file.")
@@ -417,10 +488,7 @@ async def exec_search_files(registry: ToolRegistry, inp: dict) -> str:
 async def exec_index_status(registry: ToolRegistry) -> str:
     """Show the current state of the file index."""
     if registry._file_indexer is None:
-        return (
-            "File indexing not available. "
-            "The file index may not be configured."
-        )
+        return "File indexing not available. The file index may not be configured."
 
     if not registry._file_indexer.enabled:
         return "File indexing is disabled in configuration."
@@ -436,12 +504,17 @@ async def exec_index_status(registry: ToolRegistry) -> str:
         ext_str += f" (+{len(status.extensions) - 8} more)"
 
     paths_str = "\n  ".join(status.paths) if status.paths else "None configured"
+    gdrive_note = ""
+    if settings.gdrive_mount_paths:
+        gdrive_note = "\n  Google Drive mounts: " + ", ".join(
+            settings.gdrive_mount_paths
+        )
 
     last_run = status.last_run or "Never"
 
     return (
         f"📂 File index status:\n"
-        f"  Paths:\n  {paths_str}\n"
+        f"  Paths:\n  {paths_str}{gdrive_note}\n"
         f"  Files indexed: {status.files_indexed:,}\n"
         f"  Total chunks: {status.total_chunks:,}\n"
         f"  Last indexed: {last_run}\n"

@@ -53,7 +53,7 @@ List the agent's core capabilities:
 
 - **Email** — triaging, filtering, labelling, archiving, extracting action items.
 - **Calendar** — reading schedule, creating events, finding meeting times.
-- **Goals** — tracking what the user says they want to achieve and following up.
+- **Goals, plans, and steps** — Goals are outcomes (e.g. "well-maintained home"); plans are multi-step projects (e.g. "fix laundry cupboard") and can be linked to a goal; steps are the concrete tasks under a plan. Create, list, and link so the user sees which tasks belong to which plans and which plans serve which outcomes (executive function support).
 - **Shopping** — maintaining lists, suggesting items, placing orders where possible.
 - **[Add more as needed]**
 

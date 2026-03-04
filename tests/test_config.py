@@ -67,3 +67,25 @@ def test_derived_paths_use_data_dir(monkeypatch):
     assert s.sessions_dir.startswith(s.data_dir)
     assert s.logs_dir.startswith(s.data_dir)
     assert s.db_path.startswith(s.data_dir)
+
+
+def test_gdrive_mount_paths_empty(monkeypatch):
+    """GDRIVE_MOUNT_PATHS empty or unset -> gdrive_mount_paths is []."""
+    monkeypatch.delenv("GDRIVE_MOUNT_PATHS", raising=False)
+    s = make_settings(monkeypatch, GDRIVE_MOUNT_PATHS="")
+    assert s.gdrive_mount_paths == []
+
+
+def test_gdrive_mount_paths_valid_path(monkeypatch, tmp_path):
+    """GDRIVE_MOUNT_PATHS set to an existing dir -> included in gdrive_mount_paths."""
+    s = make_settings(monkeypatch, GDRIVE_MOUNT_PATHS=str(tmp_path))
+    assert s.gdrive_mount_paths == [str(tmp_path)]
+
+
+def test_gdrive_mount_paths_missing_path(monkeypatch):
+    """GDRIVE_MOUNT_PATHS set to nonexistent path -> graceful degradation, []."""
+    s = make_settings(
+        monkeypatch,
+        GDRIVE_MOUNT_PATHS="/nonexistent/drive/mount/path",
+    )
+    assert s.gdrive_mount_paths == []

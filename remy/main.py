@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import signal
+from pathlib import Path
 
 from .agents.orchestrator import BoardOrchestrator
 from .agents.subagent_runner import SubagentRunner
@@ -147,15 +148,18 @@ def main() -> None:
     plan_store = PlanStore(db)
     conv_analyzer = ConversationAnalyzer(conv_store, db)
 
-    # Home directory RAG file indexer
+    # Home directory RAG file indexer (includes validated Google Drive mounts)
+    _base_rag_paths = (
+        [p.strip() for p in settings.rag_index_paths.split(",") if p.strip()]
+        if settings.rag_index_paths
+        else [str(Path.home() / "Projects"), str(Path.home() / "Documents")]
+    )
+    _base_rag_paths = [str(Path(p).expanduser()) for p in _base_rag_paths]
+    _all_index_paths = _base_rag_paths + list(settings.gdrive_mount_paths)
     file_indexer = FileIndexer(
         db=db,
         embeddings=embeddings,
-        index_paths=(
-            [p.strip() for p in settings.rag_index_paths.split(",") if p.strip()]
-            if settings.rag_index_paths
-            else None
-        ),
+        index_paths=_all_index_paths if _all_index_paths else None,
         index_extensions=(
             {e.strip() for e in settings.rag_index_extensions.split(",") if e.strip()}
             if settings.rag_index_extensions

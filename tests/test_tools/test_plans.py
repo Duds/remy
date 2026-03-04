@@ -23,6 +23,7 @@ def make_registry(**kwargs) -> MagicMock:
     """Create a mock registry with sensible defaults."""
     registry = MagicMock()
     registry._plan_store = kwargs.get("plan_store")
+    registry._goal_store = kwargs.get("goal_store")
     return registry
 
 
@@ -86,10 +87,12 @@ class TestExecCreatePlan:
 
     @pytest.mark.asyncio
     async def test_create_plan_with_goal_id(self):
-        """Should pass goal_id to store when provided."""
+        """Should validate goal exists for user then pass goal_id to store."""
         store = AsyncMock()
         store.create_plan = AsyncMock(return_value=99)
-        registry = make_registry(plan_store=store)
+        goal_store = AsyncMock()
+        goal_store.exists_for_user = AsyncMock(return_value=True)
+        registry = make_registry(plan_store=store, goal_store=goal_store)
         result = await exec_create_plan(
             registry,
             {
@@ -99,6 +102,7 @@ class TestExecCreatePlan:
             },
             USER_ID,
         )
+        goal_store.exists_for_user.assert_called_once_with(USER_ID, 5)
         store.create_plan.assert_called_once_with(
             42,
             "Fix cupboard",
@@ -107,6 +111,25 @@ class TestExecCreatePlan:
             goal_id=5,
         )
         assert "99" in result or "created" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_create_plan_with_goal_id_rejects_unknown_goal(self):
+        """Should return error when goal_id does not exist or not owned by user."""
+        store = AsyncMock()
+        goal_store = AsyncMock()
+        goal_store.exists_for_user = AsyncMock(return_value=False)
+        registry = make_registry(plan_store=store, goal_store=goal_store)
+        result = await exec_create_plan(
+            registry,
+            {
+                "title": "Fix cupboard",
+                "steps": ["Buy hinge"],
+                "goal_id": 999,
+            },
+            USER_ID,
+        )
+        store.create_plan.assert_not_called()
+        assert "not found" in result.lower() or "get_goals" in result.lower()
 
     @pytest.mark.asyncio
     async def test_includes_steps_in_response(self):
