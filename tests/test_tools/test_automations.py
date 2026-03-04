@@ -23,8 +23,12 @@ USER_ID = 42
 # Generate fixtures in local AEST/AEDT time — the executor treats naive datetimes
 # as Australia/Canberra, so UTC-based offsets would be misinterpreted.
 _LOCAL_TZ = ZoneInfo("Australia/Canberra")
-_FUTURE_LOCAL = (datetime.now(_LOCAL_TZ) + timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%S")
-_PAST_LOCAL = (datetime.now(_LOCAL_TZ) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+_FUTURE_LOCAL = (datetime.now(_LOCAL_TZ) + timedelta(hours=12)).strftime(
+    "%Y-%m-%dT%H:%M:%S"
+)
+_PAST_LOCAL = (datetime.now(_LOCAL_TZ) - timedelta(hours=1)).strftime(
+    "%Y-%m-%dT%H:%M:%S"
+)
 
 
 def make_registry(**kwargs) -> MagicMock:
@@ -60,15 +64,21 @@ class TestExecScheduleReminder:
         store.add = AsyncMock(return_value=123)
         registry = make_registry(automation_store=store)
 
-        result = await exec_schedule_reminder(registry, {
-            "label": "Daily standup",
-            "frequency": "daily",
-            "time": "09:00",
-        }, USER_ID)
+        result = await exec_schedule_reminder(
+            registry,
+            {
+                "label": "Daily standup",
+                "frequency": "daily",
+                "time": "09:00",
+            },
+            USER_ID,
+        )
 
         assert "123" in result
         assert "daily" in result.lower()
-        store.add.assert_called_once()
+        store.add.assert_called_once_with(
+            USER_ID, "Daily standup", "0 9 * * *", mediated=False
+        )
 
     @pytest.mark.asyncio
     async def test_weekly_reminder_includes_day(self):
@@ -76,14 +86,47 @@ class TestExecScheduleReminder:
         store.add = AsyncMock(return_value=7)
         registry = make_registry(automation_store=store)
 
-        result = await exec_schedule_reminder(registry, {
-            "label": "Weekly review",
-            "frequency": "weekly",
-            "time": "10:00",
-            "day": "fri",
-        }, USER_ID)
+        result = await exec_schedule_reminder(
+            registry,
+            {
+                "label": "Weekly review",
+                "frequency": "weekly",
+                "time": "10:00",
+                "day": "fri",
+            },
+            USER_ID,
+        )
 
         assert "Friday" in result
+
+    @pytest.mark.asyncio
+    async def test_mediated_reminder_passes_flag(self):
+        store = AsyncMock()
+        store.add = AsyncMock(return_value=99)
+        sched = MagicMock()
+        registry = make_registry(
+            automation_store=store, scheduler_ref={"proactive_scheduler": sched}
+        )
+
+        result = await exec_schedule_reminder(
+            registry,
+            {
+                "label": "Sobriety check",
+                "frequency": "daily",
+                "time": "17:00",
+                "mediated": True,
+            },
+            USER_ID,
+        )
+
+        assert "99" in result
+        assert "mediated" in result.lower()
+        store.add.assert_called_once_with(
+            USER_ID, "Sobriety check", "0 17 * * *", mediated=True
+        )
+        sched.add_automation.assert_called_once_with(
+            99, USER_ID, "Sobriety check", "0 17 * * *", mediated=True
+        )
 
 
 class TestExecListReminders:
@@ -107,17 +150,23 @@ class TestExecListReminders:
     @pytest.mark.asyncio
     async def test_recurring_reminder_format(self):
         store = AsyncMock()
-        store.get_all = AsyncMock(return_value=[{
-            "id": 1,
-            "label": "Daily standup",
-            "cron": "0 9 * * *",
-            "fire_at": None,
-            "last_run_at": None,
-        }])
+        store.get_all = AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "label": "Daily standup",
+                    "cron": "0 9 * * *",
+                    "fire_at": None,
+                    "last_run_at": None,
+                    "mediated": 0,
+                }
+            ]
+        )
         registry = make_registry(automation_store=store)
 
         result = await exec_list_reminders(registry, USER_ID)
         assert "[ID 1]" in result
+        assert "direct" in result
         assert "Daily standup" in result
         assert "daily" in result.lower()
         assert "09:00" in result
@@ -125,13 +174,18 @@ class TestExecListReminders:
     @pytest.mark.asyncio
     async def test_one_time_reminder_shows_friendly_time(self):
         store = AsyncMock()
-        store.get_all = AsyncMock(return_value=[{
-            "id": 5,
-            "label": "Call dentist",
-            "cron": "",
-            "fire_at": "2026-03-15T10:30:00",
-            "last_run_at": None,
-        }])
+        store.get_all = AsyncMock(
+            return_value=[
+                {
+                    "id": 5,
+                    "label": "Call dentist",
+                    "cron": "",
+                    "fire_at": "2026-03-15T10:30:00",
+                    "last_run_at": None,
+                    "mediated": 0,
+                }
+            ]
+        )
         registry = make_registry(automation_store=store)
 
         result = await exec_list_reminders(registry, USER_ID)
@@ -237,7 +291,9 @@ class TestExecSetOneTimeReminder:
 
         assert "42" in result
         assert "Call dentist" in result
-        store.add.assert_called_once_with(USER_ID, "Call dentist", cron="", fire_at=_FUTURE_LOCAL)
+        store.add.assert_called_once_with(
+            USER_ID, "Call dentist", cron="", fire_at=_FUTURE_LOCAL
+        )
 
     @pytest.mark.asyncio
     async def test_confirmation_shows_friendly_time(self):
@@ -246,7 +302,9 @@ class TestExecSetOneTimeReminder:
         registry = make_registry(automation_store=store)
 
         result = await exec_set_one_time_reminder(
-            registry, {"label": "Stand up and stretch", "fire_at": "2026-06-01T14:30:00"}, USER_ID
+            registry,
+            {"label": "Stand up and stretch", "fire_at": "2026-06-01T14:30:00"},
+            USER_ID,
         )
 
         # Confirmation should include formatted time, not raw ISO string
@@ -290,7 +348,9 @@ class TestExecGroceryList:
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
 
-        result = await exec_grocery_list(registry, {"action": "add", "items": ""}, USER_ID)
+        result = await exec_grocery_list(
+            registry, {"action": "add", "items": ""}, USER_ID
+        )
         assert "specify" in result.lower() or "provide" in result.lower()
 
     @pytest.mark.asyncio

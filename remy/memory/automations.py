@@ -20,18 +20,25 @@ class AutomationStore:
         self._db = db
 
     async def add(
-        self, user_id: int, label: str, cron: str = "", fire_at: str | None = None
+        self,
+        user_id: int,
+        label: str,
+        cron: str = "",
+        fire_at: str | None = None,
+        mediated: bool = False,
     ) -> int:
         """Insert a new automation. Returns the new row ID.
 
         Pass *fire_at* (ISO 8601 datetime string) for one-time reminders; leave
         *cron* empty in that case.  Pass a 5-field *cron* string for recurring
-        reminders and leave *fire_at* as None.
+        reminders and leave *fire_at* as None.  When *mediated* is True, the
+        reminder is composed by Claude at fire time (context-aware); otherwise
+        the stored label is sent directly.
         """
         async with self._db.get_connection() as conn:
             cursor = await conn.execute(
-                "INSERT INTO automations (user_id, label, cron, fire_at) VALUES (?, ?, ?, ?)",
-                (user_id, label, cron, fire_at),
+                "INSERT INTO automations (user_id, label, cron, fire_at, mediated) VALUES (?, ?, ?, ?, ?)",
+                (user_id, label, cron, fire_at, 1 if mediated else 0),
             )
             await conn.commit()
             rid = cursor.lastrowid
@@ -49,7 +56,7 @@ class AutomationStore:
         """Return automation by ID, or None if not found."""
         async with self._db.get_connection() as conn:
             cursor = await conn.execute(
-                "SELECT id, user_id, label, cron, fire_at, last_run_at, created_at "
+                "SELECT id, user_id, label, cron, fire_at, last_run_at, created_at, mediated "
                 "FROM automations WHERE id = ?",
                 (automation_id,),
             )
@@ -60,7 +67,7 @@ class AutomationStore:
         """Return all automations for a user, ordered by creation time."""
         async with self._db.get_connection() as conn:
             cursor = await conn.execute(
-                "SELECT id, label, cron, fire_at, last_run_at, created_at "
+                "SELECT id, label, cron, fire_at, last_run_at, created_at, mediated "
                 "FROM automations WHERE user_id = ? ORDER BY id",
                 (user_id,),
             )
@@ -81,7 +88,7 @@ class AutomationStore:
         """Return all automations across all users (for scheduler startup load)."""
         async with self._db.get_connection() as conn:
             cursor = await conn.execute(
-                "SELECT id, user_id, label, cron, fire_at FROM automations ORDER BY id",
+                "SELECT id, user_id, label, cron, fire_at, mediated FROM automations ORDER BY id",
             )
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]

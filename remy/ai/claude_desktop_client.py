@@ -23,11 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_text(content: object) -> str:
-    """Extract plain text from a message content field (str or list of blocks)."""
+    """Extract plain text from a message content field (str or list of blocks).
+
+    Concatenates text blocks without filtering or inserting spaces so that
+    spacing and empty segments are preserved (Bug 8).
+    """
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return " ".join(
+        return "".join(
             part.get("text", "")
             for part in content
             if isinstance(part, dict) and part.get("type") == "text"
@@ -123,8 +127,10 @@ class ClaudeDesktopClient:
 
         cmd = [
             self._cli_path,
-            "-p", prompt,
-            "--output-format", "stream-json",
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
             "--verbose",
             "--include-partial-messages",
         ]
@@ -170,7 +176,7 @@ class ClaudeDesktopClient:
 
                     # Yield the incremental delta from the last seen text
                     if new_text.startswith(last_text):
-                        delta = new_text[len(last_text):]
+                        delta = new_text[len(last_text) :]
                         if delta:
                             yield delta
                     else:

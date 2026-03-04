@@ -18,6 +18,7 @@ from remy.health import (
     _handle_root,
     _handle_logs,
     _handle_telemetry,
+    _handle_files,
     _check_token,
 )
 
@@ -508,3 +509,50 @@ async def test_telemetry_empty_db_returns_zero_stats():
             assert data["by_model"] == {}
 
     set_db(None)
+
+
+# --------------------------------------------------------------------------- #
+# /files endpoint tests                                                        #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_files_returns_400_when_missing_params():
+    """GET /files returns 400 when path or token is missing."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    app = web.Application()
+    app.router.add_get("/files", _handle_files)
+
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/files")
+        assert resp.status == 400
+        resp = await client.get("/files?path=abc")
+        assert resp.status == 400
+        resp = await client.get("/files?token=abc")
+        assert resp.status == 400
+
+
+@pytest.mark.asyncio
+async def test_files_returns_401_when_token_invalid():
+    """GET /files returns 401 when token is invalid or expired."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.file_link import encode_path_param
+
+    app = web.Application()
+    app.router.add_get("/files", _handle_files)
+
+    path_encoded = encode_path_param("/tmp/somefile.txt")
+    with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret"}):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(f"/files?path={path_encoded}&token=invalidtoken")
+            assert resp.status == 401

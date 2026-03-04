@@ -639,6 +639,32 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "get_file_download_link",
+        "description": (
+            "Generate a short-lived secure download link for a file on the Mac. "
+            "Use when the user asks for a file or when you refer to a specific file and they may want to open or download it from Telegram (e.g. when not on the same network). "
+            "Same allowed paths as read_file: ~/Projects, ~/Documents, ~/Downloads. "
+            "Requires FILE_LINK_BASE_URL (and FILE_LINK_SECRET or HEALTH_API_TOKEN) to be set."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Path to the file. Use ~/... form (e.g. ~/Documents/Home/fence-notes.md). "
+                        "Must be a file, not a directory."
+                    ),
+                },
+                "expires_in_minutes": {
+                    "type": "integer",
+                    "description": "Link validity in minutes (default from config, max 60).",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "list_directory",
         "description": (
             "List files and subdirectories at a path. "
@@ -994,6 +1020,14 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
                     "description": "Day of week for weekly reminders (default: mon).",
+                },
+                "mediated": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, Remy composes the reminder message at fire time using context "
+                        "(goals, memory, recent conversation). If false, the label is sent as static text. "
+                        "Use true for health, emotional, or goal-adjacent reminders; false for logistical alarms."
+                    ),
                 },
             },
             "required": ["label", "frequency"],

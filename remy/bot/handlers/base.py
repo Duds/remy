@@ -151,7 +151,8 @@ def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
             )
             if has_tool:
                 continue
-            # No tool blocks — collapse to plain text
+            # No tool blocks — collapse to plain text (Bug 8: preserve all segments
+            # including empty or space-only so spacing between words/segments is not pruned)
             parts: list[str] = []
             for b in content:
                 if not isinstance(b, dict):
@@ -160,8 +161,8 @@ def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
                     parts.append(b.get("text") or b.get("content") or "")
                 else:
                     parts.append(str(b.get("content") or b.get("text") or ""))
-            joined = "\n".join(p for p in parts if p)
-            if not joined:
+            joined = "".join(parts)
+            if not joined.strip():
                 continue
             filtered.append({"role": m.get("role"), "content": joined})
         else:

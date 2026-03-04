@@ -81,6 +81,43 @@ def _briefing_system_prompt(context: dict) -> str:
     )
 
 
+async def compose_proactive_message(
+    *,
+    label: str,
+    user_id: int,
+    chat_id: int,
+    bot: "Bot",
+    claude_client: "ClaudeClient",
+    tool_registry: "ToolRegistry",
+    session_manager: SessionManager,
+    conv_store: "ConversationStore",
+    db=None,
+    automation_id: int = 0,
+    one_time: bool = False,
+    context: dict | None = None,
+) -> None:
+    """
+    Shared helper for context-aware proactive messages (US-remy-mediated-reminders).
+
+    Composes and sends a proactive message via the full Claude pipeline. Used by
+    morning briefing and by mediated reminders. Delegates to run_proactive_trigger.
+    """
+    await run_proactive_trigger(
+        label=label,
+        user_id=user_id,
+        chat_id=chat_id,
+        bot=bot,
+        claude_client=claude_client,
+        tool_registry=tool_registry,
+        session_manager=session_manager,
+        conv_store=conv_store,
+        db=db,
+        automation_id=automation_id,
+        one_time=one_time,
+        context=context,
+    )
+
+
 async def run_proactive_trigger(
     *,
     label: str,

@@ -212,6 +212,7 @@ async def exec_help(registry: ToolRegistry, inp: dict, user_id: int) -> str:
         ],
         "files": [
             "read_file",
+            "get_file_download_link",
             "list_directory",
             "write_file",
             "append_file",

@@ -15,16 +15,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DOW_MAP = {
-    "mon": "1", "tue": "2", "wed": "3", "thu": "4",
-    "fri": "5", "sat": "6", "sun": "0",
+    "mon": "1",
+    "tue": "2",
+    "wed": "3",
+    "thu": "4",
+    "fri": "5",
+    "sat": "6",
+    "sun": "0",
 }
 _DOW_NAMES = {
-    "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday",
-    "4": "Thursday", "5": "Friday", "6": "Saturday", "*": "every day",
+    "0": "Sunday",
+    "1": "Monday",
+    "2": "Tuesday",
+    "3": "Wednesday",
+    "4": "Thursday",
+    "5": "Friday",
+    "6": "Saturday",
+    "*": "every day",
 }
 
 
-async def exec_schedule_reminder(registry: ToolRegistry, inp: dict, user_id: int) -> str:
+async def exec_schedule_reminder(
+    registry: ToolRegistry, inp: dict, user_id: int
+) -> str:
     """Create a recurring reminder that fires daily or weekly."""
     if registry._automation_store is None:
         return "Automation store not available."
@@ -33,6 +46,7 @@ async def exec_schedule_reminder(registry: ToolRegistry, inp: dict, user_id: int
     frequency = inp.get("frequency", "daily")
     time_str = inp.get("time", "09:00").strip()
     day = inp.get("day", "mon").strip().lower()
+    mediated = inp.get("mediated", False) is True
 
     if not label:
         return "Please provide a label for the reminder."
@@ -54,17 +68,22 @@ async def exec_schedule_reminder(registry: ToolRegistry, inp: dict, user_id: int
         freq_desc = f"every day at {hour:02d}:{minute:02d}"
 
     try:
-        automation_id = await registry._automation_store.add(user_id, label, cron)
+        automation_id = await registry._automation_store.add(
+            user_id, label, cron, mediated=mediated
+        )
     except Exception as e:
         return f"Failed to save reminder: {e}"
 
     sched = registry._scheduler_ref.get("proactive_scheduler")
     if sched is not None:
-        sched.add_automation(automation_id, user_id, label, cron)
+        sched.add_automation(automation_id, user_id, label, cron, mediated=mediated)
 
+    delivery = (
+        "mediated (Remy composes at fire time)" if mediated else "direct (static text)"
+    )
     return (
         f"✅ Reminder set (ID {automation_id}): '{label}'\n"
-        f"Fires {freq_desc}."
+        f"Fires {freq_desc}. Delivery: {delivery}."
     )
 
 
@@ -80,20 +99,24 @@ async def exec_list_reminders(registry: ToolRegistry, user_id: int) -> str:
     lines = [f"Scheduled reminders ({len(rows)}):"]
     for row in rows:
         last = row["last_run_at"] or "never"
+        mediated = bool(row.get("mediated", 0))
+        delivery = "mediated" if mediated else "direct"
         if row.get("fire_at"):
             try:
                 fire_dt = datetime.fromisoformat(row["fire_at"])
                 display = fire_dt.strftime("%a %d %b %Y at %H:%M")
             except (ValueError, TypeError):
                 display = row["fire_at"]
-            lines.append(f"[ID {row['id']}] '{row['label']}' — once at {display}")
+            lines.append(
+                f"[ID {row['id']}] '{row['label']}' — once at {display} ({delivery})"
+            )
         else:
             cron_parts = row["cron"].split()
             minute, hour, _, _, dow = cron_parts
             time_fmt = f"{int(hour):02d}:{int(minute):02d}"
             freq = "daily" if dow == "*" else f"every {_DOW_NAMES.get(dow, dow)}"
             lines.append(
-                f"[ID {row['id']}] '{row['label']}' — {freq} at {time_fmt} | last run: {last}"
+                f"[ID {row['id']}] '{row['label']}' — {freq} at {time_fmt} | last run: {last} ({delivery})"
             )
 
     return "\n".join(lines)
@@ -119,7 +142,9 @@ async def exec_remove_reminder(registry: ToolRegistry, inp: dict, user_id: int) 
     return f"✅ Reminder {reminder_id} removed."
 
 
-async def exec_set_one_time_reminder(registry: ToolRegistry, inp: dict, user_id: int) -> str:
+async def exec_set_one_time_reminder(
+    registry: ToolRegistry, inp: dict, user_id: int
+) -> str:
     """Set a one-time reminder that fires at a specific date and time."""
     if registry._automation_store is None:
         return "Automation store not available."
@@ -161,7 +186,9 @@ async def exec_set_one_time_reminder(registry: ToolRegistry, inp: dict, user_id:
 
     sched = registry._scheduler_ref.get("proactive_scheduler")
     if sched is not None:
-        sched.add_automation(automation_id, user_id, label, cron="", fire_at=fire_at_str)
+        sched.add_automation(
+            automation_id, user_id, label, cron="", fire_at=fire_at_str
+        )
 
     try:
         display_time = fire_dt.strftime("%a %d %b at %H:%M")
@@ -209,18 +236,30 @@ async def exec_grocery_list(registry: ToolRegistry, inp: dict, user_id: int = 0)
 
     if registry._knowledge_store is not None and user_id:
         if action == "show":
-            items = await registry._knowledge_store.get_by_type(user_id, "shopping_item", limit=100)
+            items = await registry._knowledge_store.get_by_type(
+                user_id, "shopping_item", limit=100
+            )
             if not items:
                 return "Shopping list is empty."
             lines = [f"• [ID:{i.id}] {i.content}" for i in items]
-            return "Shopping list:\n" + "\n".join(lines) + "\n\n(Use the ID to remove specific items)"
+            return (
+                "Shopping list:\n"
+                + "\n".join(lines)
+                + "\n\n(Use the ID to remove specific items)"
+            )
 
         elif action == "add":
             if not items_raw:
                 return "Please specify what to add."
-            new_items = [s.strip() for s in items_raw.replace(";", ",").split(",") if s.strip()]
+            new_items = [
+                s.strip() for s in items_raw.replace(";", ",").split(",") if s.strip()
+            ]
             from ...models import KnowledgeItem
-            ki_list = [KnowledgeItem(entity_type="shopping_item", content=it) for it in new_items]
+
+            ki_list = [
+                KnowledgeItem(entity_type="shopping_item", content=it)
+                for it in new_items
+            ]
             await registry._knowledge_store.upsert(user_id, ki_list)
             return f"✅ Added to shopping list: {', '.join(new_items)}"
 
@@ -228,9 +267,17 @@ async def exec_grocery_list(registry: ToolRegistry, inp: dict, user_id: int = 0)
             if not items_raw:
                 return "Please specify what to remove (name substring or item ID)."
             if items_raw.isdigit():
-                removed = await registry._knowledge_store.delete(user_id, int(items_raw))
-                return f"✅ Removed item {items_raw}." if removed else f"Item {items_raw} not found."
-            all_items = await registry._knowledge_store.get_by_type(user_id, "shopping_item", limit=100)
+                removed = await registry._knowledge_store.delete(
+                    user_id, int(items_raw)
+                )
+                return (
+                    f"✅ Removed item {items_raw}."
+                    if removed
+                    else f"Item {items_raw} not found."
+                )
+            all_items = await registry._knowledge_store.get_by_type(
+                user_id, "shopping_item", limit=100
+            )
             removed_count = 0
             for item in all_items:
                 if items_raw.lower() in item.content.lower():
@@ -239,7 +286,9 @@ async def exec_grocery_list(registry: ToolRegistry, inp: dict, user_id: int = 0)
             return f"✅ Removed {removed_count} item(s) matching '{items_raw}'."
 
         elif action == "clear":
-            all_items = await registry._knowledge_store.get_by_type(user_id, "shopping_item", limit=500)
+            all_items = await registry._knowledge_store.get_by_type(
+                user_id, "shopping_item", limit=500
+            )
             for item in all_items:
                 await registry._knowledge_store.delete(user_id, item.id)
             return "✅ Shopping list cleared."
@@ -271,7 +320,9 @@ async def exec_grocery_list(registry: ToolRegistry, inp: dict, user_id: int = 0)
     elif action == "add":
         if not items_raw:
             return "Please specify what to add."
-        new_items = [i.strip() for i in items_raw.replace(";", ",").split(",") if i.strip()]
+        new_items = [
+            i.strip() for i in items_raw.replace(";", ",").split(",") if i.strip()
+        ]
         items = await asyncio.to_thread(_read)
         items.extend(new_items)
         await asyncio.to_thread(_write, items)

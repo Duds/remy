@@ -47,6 +47,7 @@ Tools available:
 
   Files
     read_file             → read a text file from allowed directories
+    get_file_download_link → generate short-lived secure download URL for a file
     list_directory        → list files in a directory
     write_file            → write to a file
     append_file           → append to a file

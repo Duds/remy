@@ -218,6 +218,10 @@ class ToolRegistry:
                     from .files import exec_read_file
 
                     return await exec_read_file(self, tool_input)
+                case "get_file_download_link":
+                    from .files import exec_get_file_download_link
+
+                    return await exec_get_file_download_link(self, tool_input)
                 case "list_directory":
                     from .files import exec_list_directory
 

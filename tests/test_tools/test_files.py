@@ -10,6 +10,7 @@ from remy.ai.tools.files import (
     exec_append_file,
     exec_clean_directory,
     exec_find_files,
+    exec_get_file_download_link,
     exec_index_status,
     exec_list_directory,
     exec_organize_directory,
@@ -44,6 +45,27 @@ class TestExecReadFile:
         registry = make_registry()
         result = await exec_read_file(registry, {"path": "/nonexistent/file.txt"})
         assert isinstance(result, str)
+
+
+class TestExecGetFileDownloadLink:
+    """Tests for exec_get_file_download_link executor."""
+
+    @pytest.mark.asyncio
+    async def test_requires_path(self):
+        """Should require a file path."""
+        registry = make_registry()
+        result = await exec_get_file_download_link(registry, {"path": ""})
+        assert "provide" in result.lower() or "path" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_disabled_when_base_url_unset(self):
+        """Should return disabled message when FILE_LINK_BASE_URL is not set."""
+        registry = make_registry()
+        result = await exec_get_file_download_link(
+            registry, {"path": "~/Documents/notes.md"}
+        )
+        assert isinstance(result, str)
+        assert "FILE_LINK_BASE_URL" in result or "disabled" in result.lower()
 
 
 class TestExecListDirectory:
@@ -145,7 +167,7 @@ class TestExecSearchFiles:
         """Should require a search query."""
         indexer = AsyncMock()
         registry = make_registry(file_indexer=indexer)
-        
+
         result = await exec_search_files(registry, {"query": ""})
         assert "provide" in result.lower() or "query" in result.lower()
 
@@ -167,6 +189,6 @@ class TestExecIndexStatus:
         indexer.extensions = [".txt", ".py"]
         indexer.index_path = "/tmp/index"
         registry = make_registry(file_indexer=indexer)
-        
+
         result = await exec_index_status(registry)
         assert isinstance(result, str)

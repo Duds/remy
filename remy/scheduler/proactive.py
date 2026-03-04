@@ -319,6 +319,7 @@ class ProactiveScheduler:
                 row["label"],
                 row["cron"],
                 fire_at=row.get("fire_at"),
+                mediated=bool(row.get("mediated", 0)),
             )
         if rows:
             logger.info("Loaded %d user automation(s) into scheduler", len(rows))
@@ -399,14 +400,16 @@ class ProactiveScheduler:
         label: str,
         cron: str,
         fire_at: str | None = None,
+        mediated: bool = False,
     ) -> None:
         """Register a single automation job.
 
         For recurring reminders pass a 5-field *cron* string.
         For one-time reminders pass a *fire_at* ISO 8601 datetime string.
+        When *mediated* is True, the reminder is composed by Claude at fire time.
         """
         self._register_automation_job(
-            automation_id, user_id, label, cron, fire_at=fire_at
+            automation_id, user_id, label, cron, fire_at=fire_at, mediated=mediated
         )
 
     def remove_automation(self, automation_id: int) -> None:
@@ -427,6 +430,7 @@ class ProactiveScheduler:
         label: str,
         cron: str,
         fire_at: str | None = None,
+        mediated: bool = False,
     ) -> None:
         job_id = f"automation_{automation_id}"
 
@@ -465,7 +469,9 @@ class ProactiveScheduler:
             )
 
         async def _job():
-            await self._run_automation(automation_id, user_id, label, one_time=one_time)
+            await self._run_automation(
+                automation_id, user_id, label, one_time=one_time, mediated=mediated
+            )
 
         self._scheduler.add_job(
             _job,
@@ -477,13 +483,19 @@ class ProactiveScheduler:
         )
 
     async def _run_automation(
-        self, automation_id: int, user_id: int, label: str, one_time: bool = False
+        self,
+        automation_id: int,
+        user_id: int,
+        label: str,
+        one_time: bool = False,
+        mediated: bool = False,
     ) -> None:
-        """Fire a user-defined automation through the full Claude pipeline."""
+        """Fire a user-defined automation. Mediated: full Claude pipeline; else direct send."""
         logger.info(
-            "Automation %d dispatching (one_time=%s, label=%r)",
+            "Automation %d dispatching (one_time=%s, mediated=%s, label=%r)",
             automation_id,
             one_time,
+            mediated,
             label,
         )
         chat_id = _read_primary_chat_id()
@@ -523,14 +535,15 @@ class ProactiveScheduler:
                         e,
                     )
 
-        # Agentic path: invoke the full Claude pipeline so Remy can reason,
-        # call tools, and respond meaningfully rather than echoing the label.
+        # Mediated path: full Claude pipeline (context-aware message at fire time).
+        # Non-mediated: send stored label directly (logistical/alarm reminders).
         session_manager = self._session_manager
         conv_store = self._conv_store
         tool_registry = self._tool_registry
         claude_client = self._claude_client
         pipeline_available = (
-            session_manager is not None
+            mediated
+            and session_manager is not None
             and conv_store is not None
             and tool_registry is not None
             and claude_client is not None
@@ -541,9 +554,9 @@ class ProactiveScheduler:
             assert session_manager is not None
             assert conv_store is not None
             try:
-                from ..bot.pipeline import run_proactive_trigger
+                from ..bot.pipeline import compose_proactive_message
 
-                await run_proactive_trigger(
+                await compose_proactive_message(
                     label=label,
                     user_id=user_id,
                     chat_id=chat_id,
@@ -744,7 +757,8 @@ class ProactiveScheduler:
             claude=self._claude_client,
         )
 
-        # Try Claude-composed briefing first (US-conversational-briefing-via-remy)
+        # Try Claude-composed briefing first (US-conversational-briefing-via-remy).
+        # Uses shared compose_proactive_message helper (US-remy-mediated-reminders).
         if (
             self._claude_client is not None
             and self._tool_registry is not None
@@ -753,9 +767,9 @@ class ProactiveScheduler:
         ):
             try:
                 payload = await generator.generate_structured()
-                from ..bot.pipeline import run_proactive_trigger
+                from ..bot.pipeline import compose_proactive_message
 
-                await run_proactive_trigger(
+                await compose_proactive_message(
                     label="Morning briefing",
                     user_id=user_id,
                     chat_id=chat_id,

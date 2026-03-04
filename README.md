@@ -55,6 +55,7 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `LOG_LEVEL` | — | Logging level (default: `INFO`) |
 | `HF_TOKEN` | — | HuggingFace token — prevents rate limiting on embedding model downloads |
 | `HEALTH_API_TOKEN` | — | Bearer token protecting `/logs` and `/telemetry` endpoints |
+| `FILE_LINK_BASE_URL` | — | Public base URL for secure file download links (e.g. `https://remy.dalerogers.com.au`); empty = disabled |
 | `CLOUDFLARE_TUNNEL_TOKEN` | — | Token for Cloudflare Tunnel (see [Remote Observability](#remote-observability)) |
 | `SOUL_MD_PATH` | — | Path to personality file (default: `config/SOUL.md`) |
 | `GDRIVE_MOUNT_PATHS` | — | Comma-separated paths to Google Drive mount to index (e.g. `~/Library/CloudStorage/GoogleDrive-<email>`) |

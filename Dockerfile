@@ -13,10 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies into an isolated prefix
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# Long timeout for large wheels (torch, pymupdf, etc.) to avoid ReadTimeoutError on slow links
+RUN pip install --no-cache-dir --prefix=/install --timeout=300 -r requirements.txt
 # sqlite-vec 0.1.6 ships a 32-bit arm binary in its linux/aarch64 wheel (upstream bug).
 # Override with the alpha that ships the correct 64-bit aarch64 build.
-RUN pip install --no-cache-dir --prefix=/install --pre "sqlite-vec>=0.1.7a10"
+RUN pip install --no-cache-dir --prefix=/install --timeout=300 --pre "sqlite-vec>=0.1.7a10"
 
 # Pre-download the sentence-transformers model at build time
 # This avoids a slow cold-start when the first message arrives

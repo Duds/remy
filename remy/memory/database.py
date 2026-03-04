@@ -303,6 +303,8 @@ _MIGRATIONS = [
     # 013: Support plan link to goals in knowledge store (goal-to-plan linking when get_goals uses knowledge store)
     "ALTER TABLE plans ADD COLUMN knowledge_goal_id INTEGER;",
     "CREATE INDEX IF NOT EXISTS idx_plans_knowledge_goal_id ON plans(knowledge_goal_id);",
+    # 014: US-remy-mediated-reminders — context-aware reminder delivery via Claude
+    "ALTER TABLE automations ADD COLUMN mediated INTEGER DEFAULT 0;",
 ]
 
 # Triggers to keep FTS indices in sync with source tables

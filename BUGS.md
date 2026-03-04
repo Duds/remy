@@ -108,3 +108,14 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Fix:** Stop clearing `current_display` (and `last_edit_len`) on `ToolTurnComplete`. Commentary streamed before the tool call is preserved, so `final_text_accum` is non-empty at finalisation and `_flush_display(final=True, reply_markup=…)` shows the full text with buttons; the "✓" branch is no longer taken when there was preceding commentary.
 - **Reported:** 2026-03-04 (Dale Rogers)
 - **Fixed:** 2026-03-04
+
+---
+
+## Bug 8: Spaces pruned when assembling chat transcript messages
+
+- **Symptom:** When chat messages are assembled from transcripts (e.g. from agent-transcript `.jsonl` or from message content blocks), spaces are being pruned or collapsed. Text that should contain spaces (e.g. between words or between segments) can appear concatenated or inconsistently spaced.
+- **Context:** Chat transcripts store messages as a sequence of entries; each message may have `content` as a list of blocks (e.g. `{ "type": "text", "text": "…" }`). When these are flattened into a single string for display, history, or context, assembly logic that filters with `if p`/`if part` (dropping falsy strings) or uses `.strip()` on segments can remove or collapse spaces — e.g. a block that is only a space gets dropped, or leading/trailing spaces are stripped so adjacent blocks run together.
+- **Impact:** Readability and correctness of assembled conversation text; possible impact on prompts or context passed to models if spacing changes meaning.
+- **Status:** ✅ Fixed
+- **Location (suspected):** Any path that assembles message content from multiple blocks or from transcript lines — e.g. Cursor agent-transcript consumption, or Remy code that flattens message `content` (e.g. `remy/bot/handlers/base.py` `_sanitize_messages_for_claude` and similar, or `remy/ai/claude_desktop_client.py` `_extract_text` / stream parsing). Confirm whether the bug is in Cursor’s transcript assembly or in Remy’s block-flattening.
+- **Reported:** 2026-03-05

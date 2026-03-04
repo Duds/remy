@@ -130,6 +130,14 @@ class Settings(BaseSettings):
     # If set, /logs and /telemetry require Authorization: Bearer <token> or ?token=
     health_api_token: str = ""
 
+    # ── File download links (US-mac-file-links-secure-download) ───────────────────
+    # Public base URL for GET /files links (e.g. https://remy.dalerogers.com.au). Empty = disabled.
+    file_link_base_url: str = ""
+    # Link validity in minutes (default 15).
+    file_link_expiry_minutes: int = 15
+    # Secret for signing file-link tokens. Empty = use health_api_token.
+    file_link_secret: str = ""
+
     # ── Intervals (seconds) ─────────────────────────────────────────────────────
     health_check_interval: int = 300
     stale_goal_days: int = 3

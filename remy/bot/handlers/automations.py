@@ -47,15 +47,18 @@ def make_automation_handlers(
 
     def _parse_schedule_args(
         args: list[str], default_dow: str = "*"
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, bool]:
         """
-        Parse optional [day] [HH:MM] prefix from a /schedule-* command's args.
-        Returns (cron_str, label) where label is the remainder of the args joined.
+        Parse optional [day] [HH:MM] and --mediated from a /schedule-* command's args.
+        Returns (cron_str, label, mediated). --mediated means Remy composes at fire time.
         """
         remaining = list(args)
         hour = "9"
         minute = "0"
         dow = default_dow
+        mediated = "--mediated" in remaining
+        if mediated:
+            remaining = [a for a in remaining if a != "--mediated"]
 
         _DOW_MAP = {
             "mon": "1",
@@ -77,7 +80,7 @@ def make_automation_handlers(
 
         label = " ".join(remaining).strip()
         cron = f"{minute} {hour} * * {dow}"
-        return cron, label
+        return cron, label, mediated
 
     async def schedule_daily_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -98,27 +101,31 @@ def make_automation_handlers(
             )
             return
 
-        cron, label = _parse_schedule_args(context.args or [])
+        cron, label, mediated = _parse_schedule_args(context.args or [])
         if not label:
             await update.message.reply_text(
-                "Usage: /schedule_daily [HH:MM] <task>\n"
-                "Example: /schedule_daily 08:30 review my goals"
+                "Usage: /schedule_daily [HH:MM] [--mediated] <task>\n"
+                "Example: /schedule_daily 08:30 review my goals\n"
+                "Add --mediated for Remy to compose the message at fire time."
             )
             return
 
         user_id = update.effective_user.id
         try:
-            automation_id = await automation_store.add(user_id, label, cron)
+            automation_id = await automation_store.add(
+                user_id, label, cron, mediated=mediated
+            )
         except Exception as exc:
             await update.message.reply_text(f"❌ Failed to save automation: {exc}")
             return
 
-        _sched.add_automation(automation_id, user_id, label, cron)
+        _sched.add_automation(automation_id, user_id, label, cron, mediated=mediated)
         minute, hour = cron.split()[0], cron.split()[1]
         time_str = f"{int(hour):02d}:{int(minute):02d}"
+        delivery = " (mediated)" if mediated else ""
         await update.message.reply_text(
             f"✅ Daily reminder set (ID {automation_id})\n"
-            f"*{label}*\nFires every day at {time_str}.",
+            f"*{label}*\nFires every day at {time_str}{delivery}.",
             parse_mode="Markdown",
         )
 
@@ -141,22 +148,27 @@ def make_automation_handlers(
             )
             return
 
-        cron, label = _parse_schedule_args(context.args or [], default_dow="1")
+        cron, label, mediated = _parse_schedule_args(
+            context.args or [], default_dow="1"
+        )
         if not label:
             await update.message.reply_text(
-                "Usage: /schedule_weekly [day] [HH:MM] <task>\n"
-                "Example: /schedule_weekly fri 09:00 weekly review"
+                "Usage: /schedule_weekly [day] [HH:MM] [--mediated] <task>\n"
+                "Example: /schedule_weekly fri 09:00 weekly review\n"
+                "Add --mediated for Remy to compose the message at fire time."
             )
             return
 
         user_id = update.effective_user.id
         try:
-            automation_id = await automation_store.add(user_id, label, cron)
+            automation_id = await automation_store.add(
+                user_id, label, cron, mediated=mediated
+            )
         except Exception as exc:
             await update.message.reply_text(f"❌ Failed to save automation: {exc}")
             return
 
-        _sched.add_automation(automation_id, user_id, label, cron)
+        _sched.add_automation(automation_id, user_id, label, cron, mediated=mediated)
         _DOW_NAMES = {
             "0": "Sun",
             "1": "Mon",
@@ -170,9 +182,10 @@ def make_automation_handlers(
         minute, hour, _, _, dow = cron.split()
         time_str = f"{int(hour):02d}:{int(minute):02d}"
         day_str = _DOW_NAMES.get(dow, dow)
+        delivery = " (mediated)" if mediated else ""
         await update.message.reply_text(
             f"✅ Weekly reminder set (ID {automation_id})\n"
-            f"*{label}*\nFires every {day_str} at {time_str}.",
+            f"*{label}*\nFires every {day_str} at {time_str}{delivery}.",
             parse_mode="Markdown",
         )
 
@@ -219,8 +232,9 @@ def make_automation_handlers(
             time_str = f"{int(hour):02d}:{int(minute):02d}"
             freq = "daily" if dow == "*" else f"every {_DOW_NAMES.get(dow, dow)}"
             last = row.get("last_run_at") or "never"
+            delivery = "mediated" if row.get("mediated") else "direct"
             lines.append(
-                f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last}"
+                f"*[{row['id']}]* {row['label']}\n  ↳ {freq} at {time_str} | last run: {last} ({delivery})"
             )
 
         lines.append("\nTap a button to run now. Use /unschedule <id> to remove.")

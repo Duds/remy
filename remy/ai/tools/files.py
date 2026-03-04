@@ -61,6 +61,51 @@ async def exec_read_file(registry: ToolRegistry, inp: dict) -> str:
     return f"Contents of {safe_path}:\n\n{content}"
 
 
+async def exec_get_file_download_link(registry: ToolRegistry, inp: dict) -> str:
+    """Generate a short-lived signed download link for a file (for use when referring to a file in chat)."""
+    raw = inp.get("path", "").strip()
+    if not raw:
+        return "No path provided."
+
+    safe_path, err = _sanitize_path(raw)
+    if err or safe_path is None:
+        return f"Cannot create link: {err}"
+
+    base_url = (settings.file_link_base_url or "").strip().rstrip("/")
+    if not base_url:
+        return (
+            "File download links are disabled: FILE_LINK_BASE_URL is not set. "
+            "Set it to your public Remy URL (e.g. https://remy.dalerogers.com.au) to enable."
+        )
+
+    secret = (settings.file_link_secret or settings.health_api_token or "").strip()
+    if not secret:
+        return "File download links require a secret: set FILE_LINK_SECRET or HEALTH_API_TOKEN."
+
+    p = Path(safe_path)
+    if not p.exists():
+        return f"File not found: {safe_path}"
+    if not p.is_file():
+        return f"Not a file (cannot create download link): {safe_path}"
+
+    expires_minutes = min(
+        max(1, int(inp.get("expires_in_minutes", settings.file_link_expiry_minutes))),
+        60,
+    )
+    expiry_ts = int(time.time()) + expires_minutes * 60
+
+    from ...file_link import create_token, encode_path_param
+
+    token = create_token(safe_path, expiry_ts, secret)
+    path_param = encode_path_param(safe_path)
+    url = f"{base_url}/files?path={path_param}&token={token}"
+
+    return (
+        f"Download link for {safe_path} (valid for {expires_minutes} min):\n{url}\n\n"
+        "You can include this link in your reply so the user can open or save the file from any network."
+    )
+
+
 async def exec_list_directory(registry: ToolRegistry, inp: dict) -> str:
     """List files and subdirectories at a path."""
     raw = inp.get("path", "").strip()
