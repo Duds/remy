@@ -38,7 +38,11 @@ from .base import (
     _sanitize_messages_for_claude,
     apply_completion_reaction,
 )
-from .callbacks import make_step_limit_keyboard, make_suggested_actions_keyboard
+from .callbacks import (
+    make_run_again_keyboard,
+    make_step_limit_keyboard,
+    make_suggested_actions_keyboard,
+)
 from ..session import SessionManager
 from ..streaming import stream_to_telegram
 from ...ai.claude_client import (
@@ -56,7 +60,7 @@ from ...ai.input_validator import (
 )
 from ...analytics.timing import RequestTiming, PhaseTimer
 from ...config import get_settings, settings
-from ...constants import SHOPPING_KEYWORDS, DEADLINE_KEYWORDS
+from ...constants import DEADLINE_KEYWORDS
 from ...diagnostics import is_diagnostics_trigger
 from ...exceptions import ServiceUnavailableError
 from ...hooks import HookEvents, hook_manager
@@ -485,6 +489,7 @@ def make_chat_handlers(
                             break
 
         # Step-limit keyboard takes precedence when max_iterations was hit (US-step-limit-buttons)
+        # Then suggested_actions; then Run again for tool-heavy flows (run_board, web_search)
         reply_markup: InlineKeyboardMarkup | None
         if step_limit_reached:
             reply_markup = make_step_limit_keyboard()
@@ -492,6 +497,29 @@ def make_chat_handlers(
             reply_markup = make_suggested_actions_keyboard(suggested_actions, user_id)
         else:
             reply_markup = None
+            # Run again / New topic on tool-heavy flows (Phase 8 Tier 2)
+            for assistant_blocks, _ in tool_turns:
+                for block in assistant_blocks:
+                    if not isinstance(block, dict) or block.get("type") != "tool_use":
+                        continue
+                    name = block.get("name")
+                    inp = block.get("input") or {}
+                    if name == "run_board":
+                        topic = (inp.get("topic") or "").strip()
+                        if topic:
+                            reply_markup = make_run_again_keyboard(
+                                "board", {"topic": topic}, user_id
+                            )
+                        break
+                    if name == "web_search":
+                        topic = (inp.get("query") or "").strip()
+                        if topic:
+                            reply_markup = make_run_again_keyboard(
+                                "research", {"topic": topic}, user_id
+                            )
+                        break
+                if reply_markup is not None:
+                    break
 
         # US-emoji-reactions-feedback: apply 🤩 on user's message when allowlisted tool completes
         if bot is not None and tool_turns:
@@ -745,21 +773,6 @@ def make_chat_handlers(
             )
 
             text_lower = text.lower()
-            if any(kw in text_lower for kw in SHOPPING_KEYWORDS):
-                try:
-                    grocery_file = settings.grocery_list_file
-                    if os.path.exists(grocery_file):
-                        with open(grocery_file) as _gf:
-                            items = [ln.strip() for ln in _gf if ln.strip()]
-                        if items:
-                            item_list = "\n".join(f"- {i}" for i in items)
-                            system_prompt += (
-                                f"\n\n<hint>The user mentioned shopping. "
-                                f"Their current grocery list:\n{item_list}\n"
-                                f"Offer to reference or update it if helpful.</hint>"
-                            )
-                except Exception as e:
-                    logger.debug("Failed to inject grocery list hint: %s", e)
             if any(kw in text_lower for kw in DEADLINE_KEYWORDS):
                 system_prompt += (
                     "\n\n<hint>The user may be mentioning a deadline or time-sensitive task. "

@@ -61,7 +61,7 @@ class ConversationStore:
     ) -> list[ConversationTurn]:
         """
         Return the last `limit` turns from the session file.
-        
+
         Uses reverse file reading for O(limit) performance instead of O(n) where
         n is the total number of turns. This prevents latency degradation as
         sessions grow longer.
@@ -69,7 +69,7 @@ class ConversationStore:
         path = self._path(user_id, session_key)
         if path is None or not os.path.exists(path):
             return []
-        
+
         async with self._file_lock(session_key):
             try:
                 return await self._read_last_n_turns(path, limit)
@@ -80,21 +80,21 @@ class ConversationStore:
     async def _read_last_n_turns(self, path: str, limit: int) -> list[ConversationTurn]:
         """
         Read the last N turns from a JSONL file using reverse chunked reading.
-        
+
         Reads from the end of the file in chunks, collecting complete lines
         until we have enough turns. Much more efficient than reading the entire
         file for long sessions.
         """
         turns: list[ConversationTurn] = []
-        
+
         async with aiofiles.open(path, mode="rb") as f:
             # Get file size
             await f.seek(0, 2)  # Seek to end
             file_size = await f.tell()
-            
+
             if file_size == 0:
                 return []
-            
+
             # For small files, just read the whole thing (simpler and fast enough)
             if file_size <= _REVERSE_READ_CHUNK_SIZE * 2:
                 await f.seek(0)
@@ -108,22 +108,22 @@ class ConversationStore:
                         except Exception as e:
                             logger.warning("Skipping corrupt conversation line: %s", e)
                 return turns
-            
+
             # For larger files, read from the end in chunks
             buffer = b""
             position = file_size
             lines_found: list[str] = []
-            
+
             while position > 0 and len(lines_found) < limit + 1:
                 # Calculate how much to read
                 read_size = min(_REVERSE_READ_CHUNK_SIZE, position)
                 position -= read_size
-                
+
                 # Read the chunk
                 await f.seek(position)
                 chunk = await f.read(read_size)
                 buffer = chunk + buffer
-                
+
                 # Extract complete lines from the buffer
                 # Keep the first partial line in the buffer
                 while b"\n" in buffer:
@@ -131,21 +131,25 @@ class ConversationStore:
                     rest, line = buffer.rsplit(b"\n", 1)
                     if line:  # Non-empty line after the last newline
                         try:
-                            lines_found.insert(0, line.decode("utf-8", errors="replace"))
+                            lines_found.insert(
+                                0, line.decode("utf-8", errors="replace")
+                            )
                         except Exception as e:
-                            logger.debug("Failed to decode line during reverse read: %s", e)
+                            logger.debug(
+                                "Failed to decode line during reverse read: %s", e
+                            )
                     buffer = rest
-                    
+
                     if len(lines_found) >= limit:
                         break
-            
+
             # Don't forget the remaining buffer (first line of file)
             if buffer and len(lines_found) < limit:
                 try:
                     lines_found.insert(0, buffer.decode("utf-8", errors="replace"))
                 except Exception as e:
                     logger.debug("Failed to decode buffer during reverse read: %s", e)
-            
+
             # Parse the lines into turns (take only the last `limit`)
             for line in lines_found[-limit:]:
                 line = line.strip()
@@ -154,12 +158,10 @@ class ConversationStore:
                         turns.append(ConversationTurn.model_validate_json(line))
                     except Exception as e:
                         logger.warning("Skipping corrupt conversation line: %s", e)
-        
+
         return turns
 
-    async def compact(
-        self, user_id: int, session_key: str, summary: str
-    ) -> None:
+    async def compact(self, user_id: int, session_key: str, summary: str) -> None:
         """Replace the session file with a single summary turn."""
         path = self._path(user_id, session_key)
         if path is None:
@@ -235,6 +237,32 @@ class ConversationStore:
             all_turns.extend(turns)
 
         return all_turns
+
+    async def get_goal_titles_mentioned_today(
+        self, user_id: int, goal_titles: list[str]
+    ) -> set[str]:
+        """
+        Return the subset of goal_titles that appear in any of today's
+        conversation turns (user or assistant content). Case-insensitive
+        substring match. Used to avoid re-nudging about goals already
+        discussed in the evening check-in.
+        """
+        if not goal_titles:
+            return set()
+        turns = await self.get_today_messages(user_id)
+        mentioned: set[str] = set()
+        goal_lower = {t: t.lower() for t in goal_titles}
+        for turn in turns:
+            content = (turn.content or "").strip()
+            if content.startswith("__TOOL_TURN__:") or content.startswith(
+                "[COMPACTED SUMMARY]"
+            ):
+                continue
+            content_lower = content.lower()
+            for title in goal_titles:
+                if goal_lower[title] in content_lower:
+                    mentioned.add(title)
+        return mentioned
 
     async def get_messages_since(
         self, user_id: int, since: datetime, thread_id: int | None = None

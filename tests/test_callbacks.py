@@ -13,6 +13,8 @@ from remy.bot.handlers.callbacks import (
     make_callback_handler,
     store_reminder_payload,
     make_reminder_keyboard,
+    store_run_again_payload,
+    make_run_again_keyboard,
 )
 
 
@@ -53,6 +55,36 @@ class TestMakeSuggestedActionsKeyboard:
     def test_returns_none_for_empty_after_filter(self):
         actions = [{"label": "Bad", "callback_id": "invalid"}]
         assert make_suggested_actions_keyboard(actions, 12345) is None
+
+
+class TestStoreRunAgainPayload:
+    """Test run-again payload storage."""
+
+    def test_returns_token(self):
+        token = store_run_again_payload(99, "board", {"topic": "Focus"})
+        assert isinstance(token, str)
+        assert len(token) == 12  # 6 bytes hex
+
+    def test_different_calls_different_tokens(self):
+        t1 = store_run_again_payload(1, "board", {"topic": "A"})
+        t2 = store_run_again_payload(1, "research", {"topic": "B"})
+        assert t1 != t2
+
+
+class TestMakeRunAgainKeyboard:
+    """Test Run again / New topic keyboard."""
+
+    def test_returns_keyboard_with_two_buttons(self):
+        kb = make_run_again_keyboard("board", {"topic": "Test topic"}, 12345)
+        assert kb is not None
+        assert len(kb.inline_keyboard) == 1
+        assert len(kb.inline_keyboard[0]) == 2
+        labels = [b.text for b in kb.inline_keyboard[0]]
+        assert "Run again" in labels
+        assert "New topic" in labels
+        data = [b.callback_data for b in kb.inline_keyboard[0]]
+        assert any(d.startswith("run_again_") for d in data)
+        assert any(d.startswith("new_topic_") for d in data)
 
 
 class TestMakeStepLimitKeyboard:

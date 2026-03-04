@@ -1,6 +1,7 @@
 # User Story: Document/File Image Support
 
-✅ Done — 2026-02-28
+**Status:** Closed  
+**Done:** 2026-02-28
 
 ## Summary
 As a user, I want to send images as Telegram document messages (uncompressed, original quality)

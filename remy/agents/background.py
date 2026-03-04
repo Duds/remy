@@ -58,6 +58,7 @@ class BackgroundTaskRunner:
         working_message: "WorkingMessage | None" = None,
         thread_id: int | None = None,
         chat_action=None,
+        run_again_markup=None,
     ) -> None:
         self._bot = bot
         self._chat_id = chat_id
@@ -66,6 +67,7 @@ class BackgroundTaskRunner:
         self._working_message = working_message
         self._thread_id = thread_id
         self._chat_action = chat_action
+        self._run_again_markup = run_again_markup
 
     async def _chat_action_heartbeat(self) -> None:
         """Send chat_action every _CHAT_ACTION_INTERVAL until cancelled."""
@@ -122,8 +124,14 @@ class BackgroundTaskRunner:
             send_kwargs = {}
             if self._thread_id is not None:
                 send_kwargs["message_thread_id"] = self._thread_id
-            for i in range(0, len(result), _MAX_MESSAGE_LENGTH):
-                chunk = result[i : i + _MAX_MESSAGE_LENGTH]
+            chunks = [
+                result[i : i + _MAX_MESSAGE_LENGTH]
+                for i in range(0, len(result), _MAX_MESSAGE_LENGTH)
+            ]
+            for idx, chunk in enumerate(chunks):
+                is_last = idx == len(chunks) - 1
+                if is_last and self._run_again_markup is not None:
+                    send_kwargs["reply_markup"] = self._run_again_markup
                 try:
                     await self._bot.send_message(
                         self._chat_id,
@@ -133,6 +141,8 @@ class BackgroundTaskRunner:
                     )
                 except Exception:
                     await self._bot.send_message(self._chat_id, chunk, **send_kwargs)
+                if is_last and self._run_again_markup is not None:
+                    send_kwargs.pop("reply_markup", None)
         except Exception:
             logger.exception("Background task %r failed", label)
 

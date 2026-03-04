@@ -21,6 +21,7 @@ from remy.models import Goal
 # Fixtures                                                                     #
 # --------------------------------------------------------------------------- #
 
+
 @pytest_asyncio.fixture
 async def db(tmp_path):
     manager = DatabaseManager(db_path=str(tmp_path / "goals_test.db"))
@@ -46,17 +47,21 @@ def make_mock_claude(return_value: str):
 # _message_has_goal_signal tests                                               #
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("message,expected", [
-    ("I want to learn Python", True),
-    ("I'm trying to lose weight", True),
-    ("My goal is to run a marathon", True),
-    ("I need to finish this project", True),
-    ("I'm working on a new app", True),
-    ("I'd like to travel more", True),
-    ("What's the weather today?", False),
-    ("Hello, how are you?", False),
-    ("Tell me a joke", False),
-])
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("I want to learn Python", True),
+        ("I'm trying to lose weight", True),
+        ("My goal is to run a marathon", True),
+        ("I need to finish this project", True),
+        ("I'm working on a new app", True),
+        ("I'd like to travel more", True),
+        ("What's the weather today?", False),
+        ("Hello, how are you?", False),
+        ("Tell me a joke", False),
+    ],
+)
 def test_message_has_goal_signal(message, expected):
     assert _message_has_goal_signal(message) == expected
 
@@ -64,6 +69,7 @@ def test_message_has_goal_signal(message, expected):
 # --------------------------------------------------------------------------- #
 # GoalExtractor tests                                                           #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_extract_returns_empty_when_no_signal():
@@ -125,6 +131,7 @@ async def test_extract_truncates_title():
 # --------------------------------------------------------------------------- #
 # GoalStore tests                                                              #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_goal_store_upsert_inserts_new_goal(db, goal_store):
@@ -190,15 +197,56 @@ async def test_goal_store_user_isolation(db, goal_store):
     assert active_for_2 == []
 
 
+@pytest.mark.asyncio
+async def test_goal_store_snooze_hides_from_get_active(db, goal_store):
+    """Snoozed goals are excluded from get_active until the date has passed."""
+    from datetime import datetime, timedelta, timezone
+
+    await goal_store.upsert(1, [Goal(title="Snoozed goal")])
+    active = await goal_store.get_active(1)
+    assert len(active) == 1
+    goal_id = active[0]["id"]
+
+    # Snooze until a future date
+    future = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+    ok = await goal_store.snooze(1, goal_id, future)
+    assert ok is True
+
+    active_after = await goal_store.get_active(1)
+    assert len(active_after) == 0
+
+
+@pytest.mark.asyncio
+async def test_goal_store_snooze_past_date_included_again(db, goal_store):
+    """After snoozed_until is in the past, goal reappears in get_active."""
+    from datetime import datetime, timedelta, timezone
+
+    await goal_store.upsert(1, [Goal(title="Was snoozed")])
+    active = await goal_store.get_active(1)
+    goal_id = active[0]["id"]
+
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    await goal_store.snooze(1, goal_id, past)
+
+    active_after = await goal_store.get_active(1)
+    assert len(active_after) == 1
+    assert active_after[0]["title"] == "Was snoozed"
+
+
 # --------------------------------------------------------------------------- #
 # extract_and_store_goals convenience function                                  #
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.asyncio
 async def test_extract_and_store_goals_integration(db, goal_store):
-    claude = make_mock_claude('[{"title":"Launch SaaS","description":"Build a product"}]')
+    claude = make_mock_claude(
+        '[{"title":"Launch SaaS","description":"Build a product"}]'
+    )
     extractor = GoalExtractor(claude)
-    await extract_and_store_goals(1, "I want to launch a SaaS product", extractor, goal_store)
+    await extract_and_store_goals(
+        1, "I want to launch a SaaS product", extractor, goal_store
+    )
     active = await goal_store.get_active(1)
     assert any("SaaS" in g["title"] for g in active)
 

@@ -1,6 +1,6 @@
 # Remy Roadmap & Development Plan
 
-**Last Updated:** March 4, 2026 (US-gmail-create-label closed, slash command + doc)
+**Last Updated:** March 4, 2026 (roadmap cleanup: US moved to docs/backlog, TODO = high-level only)
 
 ## 🎯 Philosophy: Simplicity > Complexity
 
@@ -228,10 +228,13 @@ This is a **cherry-pick from my-agent** (which had partial support) but implemen
   - Falls back to raw results if Claude unavailable
 
 - [x] **Grocery shopping helper**
-  - `/grocery-list` — show items (stored in `data/grocery_list.txt`)
-  - `/grocery-list add <items>` — comma-separated or single item
-  - `/grocery-list done <item>` — remove completed item
+  - **Storage**: KnowledgeStore only (`entity_type='shopping_item'`). File deprecated; config `grocery_list_file` kept only for `migrate_legacy_data()`.
+  - **Unified**: One implementation `grocery_list_impl(store, user_id, action, items_raw)` in `ai/tools/automations.py`; both the `grocery_list` tool and `/grocery-list` command use it. List shows IDs; remove by name or ID.
+  - `/grocery-list` — show list (with IDs)
+  - `/grocery-list add <items>` — comma- or space-separated
+  - `/grocery-list done <item|id>` — remove by name or ID (e.g. `done 43`)
   - `/grocery-list clear` — empty the list
+  - In chat, `grocery_list` tool: same actions (show/add/remove/clear).
 
 ---
 
@@ -381,7 +384,7 @@ Combines Telegram Bot API (inline keyboards, callbacks, chat actions) with Claud
 - [x] **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions in briefings/summaries.
 - [x] **Send to cowork** (`US-send-to-cowork`) — [Send to cowork] on notes/summaries for one-tap relay handoff.
 - [x] **Chat actions for long tasks** — `upload_document` / `upload_photo` when research/board runs (instead of only `typing`).
-- [ ] **Run again / different params** — [Run again] [New topic] on tool-heavy flows (research, board, Gmail quick wins).
+- [x] **Run again / different params** — [Run again] [New topic] on tool-heavy flows (research, board, web_search).
 - [ ] **Document/photo action buttons** — [Summarise] [Extract tasks] [Save] on attachments.
 
 ### Tier 3 — Nice to have
@@ -484,111 +487,12 @@ These were in my-agent and caused bloat. **Do not implement.**
 
 ---
 
-## 📍 Next Steps — Prioritised Backlog
+## 📍 Next steps (roadmap)
 
-### P1 — Immediate (small–medium, clear value)
+Prioritised work lives in **`docs/backlog/`** as PBI user stories (`US-*.md`). Use the **next-PBI** skill or scan backlog by status for what to pick up next. Current focus areas:
 
-**Phase 8: Telegram + Claude UX** (recommended build order)
-
-1. **Confirmation flows** (`US-confirmation-flows`) — [Confirm] [Cancel] for archive/delete. Safety first; small change.
-2. ~~**Smart reply buttons** (`US-smart-reply-buttons`)~~ — Done
-3. ~~**Snooze/Complete on reminders** (`US-snooze-complete-reminders`)~~ — Done
-4. ~~**Emoji reactions as task feedback** (`US-emoji-reactions-feedback`)~~ — Done
-5. ~~**One-tap automations** (`US-one-tap-automations`)~~ — Done
-6. ~~**Conversational briefing via Remy** (`US-conversational-briefing-via-remy`)~~ — Done
-7. ~~**Calendar quick add** (`US-calendar-quick-add`)~~ — Done
-8. ~~**Send to cowork** (`US-send-to-cowork`)~~ — Done
-
----
-
-**Completed (P1)**
-
-8. ~~**Cloudflare Tunnel setup** (`US-cloudflare-tunnel-remote-observability`) — https://remy.dalerogers.com.au~~
-
-9. ~~**Multi-Model Orchestration**~~
-
-10. ~~**Fix tool dispatch exception recovery**~~
-
-11. ~~**Fix final reply duplication**~~
-
-12. ~~**Persistent job tracking + `/jobs`**~~
-
-13. ~~**Gmail label/folder search**~~
-
-14. ~~**Analytics: token capture** (`US-analytics-token-capture`)~~
-
-15. ~~**Analytics: API call log** (`US-analytics-call-log`)~~
-
-16. ~~**Analytics: `/costs` command** (`US-analytics-costs-command`)~~
-
-### Round-Trip Latency (Performance)
-
-From telemetry analysis 03/03/2026: avg ~19.5 s per turn; tool execution dominates. See `docs/backlog/` (US-fix-save-bookmark-knowledge-store, US-cap-tool-iterations-per-turn, US-step-limit-buttons, US-web-search-optimisation, US-aggressive-session-compaction, US-anthropic-overload-fallback).
-
-1. ~~**Fix save_bookmark** (`US-fix-save-bookmark-knowledge-store`)~~ — ✅ Done (KnowledgeStore.add_item)
-2. ~~**Cap tool iterations** (`US-cap-tool-iterations-per-turn`)~~ — ✅ Done (configurable max_iterations, graceful truncation)
-3. ~~**Step-limit buttons** (`US-step-limit-buttons`)~~ — ✅ Done ([Continue] [Break down] [Stop] on truncation message)
-4. ~~**Web search optimisation** (`US-web-search-optimisation`)~~ — ✅ Done (per-turn limit, prompt guidance)
-5. ~~**Aggressive session compaction** (`US-aggressive-session-compaction`)~~ — ✅ Done (earlier trigger, configurable thresholds)
-6. ~~**Anthropic overload fallback** (`US-anthropic-overload-fallback`)~~ — ✅ Done (detect overloaded_error, user message, optional fallback model)
-
----
-
-### P2 — Next quarter (moderate, high value)
-
-**Completed (P2)**
-
-1. ~~**Document image support** (`US-document-image-support`)~~
-
-2. ~~**Plan tracking** (`US-plan-tracking`)~~
-
-3. ~~**Improved persistent memory** (`US-improved-persistent-memory`)~~
-
-4. ~~**Privacy audit** (`US-digital-fingerprint-audit`)~~
-
-5. ~~**Telegram catch-all error handler** (`US-telegram-error-handler`)~~
-   - Gap: unhandled exceptions produce noisy "No error handlers are registered" log spam; no Telegram notification for unexpected errors
-   - Files: `bot/telegram_bot.py` — ~30 lines, zero dependencies, isolated change
-   - Suppress transient errors (NetworkError, TimedOut); alert Dale for unexpected exceptions
-
-6. ~~**Telegram Markdown header/formatting fixes** (`US-telegram-markdown-fix`)~~
-   - Headers H1–H4 converted to bold/italic hierarchy; tables converted to bulleted lists
-   - Files: `utils/telegram_formatting.py`, `tests/test_telegram_formatting.py`
-
-### P3 — Future (new infrastructure or deferred)
-
-**Completed (P3)**
-
-1. ~~**Home directory RAG index** (`US-home-directory-rag`)~~
-
-2. ~~**Native Telegram Message Threading** (`US-telegram-message-threading`)~~
-   - Implement support for Telegram Topics to maintain separate conversation contexts.
-   - Files: `bot/session.py`, `bot/handlers.py`, `memory/conversations.py`, `bot/streaming.py`
-   - Requires 'Threaded Mode' enabled in @BotFather.
-
-**Pending (P3)**
-
-3. **Context-aware reminders** (`US-context-aware-reminders`)
-    - Dedup evening check-in against today's conversation; snooze support
-   - Only implement if the current evening check-in proves insufficient in practice
-
-4. **SMS ingestion** (`US-sms-ingestion`)
-   - Android SMS via SMS Gateway app + Tailscale tunnel + `/webhook/sms` endpoint.
-   - P3 due to hardware dependency. Prerequisite: Tailscale on phone and Mac.
-   - Files: `api/sms_webhook.py`, `memory/database.py`, `bot/handlers.py`
-
-5. ~~**Funny/nonsensical "working" messages for Telegram** (`US-working-messages`)~~
-   - SimCity style status updates ("Reticulating splines...") while bot is "thinking".
-   - Files: `bot/working_message.py`, `bot/handlers.py`, `agents/background.py`
-
-6. **Google Wallet alerts** (`US-google-wallet-monitoring`)
-   - Tasker profile → `/webhook/notification`; depends on SMS infrastructure
-
-### Deferred (explicit non-starters for now)
-
-1. **Claude Agent SDK subagents** (`US-claude-agent-sdk-subagents`) — major refactor; only revisit if BackgroundTaskRunner + persistent jobs prove insufficient
-2. **Gmail send** — security risk; draft creation is sufficient
-3. **Research alternative** (`US-research-alternative`) — no code needed; tune `web_research` tool description if quality is poor in practice
+- **Phase 8 (Telegram UX):** Remaining Tier 2/3 items (e.g. document/photo action buttons, deep links). See phase section above and backlog.
+- **P3 / deferred:** Context-aware reminders, SMS ingestion, Google Wallet — see `US-context-aware-reminders`, `US-sms-ingestion`, `US-google-wallet-monitoring`. Deferred: Claude Agent SDK subagents, Gmail send.
 
 ---
 
@@ -612,196 +516,6 @@ See [BUGS.md](./BUGS.md) for full details. Key fixes:
 
 ---
 
-## ✅ Remy Tool-Level File Write Access (Added February 26, 2026)
+## 📍 Where to find detail
 
-### Context
-
-Phase 2.1 gave Dale a `/write` command to write files via a two-step flow. What was missing was Remy having **direct tool-level access** — i.e. the ability to autonomously read, write, and append files as part of natural language tasks (e.g. updating TODO.md, saving notes, checking off items).
-
-### What Was Added
-
-- [x] **`write_file` tool** — Remy can create or overwrite text files in ~/Projects, ~/Documents, ~/Downloads
-  - Always announces the file path and a summary of changes before writing
-  - Restricted to approved directories; sensitive paths blocked
-- [x] **`append_file` tool** — Remy can append content to existing files without overwriting
-  - Ideal for TODO items, log entries, and incremental notes
-  - Automatically inserts a newline between existing content and new text
-- [x] **`read_file` tool** — already existed; used in combination with write for check-off workflows
-  - Pattern: read_file → replace `[ ]` with `[x]` → write_file with full updated content
-
-### Security Constraints (unchanged from Phase 1)
-
-- Writes restricted to `~/Projects/`, `~/Documents/`, `~/Downloads/`
-- Sensitive paths (`.env`, `.ssh/`, `.aws/`, `.git/`) explicitly blocked
-- Remy announces intent before every write — no silent modifications
-
----
-
-## 🏷️ Gmail Label Creation ✅
-
-- [x] **Add `create_gmail_label` tool** — Done. See `docs/backlog/US-gmail-create-label.md`.
-  - Tool: `create_gmail_label` (schema in `schemas.py`, executor in `email.py`); Gmail API `POST .../labels` in `remy/google/gmail.py`.
-  - Nested labels via slash in `name` (e.g. `4-Personal & Family/Hockey`).
-  - Natural language: "create a label called Hockey under Personal & Family".
-  - Slash command: `/gmail_create_label <name>` (handlers/email.py, telegram_bot.py, help in core.py).
-
----
-
-## 🖼️ Image Consumption ⚠️ Partial
-
-**Solves: "Send Remy a photo and ask questions about it"**
-
-**Status:** Photo messages ✅ (commit 9ef79f7). Document images (sent as files) ⬜ pending.
-
-### Background
-
-Dale can currently send voice messages (transcribed via Whisper) and text. Images sent via Telegram are silently ignored. Claude supports vision natively via the Anthropic messages API (base64-encoded image blocks). This phase wires the two together.
-
----
-
-### Telegram Image Ingestion
-
-- [x] **Handle `photo` messages** — Telegram-compressed JPEG; MIME hardcoded correctly
-- [ ] **Handle `document` messages** — uncompressed PNG/WebP/GIF sent as files; currently silently ignored
-      → `docs/backlog/US-document-image-support.md`
-- [x] **Base64-encode and pass to Claude** (Anthropic image content block)
-- [x] **Conversation history** — placeholder stored; images not replayed
-
----
-
-### Natural Language Image Queries ✅
-
-No slash command — just send an image with or without a caption. Works with whiteboard photos,
-receipts, screenshots, food photos, etc.
-
-### Security & Implementation ✅
-
-All constraints from the spec implemented: in-memory only, 5MB cap, MIME allowlist, no URL fetching.
-
----
-
-## 🧠 Memory Persistence Improvements
-
-**Problem:** Things Dale tells Remy during a conversation (events, updates, completions) are lost when the session ends unless explicitly stored as facts. One-time reminders fire and vanish without leaving a trace.
-
-### Tasks
-
-- [x] **Remy proactively stores conversational facts** — when Dale mentions something happened, something's resolved, or shares new personal info, Remy stores it as a memory fact without being asked. SOUL.md instruction + `manage_memory` tool description updated for proactive use. See `US-proactive-memory-storage.md`.
-
-- [x] **Completed one-time reminders auto-log to memory** — when a one-time reminder fires, write a fact or log entry recording that it fired (e.g. "Reminder completed: Pick up tyres from Tyrepower (2026-03-01)"). Prevents stale reminders and gives Remy a history of completed tasks. Implemented in `scheduler/proactive.py:_log_completed_reminder()`.
-
-- [x] **End-of-day memory consolidation** — scheduled job (22:00 daily) + manual `/consolidate` command that reviews the day's conversation history and extracts anything worth persisting as a fact or goal. Claude-powered summarisation pass over the JSONL session log. Implemented in `scheduler/proactive.py:_end_of_day_consolidation()` and `_consolidate_user_memory()`. Also available as `consolidate_memory` tool for natural language invocation.
-
----
-
-## 🆕 PBI: Telegram (Remy) as Claude Desktop Relay Target
-
-**Added:** March 2026
-**Phase:** 8 — Telegram + Claude UX Enhancements
-**Priority:** C (Could Have)
-**Backlog ref:** `US-claude-desktop-relay`
-
-### Problem
-
-Claude Desktop can relay messages to Remy via the MCP relay tool (`CLAUDE.md`), but Remy currently
-has no ability to respond back through that relay channel. The relay is one-directional: Desktop → Remy only.
-There is also no tool available in the Telegram bot context to initiate or respond to relay messages.
-
-### Goal
-
-Enable bidirectional communication between Claude Desktop and Remy (Telegram), so that:
-1. Claude Desktop can send Remy a task or message via the relay
-2. Remy can respond back to Claude Desktop via the same relay channel
-3. Dale can use Claude Desktop as a "cowork" peer and Remy as the persistent memory/action layer
-
-### Proposed Approach
-
-- Expose a `relay_post_message` / `relay_get_messages` tool pair in Remy's ToolRegistry (mirroring CLAUDE.md spec)
-- Add a `/relay` or `/cowork` inbox command — shows pending relay messages from Claude Desktop
-- Add `relay_reply` tool — Remy sends a response back to the relay inbox for Claude Desktop to pick up
-- Relay inbox backed by existing SQLite (new `relay_messages` table), not an external service
-- Authentication: shared secret in `.env` (same model as Cloudflare tunnel)
-
-### Acceptance Criteria
-
-- [x] Dale can send a message from Claude Desktop to Remy's relay inbox
-- [x] Remy can read the relay inbox and reply
-- [x] Claude Desktop can read Remy's reply
-- [x] Full round-trip tested: Desktop → Remy → Desktop
-- [x] No exposed public endpoint required (relay uses shared file or SQLite, not HTTP)
-
-### Notes
-
-- See `CLAUDE.md` for existing relay MCP spec
-- Bookmark saved: https://huggingface.co/dphn/dolphin-2.6-mistral-7b (local Ollama candidate — to evaluate)
-- Current relay is one-directional and only works inside Claude Desktop session
-
----
-
-## 🔁 US: Two-Way Claude Desktop ↔ Remy Relay
-
-**Added:** March 2026 (US written)
-**Backlog ref:** `US-claude-desktop-relay` → `docs/backlog/US-claude-desktop-relay.md`
-**Priority:** S (Should Have)
-**MoSCoW table entry:** `US-claude-desktop-relay` | ✅ Done
-
-### Summary
-
-Remy can currently receive tasks from Claude Desktop via the relay MCP, but cannot reply back.
-The US covers adding relay tools to Remy's ToolRegistry so the channel is truly bidirectional.
-
-### Key deliverables
-
-- `remy/ai/tools/relay.py` — `RelayToolExecutor` (get_messages, post_message, get_tasks, update_task, post_note)
-- Relay tool schemas in `remy/ai/tools/schemas.py`
-- `/relay` slash command in `bot/handlers.py`
-- `RELAY_MCP_URL` + `RELAY_MCP_SECRET` env vars added to `.env.example`
-- Optional: morning briefing relay inbox check
-
-### Prerequisite / open question
-
-Audit the relay MCP server transport before implementing — if it's SQLite direct-access, use that.
-If HTTP, use httpx. See US for full detail.
-
----
-
-## 🗂️ US: Google Drive Mount RAG Indexing
-
-**Added:** March 2026
-**Backlog ref:** `US-google-drive-rag-indexing` → `docs/backlog/US-google-drive-rag-indexing.md`
-**Priority:** C (Could Have)
-**Phase:** 2 — File & Workspace Integration (extension)
-
-### Problem
-
-Remy's RAG file index only covers `~/Projects`, `~/Documents`, and `~/Downloads`. Dale's Google Drive is mounted locally (macOS: `~/Library/CloudStorage/GoogleDrive-<email>`) and contains important personal documents including CVs, contracts, and other reference material. These are invisible to Remy's file search.
-
-### Goal
-
-Extend the RAG indexer to optionally include one or more configured Google Drive mount paths, so that Remy can search and retrieve content from Drive-mounted files just like local files.
-
-### Proposed Approach
-
-- Add a `GDRIVE_MOUNT_PATHS` env var (comma-separated list of mount paths to index; macOS: `~/Library/CloudStorage/GoogleDrive-<email>`)
-- Validate that each configured path exists and is readable at startup; log a warning if not (Drive may be unmounted)
-- Treat configured mount paths as additional allowed base directories in the RAG indexer — same chunking, embedding, and retrieval pipeline
-- Add mount paths to the `index_status` tool output so Dale can see what's indexed
-- Guard `read_file` and file search tools to also permit reads from configured mount paths
-- Re-index on demand via `trigger_reindex` (existing tool); no real-time watch needed (Drive sync handles freshness)
-
-### Acceptance Criteria
-
-- [x] `GDRIVE_MOUNT_PATHS` env var accepted and validated at startup
-- [x] Files under configured mount path(s) are indexed by the RAG pipeline
-- [x] `search_files` returns results from Drive-mounted files
-- [x] `read_file` can open files from the mount path (path validation updated)
-- [x] `index_status` reports the Drive mount path(s) and file count
-- [x] If the mount is not available at startup, Remy logs a warning and continues (graceful degradation)
-- [x] Mount path configurable via `GDRIVE_MOUNT_PATHS` (macOS: `~/Library/CloudStorage/GoogleDrive-<email>`)
-
-### Notes
-
-- macOS path confirmed: `~/Library/CloudStorage/GoogleDrive-<your-email>` (Google Drive for Desktop)
-- No new dependencies expected — same indexer, additional allowed base dirs
-- Security: path traversal protections already in place; mount path added to allowlist explicitly
-- Out of scope: real-time Drive sync watching, Google Drive API indexing (cloud-only files)
+**User stories and PBIs** live in `docs/backlog/` as `US-*.md` files. Use the **next-PBI** skill (or scan backlog by status) for prioritised work. The MoSCoW table and phase sections above reference backlog IDs; implementation notes and acceptance criteria are in the backlog. For tool-level file write, Gmail create label, image consumption, and memory persistence details, see Phase 2–5 and `US-gmail-create-label`, `US-document-image-support`, `US-proactive-memory-storage`, and related US files.

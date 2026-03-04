@@ -6,6 +6,25 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 
 ---
 
+## Bug 9: Calendar events shown without dates — model misassigns days (e.g. #1537 Sunday vs Thursday)
+
+- **Symptom:** When the user asks Remy to "check the calendar" in chat, Remy reports events with wrong day assignments (e.g. #1035 said to be Thursday when it's Monday; #1537 said to be on Thursday when it's actually Sunday). User sees only one event (#1035 Thursday 9pm) while Remy lists many. Eventually Remy acknowledges that "the calendar feed is returning events without proper dates" — "most events are missing their day, only the all-day events (Alex Care, School Photos, Payday, Canberra Day) have dates". Same recurring meeting (#1537) can appear to be on two days or duplicated because instances are indistinguishable without dates.
+- **User flow (summary):** User asked to check calendar → Remy listed SMART meetings by weekday but with errors → User corrected (#1035 only on Thursday 9pm; #1537 is Sunday) → Remy "corrected" then still conflated days → User said calendar is correct and the bug is in parsing → Remy confirmed: events listed but parser not associating them with specific days; only all-day events have dates.
+- **Root cause:** In `remy/google/calendar.py`, `_parse_event_start()` formats timed events (when `start` has `dateTime`) as **time only**: `dt.strftime("%H:%M")`. The **date** from the ISO string is never included. `format_event()` uses that and produces lines like `• 21:00 — #1035` with no day. All-day events use `start.get("date")` and are formatted with "dd %b", so they do show a date. The **calendar_events** tool (used when the user asks in chat) returns only this formatted list; the model therefore receives a list of events with times but no dates for timed events, and cannot know which day each belongs to — leading to wrong day assignments and confusion (e.g. #1537 on Sunday vs Thursday).
+- **Evidence from code:**
+  - `_parse_event_start()` (lines 31–37): for `dateTime` it returns only `dt.strftime("%H:%M")`.
+  - `format_event()` (lines 134–141): builds `f"• {start} — {title}{loc_suffix}"` where `start` is the result of `_parse_event_start`, so no date for timed events.
+  - `/calendar` Telegram handler (handlers/calendar.py) does derive `date_part = dt_str[:10]` for section headers, but the **tool** used in chat (`exec_calendar_events` → `format_event`) does not include date in each line, so the model never gets per-event dates.
+- **Logs and telemetry:** No calendar-specific logging or telemetry. The calendar client has a module logger but no log calls in the list/parse/format path. General health telemetry records tool execution timing but not calendar payloads. Recommendation for debugging: add a DEBUG log of raw `event.get("start")` (or first N events) when returning calendar tool results, so future parsing issues can be traced without guessing API shape.
+- **Impact:** High. User loses trust in calendar answers; wrong day assignments (e.g. missing Sunday #1537, or listing it on Thursday) cause real scheduling confusion. Recurring meetings that appear multiple times in the feed (one per occurrence) look like duplicates when dates are omitted.
+- **Status:** ✅ Fixed
+- **Location:** `remy/google/calendar.py` — `_parse_event_start()` and `format_event()`; optionally `remy/ai/tools/calendar.py` if tool output format is extended.
+- **Fix:** In `_parse_event_start()`, format timed events (`dateTime`) as "ddd dd MMM HH:MM" (e.g. "Sun 01 Mar 21:00") via `dt.strftime("%a %d %b %H:%M")` so the model and user see an unambiguous day. All-day format left as-is. Added unit test in `tests/test_google.py` that timed events in `format_event` output include weekday and date (e.g. "01 Mar", "Sun").
+- **Reported:** 2026-03-05 (Dale Rogers — from conversation transcript)
+- **Fixed:** 2026-03-05
+
+---
+
 ## Bug 7: Goal-to-plan linking not working (knowledge store vs goals table ID mismatch)
 
 - **Symptom:** Linking a plan to a goal via `create_plan(goal_id=…)` or `update_plan(goal_id=…)` fails with "Goal X not found" even when that goal appears in `get_goals`. Plans never show under goals when using `get_goals(include_plans=True)`.
@@ -117,5 +136,7 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Context:** Chat transcripts store messages as a sequence of entries; each message may have `content` as a list of blocks (e.g. `{ "type": "text", "text": "…" }`). When these are flattened into a single string for display, history, or context, assembly logic that filters with `if p`/`if part` (dropping falsy strings) or uses `.strip()` on segments can remove or collapse spaces — e.g. a block that is only a space gets dropped, or leading/trailing spaces are stripped so adjacent blocks run together.
 - **Impact:** Readability and correctness of assembled conversation text; possible impact on prompts or context passed to models if spacing changes meaning.
 - **Status:** ✅ Fixed
-- **Location (suspected):** Any path that assembles message content from multiple blocks or from transcript lines — e.g. Cursor agent-transcript consumption, or Remy code that flattens message `content` (e.g. `remy/bot/handlers/base.py` `_sanitize_messages_for_claude` and similar, or `remy/ai/claude_desktop_client.py` `_extract_text` / stream parsing). Confirm whether the bug is in Cursor’s transcript assembly or in Remy’s block-flattening.
+- **Location:** `remy/bot/handlers/base.py` (`_sanitize_messages_for_claude`), `remy/ai/claude_desktop_client.py` (`_extract_text`)
+- **Fix:** (1) In `_sanitize_messages_for_claude`, stop filtering parts with `if p` and join with `"".join(parts)` so empty and space-only segments are preserved in order; skip message only when `not joined.strip()`. (2) In `_extract_text`, concatenate text blocks with `"".join(...)` instead of `" ".join(...)` so no extra spaces are inserted between blocks.
 - **Reported:** 2026-03-05
+- **Fixed:** 2026-03-05

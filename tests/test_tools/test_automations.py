@@ -38,7 +38,6 @@ def make_registry(**kwargs) -> MagicMock:
     registry._scheduler_ref = kwargs.get("scheduler_ref", {})
     registry._claude_client = kwargs.get("claude_client")
     registry._knowledge_store = kwargs.get("knowledge_store")
-    registry._grocery_list_file = kwargs.get("grocery_list_file", "")
     return registry
 
 
@@ -333,6 +332,19 @@ class TestExecBreakdownTask:
 
 class TestExecGroceryList:
     """Tests for exec_grocery_list executor."""
+
+    @pytest.mark.asyncio
+    async def test_no_knowledge_store_returns_requires_memory(self):
+        registry = make_registry(knowledge_store=None)
+        result = await exec_grocery_list(registry, {"action": "show"}, USER_ID)
+        assert "requires memory" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_no_user_id_returns_requires_memory(self):
+        ks = AsyncMock()
+        registry = make_registry(knowledge_store=ks)
+        result = await exec_grocery_list(registry, {"action": "show"}, 0)
+        assert "requires memory" in result.lower()
 
     @pytest.mark.asyncio
     async def test_show_action_returns_string(self):

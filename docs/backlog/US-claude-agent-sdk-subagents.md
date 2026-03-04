@@ -1,5 +1,7 @@
 # User Story: Claude Agent SDK Subagents
 
+⏸️ **Deferred** — 2026-03-04
+
 ## Summary
 As a developer, I want to replace the hand-rolled agentic tool loop in `ClaudeClient` with
 the Claude Agent SDK so that different task types can run on different models — cheap Haiku

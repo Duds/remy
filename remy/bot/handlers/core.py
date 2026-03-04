@@ -85,7 +85,7 @@ def make_core_handlers(
             "  /research <topic> — search + Claude synthesis\n"
             "  /save-url <url> [note] — save a bookmark\n"
             "  /bookmarks [filter] — list saved bookmarks\n"
-            "  /grocery-list [add/done/clear] — grocery list management\n"
+            "  /grocery-list [add/done/clear] — grocery list (show IDs, done <id>)\n"
             "  /price-check <item> — search for current prices\n"
             "  /briefing  — get your morning briefing now\n"
             "  /relay     — show pending relay inbox from cowork\n"

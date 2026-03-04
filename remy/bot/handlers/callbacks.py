@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes
 
 from ...config import settings
 from ...relay import post_message_to_cowork
+from ..session import SessionManager
 from .base import is_allowed
 
 if TYPE_CHECKING:
@@ -38,6 +39,9 @@ _pending_suggested: dict[str, dict] = {}
 # Reminder snooze/done payloads: token -> {user_id, automation_id, label, chat_id,
 # message_id, one_time, created_at}
 _pending_reminders: dict[str, dict] = {}
+
+# Run again / New topic (tool-heavy flows): token -> {user_id, flow, params, created_at}
+_pending_run_again: dict[str, dict] = {}
 
 
 def _clean_stale() -> None:
@@ -208,6 +212,49 @@ def make_step_limit_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _clean_stale_run_again() -> None:
+    """Remove expired run-again payloads."""
+    now = time.time()
+    stale = [
+        t
+        for t, v in _pending_run_again.items()
+        if now - v["created_at"] > _PENDING_TTL_SECONDS
+    ]
+    for t in stale:
+        del _pending_run_again[t]
+
+
+def store_run_again_payload(user_id: int, flow: str, params: dict) -> str:
+    """Store flow and params for Run again. Returns token for callback_data."""
+    _clean_stale_run_again()
+    token = secrets.token_hex(6)
+    _pending_run_again[token] = {
+        "user_id": user_id,
+        "flow": flow,
+        "params": params,
+        "created_at": time.time(),
+    }
+    return token
+
+
+def make_run_again_keyboard(
+    flow: str, params: dict, user_id: int
+) -> InlineKeyboardMarkup:
+    """
+    Inline keyboard for tool-heavy flows: [Run again] [New topic].
+    flow is 'board' or 'research'; params e.g. {'topic': '...'}.
+    """
+    token = store_run_again_payload(user_id, flow, params)
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Run again", callback_data=f"run_again_{token}"),
+                InlineKeyboardButton("New topic", callback_data=f"new_topic_{token}"),
+            ],
+        ]
+    )
+
+
 def make_callback_handler(
     *,
     google_gmail: "GmailClient | None" = None,
@@ -220,13 +267,17 @@ def make_callback_handler(
     session_manager=None,
     conv_store=None,
     db=None,
+    subagent_runner=None,
+    job_store=None,
+    memory_injector=None,
+    run_research_flow=None,
 ):
     """
     Factory that returns the callback query handler.
 
     Routes by callback_data prefix: confirm_archive_*, cancel_archive_*,
     add_to_calendar_*, forward_to_cowork_*, break_down_*, dismiss,
-    snooze_5_*, snooze_15_*, done_*.
+    snooze_5_*, snooze_15_*, done_*, run_again_*, new_topic_*, run_auto_*.
     """
 
     async def handle_callback(
@@ -533,6 +584,120 @@ def make_callback_handler(
                 await query.edit_message_text("Done ✓")
             except Exception:
                 pass
+
+        elif data.startswith("run_again_"):
+            token = data[len("run_again_") :]
+            _clean_stale_run_again()
+            pending = _pending_run_again.pop(token, None)
+            if pending is None or pending["user_id"] != user_id:
+                await query.answer("Expired.", show_alert=True)
+                return
+            flow = pending.get("flow") or ""
+            params = pending.get("params") or {}
+            chat_id = getattr(query.message, "chat_id", None) if query.message else None
+            thread_id = (
+                getattr(query.message, "message_thread_id", None)
+                if query.message
+                else None
+            )
+            if not chat_id:
+                return
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception as e:
+                logger.debug("Edit reply_markup for run_again failed: %s", e)
+            if flow == "board" and subagent_runner and context.bot:
+                topic = (params.get("topic") or "").strip()
+                if not topic:
+                    await query.answer("No topic stored.", show_alert=True)
+                    return
+                from telegram.constants import ChatAction
+                from ..working_message import WorkingMessage
+                from ...agents.background import BackgroundTaskRunner
+
+                wm = WorkingMessage(context.bot, chat_id, thread_id)
+                await wm.start()
+                job_id = (
+                    await job_store.create(user_id, "board", topic)
+                    if job_store
+                    else None
+                )
+                user_context = ""
+                if memory_injector:
+                    try:
+                        full_prompt = await memory_injector.build_system_prompt(
+                            user_id, topic, ""
+                        )
+                        if "<memory>" in full_prompt:
+                            start = full_prompt.index("<memory>")
+                            end = full_prompt.index("</memory>") + len("</memory>")
+                            user_context = full_prompt[start:end]
+                    except Exception as exc:
+                        logger.warning("Board memory injection failed: %s", exc)
+                session_key = SessionManager.get_session_key(user_id, thread_id)
+                background_runner = BackgroundTaskRunner(
+                    context.bot,
+                    chat_id,
+                    job_store=job_store,
+                    job_id=job_id,
+                    working_message=wm,
+                    thread_id=thread_id,
+                    chat_action=ChatAction.UPLOAD_DOCUMENT,
+                )
+                try:
+                    subagent_runner.start_board(
+                        background_runner,
+                        topic=topic,
+                        user_context=user_context,
+                        user_id=user_id,
+                        session_key=session_key,
+                    )
+                    await query.answer("Board running — I'll message you when done.")
+                except RuntimeError as e:
+                    await wm.stop()
+                    await context.bot.send_message(
+                        chat_id, str(e), message_thread_id=thread_id
+                    )
+            elif flow == "research" and run_research_flow and context.bot:
+                topic = (params.get("topic") or "").strip()
+                if not topic:
+                    await query.answer("No topic stored.", show_alert=True)
+                    return
+                try:
+                    await query.answer("Research running…")
+                    await run_research_flow(
+                        bot=context.bot,
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        topic=topic,
+                        thread_id=thread_id,
+                    )
+                except Exception as e:
+                    logger.exception("run_research_flow (run_again) failed: %s", e)
+                    try:
+                        await context.bot.send_message(
+                            chat_id,
+                            f"❌ Research failed: {e}",
+                            message_thread_id=thread_id,
+                        )
+                    except Exception:
+                        pass
+            else:
+                await query.answer(
+                    "Run again not available for this flow.", show_alert=True
+                )
+
+        elif data.startswith("new_topic_"):
+            token = data[len("new_topic_") :]
+            _pending_run_again.pop(token, None)
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception as e:
+                logger.debug("Edit reply_markup for new_topic failed: %s", e)
+            await query.answer(
+                "Send /board or /research with your new topic.",
+                show_alert=False,
+            )
 
         elif data.startswith("run_auto_"):
             # US-one-tap-automations: run automation on-demand via inline button

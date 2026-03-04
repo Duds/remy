@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, TYPE_CHECKING
 
+from ..config import settings
 from ..memory.conversations import ConversationStore
 from ..memory.database import DatabaseManager
 
@@ -18,9 +19,6 @@ if TYPE_CHECKING:
     from ..ai.claude_client import ClaudeClient
 
 logger = logging.getLogger(__name__)
-
-# Days without update before a goal is flagged as stale (matches evening check-in)
-_STALE_DAYS = 3
 
 
 def _parse_period(period: str) -> tuple[datetime, datetime]:
@@ -76,8 +74,9 @@ class ConversationAnalyzer:
 
         sessions = await self._conv_store.get_all_sessions(user_id)
         in_range = [
-            sk for sk in sessions
-            if sk.startswith(prefix) and start_date <= sk[len(prefix):] <= end_date
+            sk
+            for sk in sessions
+            if sk.startswith(prefix) and start_date <= sk[len(prefix) :] <= end_date
         ]
 
         total_user = 0
@@ -86,7 +85,9 @@ class ConversationAnalyzer:
         model_counts: dict[str, int] = {}
 
         for session_key in in_range:
-            turns = await self._conv_store.get_recent_turns(user_id, session_key, limit=5000)
+            turns = await self._conv_store.get_recent_turns(
+                user_id, session_key, limit=5000
+            )
             for turn in turns:
                 if turn.role == "user":
                     total_user += 1
@@ -98,7 +99,7 @@ class ConversationAnalyzer:
                     model_counts[model] = model_counts.get(model, 0) + 1
 
             # Derive day from the session key suffix (YYYYMMDD)
-            suffix = session_key[len(prefix):]
+            suffix = session_key[len(prefix) :]
             if len(suffix) == 8 and suffix.isdigit():
                 day_str = f"{suffix[:4]}-{suffix[4:6]}-{suffix[6:]}"
                 active_days.add(day_str)
@@ -119,12 +120,14 @@ class ConversationAnalyzer:
         }
 
     async def get_active_goals_with_age(self, user_id: int) -> list[dict[str, Any]]:
-        """Return active goals annotated with human-readable age strings."""
+        """Return active goals annotated with human-readable age strings. Excludes snoozed goals."""
         async with self._db.get_connection() as conn:
             rows = await conn.execute_fetchall(
                 """
                 SELECT id, title, description, created_at, updated_at
-                FROM goals WHERE user_id=? AND status='active'
+                FROM goals
+                WHERE user_id=? AND status='active'
+                  AND (snoozed_until IS NULL OR date(snoozed_until) <= date('now'))
                 ORDER BY created_at ASC
                 """,
                 (user_id,),
@@ -142,8 +145,10 @@ class ConversationAnalyzer:
                             ts = ts.replace(tzinfo=timezone.utc)
                         days = (now - ts).days
                         d[f"{field}_age"] = (
-                            "today" if days == 0
-                            else "yesterday" if days == 1
+                            "today"
+                            if days == 0
+                            else "yesterday"
+                            if days == 1
                             else f"{days} days ago"
                         )
                         d[f"{field}_days"] = days
@@ -181,13 +186,14 @@ class ConversationAnalyzer:
         models = stats["models_used"]
 
         lines = [f"📊 *Your stats for {label}*\n"]
-        lines.append(f"💬 *Messages:* {total} ({user_msgs} from you, {asst_msgs} from me)")
+        lines.append(
+            f"💬 *Messages:* {total} ({user_msgs} from you, {asst_msgs} from me)"
+        )
         lines.append(f"📅 *Active days:* {active} / {period_days}")
         lines.append(f"📈 *Average:* {avg} messages/day from you")
 
         display_models = {
-            k: v for k, v in models.items()
-            if k not in ("unknown", "compact", "")
+            k: v for k, v in models.items() if k not in ("unknown", "compact", "")
         }
         if display_models:
             model_lines = "\n".join(
@@ -221,8 +227,8 @@ class ConversationAnalyzer:
                 created_age = g.get("created_at_age", "unknown")
                 updated_age = g.get("updated_at_age", "unknown")
                 updated_days = g.get("updated_at_days", 0)
-                stale_marker = " ⚠️" if updated_days >= _STALE_DAYS else ""
-                if updated_days >= _STALE_DAYS:
+                stale_marker = " ⚠️" if updated_days >= settings.stale_goal_days else ""
+                if updated_days >= settings.stale_goal_days:
                     stale_count += 1
                 lines.append(
                     f"  {i}. *{title}*\n"
@@ -267,7 +273,11 @@ class ConversationAnalyzer:
         active_goals = await self.get_active_goals_with_age(user_id)
         completed_goals = await self.get_completed_goals_since(user_id, start)
 
-        month_name = start.strftime("%B %Y") if period in ("month", "30d") else stats["period_label"]
+        month_name = (
+            start.strftime("%B %Y")
+            if period in ("month", "30d")
+            else stats["period_label"]
+        )
 
         stats_block = (
             f"Period: {stats['period_label']}\n"

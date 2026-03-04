@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from ...memory.facts import FactExtractor, FactStore
     from ...memory.goals import GoalExtractor, GoalStore
     from ...memory.injector import MemoryInjector
+    from ...memory.knowledge import KnowledgeStore
     from ...memory.automations import AutomationStore
     from ...memory.background_jobs import BackgroundJobStore
     from ...memory.plans import PlanStore
@@ -102,6 +103,7 @@ def make_handlers(
     job_store: "BackgroundJobStore | None" = None,
     plan_store: "PlanStore | None" = None,
     diagnostics_runner: "DiagnosticsRunner | None" = None,
+    knowledge_store: "KnowledgeStore | None" = None,
 ):
     """
     Factory that returns handler functions bound to shared dependencies.
@@ -136,19 +138,6 @@ def make_handlers(
         )
     )
 
-    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done, run_auto)
-    handlers["callback"] = make_callback_handler(
-        google_gmail=google_gmail,
-        google_calendar=google_calendar,
-        automation_store=automation_store,
-        scheduler_ref=scheduler_ref,
-        claude_client=claude_client,
-        tool_registry=tool_registry,
-        session_manager=session_manager,
-        conv_store=conv_store,
-        db=db,
-    )
-
     # Calendar
     handlers.update(
         make_calendar_handlers(
@@ -176,6 +165,7 @@ def make_handlers(
         make_web_handlers(
             claude_client=claude_client,
             fact_store=fact_store,
+            knowledge_store=knowledge_store,
         )
     )
 
@@ -203,6 +193,23 @@ def make_handlers(
             proactive_scheduler=proactive_scheduler,
             scheduler_ref=scheduler_ref,
         )
+    )
+
+    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done, run_auto, run_again)
+    handlers["callback"] = make_callback_handler(
+        google_gmail=google_gmail,
+        google_calendar=google_calendar,
+        automation_store=automation_store,
+        scheduler_ref=scheduler_ref,
+        claude_client=claude_client,
+        tool_registry=tool_registry,
+        session_manager=session_manager,
+        conv_store=conv_store,
+        db=db,
+        subagent_runner=subagent_runner,
+        job_store=job_store,
+        memory_injector=memory_injector,
+        run_research_flow=handlers.get("run_research_flow"),
     )
 
     # Admin and analytics

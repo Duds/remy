@@ -1162,21 +1162,30 @@ TOOL_SCHEMAS: list[dict] = [
             "Goals are outcomes (e.g. 'well-maintained home', 'finish certification') rather than "
             "single tasks — prefer phrasing goals as outcomes when creating or refining. "
             "Use when the user says they've finished a goal, want to rename one, "
-            "add a new one manually, or remove one entirely. "
-            "Call get_goals first to find the goal_id when modifying an existing goal."
+            "add a new one manually, remove one entirely, or stop reminding me about a goal (snooze). "
+            "Call get_goals first to find the goal_id when modifying an existing goal. "
+            "Snooze temporarily hides a goal from evening check-ins until a date."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "update", "complete", "abandon", "delete"],
+                    "enum": [
+                        "add",
+                        "update",
+                        "complete",
+                        "abandon",
+                        "delete",
+                        "snooze",
+                    ],
                     "description": (
                         "add = create a new goal manually; "
                         "update = change the title or description (requires goal_id); "
                         "complete = mark as done (requires goal_id); "
                         "abandon = mark as abandoned/dropped (requires goal_id); "
-                        "delete = permanently remove (requires goal_id)"
+                        "delete = permanently remove (requires goal_id); "
+                        "snooze = temporarily hide from evening check-ins until a date (requires goal_id, optional until)"
                     ),
                 },
                 "goal_id": {
@@ -1190,6 +1199,10 @@ TOOL_SCHEMAS: list[dict] = [
                 "description": {
                     "type": "string",
                     "description": "Goal description — optional for add and update.",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "Date until which to snooze (YYYY-MM-DD). Default 7 days from today if omitted.",
                 },
             },
             "required": ["action"],

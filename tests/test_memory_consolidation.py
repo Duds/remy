@@ -62,7 +62,9 @@ class TestConversationStoreHelpers:
         """Ignores sessions from previous days."""
         user_id = 123
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+            "%Y-%m-%d"
+        )
 
         today_key = f"user_{user_id}_{today}"
         yesterday_key = f"user_{user_id}_{yesterday}"
@@ -71,7 +73,9 @@ class TestConversationStoreHelpers:
             user_id, today_key, ConversationTurn(role="user", content="Today message")
         )
         await conv_store.append_turn(
-            user_id, yesterday_key, ConversationTurn(role="user", content="Yesterday message")
+            user_id,
+            yesterday_key,
+            ConversationTurn(role="user", content="Yesterday message"),
         )
 
         result = await conv_store.get_today_messages(user_id)
@@ -100,9 +104,52 @@ class TestConversationStoreHelpers:
         assert len(all_messages) == 2
 
         # With filter — gets only thread
-        thread_messages = await conv_store.get_today_messages(user_id, thread_id=thread_id)
+        thread_messages = await conv_store.get_today_messages(
+            user_id, thread_id=thread_id
+        )
         assert len(thread_messages) == 1
         assert thread_messages[0].content == "Thread chat"
+
+    @pytest.mark.asyncio
+    async def test_get_goal_titles_mentioned_today_finds_mentioned(self, conv_store):
+        """Returned set contains goal titles that appear in today's messages."""
+        user_id = 123
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        session_key = f"user_{user_id}_{today}"
+
+        await conv_store.append_turn(
+            user_id,
+            session_key,
+            ConversationTurn(role="user", content="I'm still working on Learn Spanish"),
+        )
+        await conv_store.append_turn(
+            user_id,
+            session_key,
+            ConversationTurn(role="assistant", content="Great, keep it up!"),
+        )
+
+        mentioned = await conv_store.get_goal_titles_mentioned_today(
+            user_id, ["Learn Spanish", "Run marathon"]
+        )
+        assert mentioned == {"Learn Spanish"}
+
+    @pytest.mark.asyncio
+    async def test_get_goal_titles_mentioned_today_empty_when_no_match(
+        self, conv_store
+    ):
+        """Returned set is empty when no goal title appears in messages."""
+        user_id = 123
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        session_key = f"user_{user_id}_{today}"
+
+        await conv_store.append_turn(
+            user_id, session_key, ConversationTurn(role="user", content="Hello")
+        )
+
+        mentioned = await conv_store.get_goal_titles_mentioned_today(
+            user_id, ["Learn Spanish"]
+        )
+        assert mentioned == set()
 
     @pytest.mark.asyncio
     async def test_get_messages_since(self, conv_store):
@@ -115,8 +162,12 @@ class TestConversationStoreHelpers:
         old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         recent_time = datetime.now(timezone.utc).isoformat()
 
-        old_turn = ConversationTurn(role="user", content="Old message", timestamp=old_time)
-        recent_turn = ConversationTurn(role="user", content="Recent message", timestamp=recent_time)
+        old_turn = ConversationTurn(
+            role="user", content="Old message", timestamp=old_time
+        )
+        recent_turn = ConversationTurn(
+            role="user", content="Recent message", timestamp=recent_time
+        )
 
         await conv_store.append_turn(user_id, session_key, old_turn)
         await conv_store.append_turn(user_id, session_key, recent_turn)
@@ -230,12 +281,14 @@ class TestConsolidationExecution:
         )
 
         mock_claude_client.complete = AsyncMock(
-            return_value=json.dumps({
-                "facts": [
-                    {"content": "Tyre repair completed", "category": "other"}
-                ],
-                "goals": []
-            })
+            return_value=json.dumps(
+                {
+                    "facts": [
+                        {"content": "Tyre repair completed", "category": "other"}
+                    ],
+                    "goals": [],
+                }
+            )
         )
 
         bot = MagicMock()
@@ -268,12 +321,17 @@ class TestConsolidationExecution:
         )
 
         mock_claude_client.complete = AsyncMock(
-            return_value=json.dumps({
-                "facts": [],
-                "goals": [
-                    {"title": "Learn Spanish", "description": "Language learning goal"}
-                ]
-            })
+            return_value=json.dumps(
+                {
+                    "facts": [],
+                    "goals": [
+                        {
+                            "title": "Learn Spanish",
+                            "description": "Language learning goal",
+                        }
+                    ],
+                }
+            )
         )
 
         bot = MagicMock()
@@ -302,7 +360,9 @@ class TestConsolidationExecution:
             return_value=[
                 ConversationTurn(role="user", content="Hello"),
                 ConversationTurn(role="assistant", content="__TOOL_TURN__:[]"),
-                ConversationTurn(role="assistant", content="[COMPACTED SUMMARY]\nOld chat"),
+                ConversationTurn(
+                    role="assistant", content="[COMPACTED SUMMARY]\nOld chat"
+                ),
                 ConversationTurn(role="assistant", content="Hi there!"),
             ]
         )
@@ -485,9 +545,10 @@ class TestManualConsolidationTrigger:
         )
 
         with patch.object(
-            scheduler, "_consolidate_user_memory",
+            scheduler,
+            "_consolidate_user_memory",
             new_callable=AsyncMock,
-            return_value={"facts_stored": 2, "goals_stored": 1}
+            return_value={"facts_stored": 2, "goals_stored": 1},
         ) as mock_consolidate:
             result = await scheduler.run_memory_consolidation_now(user_id=123)
 

@@ -361,6 +361,59 @@ class TestEveningCheckinGenerator:
         content = await gen.generate()
         assert "Goal" in content
 
+    @pytest.mark.asyncio
+    async def test_evening_checkin_dedup_excludes_mentioned_today(self):
+        """Goals mentioned in today's conversation are not surfaced."""
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=5)).isoformat()
+
+        mock_store = AsyncMock()
+        mock_store.get_active.return_value = [
+            {"id": 1, "title": "Forgotten Goal", "updated_at": old},
+            {"id": 2, "title": "Other Goal", "updated_at": old},
+        ]
+
+        mock_conv = AsyncMock()
+        mock_conv.get_goal_titles_mentioned_today = AsyncMock(
+            return_value={"Forgotten Goal"}
+        )
+
+        gen = EveningCheckinGenerator(
+            user_id=123,
+            goal_store=mock_store,
+            conv_store=mock_conv,
+        )
+        content = await gen.generate()
+
+        assert "Evening check-in" in content
+        assert "Other Goal" in content
+        assert "Forgotten Goal" not in content
+
+    @pytest.mark.asyncio
+    async def test_evening_checkin_dedup_empty_when_all_mentioned(self):
+        """When all stale goals were discussed today, no message is sent."""
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=5)).isoformat()
+
+        mock_store = AsyncMock()
+        mock_store.get_active.return_value = [
+            {"id": 1, "title": "Forgotten Goal", "updated_at": old},
+        ]
+
+        mock_conv = AsyncMock()
+        mock_conv.get_goal_titles_mentioned_today = AsyncMock(
+            return_value={"Forgotten Goal"}
+        )
+
+        gen = EveningCheckinGenerator(
+            user_id=123,
+            goal_store=mock_store,
+            conv_store=mock_conv,
+        )
+        content = await gen.generate()
+
+        assert content == ""
+
 
 class TestMonthlyRetrospectiveGenerator:
     """Tests for MonthlyRetrospectiveGenerator."""

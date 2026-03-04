@@ -7,6 +7,7 @@ GoalStore manages the lifecycle of goals in SQLite (active, completed, abandoned
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from ..ai.claude_client import ClaudeClient
@@ -171,12 +172,14 @@ class GoalStore:
             return row is not None
 
     async def get_active(self, user_id: int, limit: int = 10) -> list[dict[str, Any]]:
-        """Return active goals, newest first."""
+        """Return active goals, newest first. Excludes goals with snoozed_until > today."""
         async with self._db.get_connection() as conn:
             rows = await conn.execute_fetchall(
                 """
-                SELECT id, title, description, status, created_at
-                FROM goals WHERE user_id=? AND status='active'
+                SELECT id, title, description, status, created_at, updated_at, snoozed_until
+                FROM goals
+                WHERE user_id=? AND status='active'
+                  AND (snoozed_until IS NULL OR date(snoozed_until) <= date('now'))
                 ORDER BY created_at DESC LIMIT ?
                 """,
                 (user_id, limit),
@@ -238,6 +241,21 @@ class GoalStore:
             cursor = await conn.execute(
                 "DELETE FROM goals WHERE id=? AND user_id=?",
                 (goal_id, user_id),
+            )
+            await conn.commit()
+            rc = cursor.rowcount
+            return rc is not None and rc > 0
+
+    async def snooze(self, user_id: int, goal_id: int, until: datetime | str) -> bool:
+        """Set snoozed_until for a goal so it is hidden from evening check-in until that date. Returns True if updated."""
+        if isinstance(until, datetime):
+            until_str = until.strftime("%Y-%m-%d")
+        else:
+            until_str = str(until).strip()[:10]
+        async with self._db.get_connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE goals SET snoozed_until=? WHERE id=? AND user_id=?",
+                (until_str, goal_id, user_id),
             )
             await conn.commit()
             rc = cursor.rowcount

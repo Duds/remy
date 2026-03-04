@@ -235,8 +235,6 @@ def main() -> None:
         # Phase 5: automations
         automation_store=automation_store,
         scheduler_ref=_late,
-        # Files / grocery
-        grocery_list_file=settings.grocery_list_file,
         # Phase 6: analytics
         conversation_analyzer=conv_analyzer,
         # Phase 7 Step 2: persistent job tracking
@@ -310,6 +308,7 @@ def main() -> None:
         job_store=job_store,
         plan_store=plan_store,
         diagnostics_runner=diagnostics_runner,
+        knowledge_store=knowledge_store,
     )
     handlers["briefing"] = _briefing_proxy
 

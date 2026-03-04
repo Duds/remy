@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .base import reject_unauthorized
+from .callbacks import make_run_again_keyboard
 from ..session import SessionManager
 from ...utils.telegram_formatting import format_telegram_message
 
@@ -400,6 +401,7 @@ def make_automation_handlers(
         await wm.start()
 
         job_id = await job_store.create(user_id, "board", topic) if job_store else None
+        run_again_markup = make_run_again_keyboard("board", {"topic": topic}, user_id)
         background_runner = BackgroundTaskRunner(
             context.bot,
             update.message.chat_id,
@@ -408,6 +410,7 @@ def make_automation_handlers(
             working_message=wm,
             thread_id=thread_id,
             chat_action=ChatAction.UPLOAD_DOCUMENT,
+            run_again_markup=run_again_markup,
         )
         try:
             subagent_runner.start_board(

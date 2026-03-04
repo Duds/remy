@@ -46,13 +46,13 @@ class TestExecGetLogs:
         registry = make_registry(logs_dir="/tmp")
         with patch("remy.ai.tools.memory.asyncio.to_thread") as mock_thread:
             mock_thread.side_effect = [
-                0,              # get_session_start_line
-                None,           # get_session_start
+                0,  # get_session_start_line
+                None,  # get_session_start
                 "Error summary",
                 "Tail content",
             ]
             result = await exec_get_logs(registry, {"mode": "summary"})
-        
+
         assert "Error summary" in result or "Tail content" in result
         assert "Diagnostics" in result or "summary" in result.lower()
 
@@ -60,9 +60,11 @@ class TestExecGetLogs:
     async def test_tail_mode_returns_log_lines(self):
         """Tail mode should return recent log lines."""
         registry = make_registry(logs_dir="/tmp")
-        with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="log lines here"):
+        with patch(
+            "remy.ai.tools.memory.asyncio.to_thread", return_value="log lines here"
+        ):
             result = await exec_get_logs(registry, {"mode": "tail", "lines": 10})
-        
+
         assert "log lines here" in result
         assert "10" in result
 
@@ -72,12 +74,12 @@ class TestExecGetLogs:
         registry = make_registry(logs_dir="/tmp")
         with patch("remy.ai.tools.memory.asyncio.to_thread") as mock_thread:
             mock_thread.side_effect = [
-                0,             # get_session_start_line
-                None,          # get_session_start
+                0,  # get_session_start_line
+                None,  # get_session_start
                 "errors here",
             ]
             result = await exec_get_logs(registry, {"mode": "errors"})
-        
+
         assert "errors here" in result
 
     @pytest.mark.asyncio
@@ -86,7 +88,7 @@ class TestExecGetLogs:
         registry = make_registry(logs_dir="/tmp")
         with patch("remy.ai.tools.memory.asyncio.to_thread", return_value="logs"):
             result = await exec_get_logs(registry, {"mode": "tail", "lines": 500})
-        
+
         # The result should mention 100 lines (capped), not 500
         assert "100" in result or "logs" in result
 
@@ -107,7 +109,7 @@ class TestExecGetGoals:
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[])
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_goals(registry, {}, USER_ID)
         assert "no active goals" in result.lower()
 
@@ -118,13 +120,13 @@ class TestExecGetGoals:
         goal.id = 1
         goal.content = "Learn Python"
         goal.metadata = {"status": "active", "description": "Master the language"}
-        
+
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[goal])
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_goals(registry, {}, USER_ID)
-        
+
         assert "Learn Python" in result
         assert "ID:1" in result
         assert "Active goals" in result
@@ -136,18 +138,18 @@ class TestExecGetGoals:
         active_goal.id = 1
         active_goal.content = "Active Goal"
         active_goal.metadata = {"status": "active"}
-        
+
         completed_goal = MagicMock()
         completed_goal.id = 2
         completed_goal.content = "Completed Goal"
         completed_goal.metadata = {"status": "completed"}
-        
+
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[active_goal, completed_goal])
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_goals(registry, {}, USER_ID)
-        
+
         assert "Active Goal" in result
         assert "Completed Goal" not in result
 
@@ -157,9 +159,9 @@ class TestExecGetGoals:
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[])
         registry = make_registry(knowledge_store=ks)
-        
+
         await exec_get_goals(registry, {"limit": 5}, USER_ID)
-        
+
         ks.get_by_type.assert_called_once_with(USER_ID, "goal", limit=5)
 
     @pytest.mark.asyncio
@@ -168,9 +170,9 @@ class TestExecGetGoals:
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[])
         registry = make_registry(knowledge_store=ks)
-        
+
         await exec_get_goals(registry, {"limit": 100}, USER_ID)
-        
+
         ks.get_by_type.assert_called_once_with(USER_ID, "goal", limit=50)
 
 
@@ -190,7 +192,7 @@ class TestExecGetFacts:
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[])
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_facts(registry, {}, USER_ID)
         assert "no facts found" in result.lower()
 
@@ -201,13 +203,13 @@ class TestExecGetFacts:
         fact.id = 1
         fact.content = "User likes coffee"
         fact.metadata = {"category": "preference"}
-        
+
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[fact])
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_facts(registry, {}, USER_ID)
-        
+
         assert "User likes coffee" in result
         assert "ID:1" in result
         assert "preference" in result
@@ -219,18 +221,18 @@ class TestExecGetFacts:
         fact1.id = 1
         fact1.content = "Likes coffee"
         fact1.metadata = {"category": "preference"}
-        
+
         fact2 = MagicMock()
         fact2.id = 2
         fact2.content = "Works at Acme"
         fact2.metadata = {"category": "work"}
-        
+
         ks = AsyncMock()
         ks.get_by_type = AsyncMock(return_value=[fact1, fact2])
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_facts(registry, {"category": "preference"}, USER_ID)
-        
+
         assert "Likes coffee" in result
         assert "Works at Acme" not in result
 
@@ -250,7 +252,7 @@ class TestExecRunBoard:
         """Should return error for empty topic."""
         orchestrator = AsyncMock()
         registry = make_registry(board_orchestrator=orchestrator)
-        
+
         result = await exec_run_board(registry, {"topic": ""}, USER_ID)
         assert "no topic" in result.lower()
 
@@ -260,9 +262,9 @@ class TestExecRunBoard:
         orchestrator = AsyncMock()
         orchestrator.run_board = AsyncMock(return_value="Board report here")
         registry = make_registry(board_orchestrator=orchestrator)
-        
+
         result = await exec_run_board(registry, {"topic": "Career change"}, USER_ID)
-        
+
         orchestrator.run_board.assert_called_once_with("Career change")
         assert "Board report here" in result
 
@@ -274,13 +276,13 @@ class TestExecCheckStatus:
     async def test_returns_backend_status_header(self):
         """Should return 'Backend status' header."""
         registry = make_registry(claude_client=None)
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(
                 side_effect=Exception("Connection refused")
             )
             result = await exec_check_status(registry)
-        
+
         assert "Backend status" in result
 
     @pytest.mark.asyncio
@@ -289,13 +291,13 @@ class TestExecCheckStatus:
         claude = AsyncMock()
         claude.ping = AsyncMock(return_value=True)
         registry = make_registry(claude_client=claude)
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(
                 side_effect=Exception("Connection refused")
             )
             result = await exec_check_status(registry)
-        
+
         assert "Claude" in result
         assert "online" in result.lower()
 
@@ -303,13 +305,13 @@ class TestExecCheckStatus:
     async def test_claude_client_not_configured(self):
         """Should show warning when Claude not configured."""
         registry = make_registry(claude_client=None)
-        
+
         with patch("httpx.AsyncClient") as mock_client:
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(
                 side_effect=Exception("Connection refused")
             )
             result = await exec_check_status(registry)
-        
+
         assert "Claude" in result
         assert "not configured" in result.lower()
 
@@ -329,8 +331,10 @@ class TestExecManageMemory:
         """Add action should require content."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
-        result = await exec_manage_memory(registry, {"action": "add", "content": ""}, USER_ID)
+
+        result = await exec_manage_memory(
+            registry, {"action": "add", "content": ""}, USER_ID
+        )
         assert "provide content" in result.lower()
 
     @pytest.mark.asyncio
@@ -339,14 +343,16 @@ class TestExecManageMemory:
         ks = AsyncMock()
         ks.add_item = AsyncMock(return_value=123)
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_memory(
-            registry, 
-            {"action": "add", "content": "User likes tea", "category": "preference"}, 
-            USER_ID
+            registry,
+            {"action": "add", "content": "User likes tea", "category": "preference"},
+            USER_ID,
         )
-        
-        ks.add_item.assert_called_once_with(USER_ID, "fact", "User likes tea", {"category": "preference"})
+
+        ks.add_item.assert_called_once_with(
+            USER_ID, "fact", "User likes tea", {"category": "preference"}
+        )
         assert "123" in result
         assert "stored" in result.lower()
 
@@ -355,11 +361,9 @@ class TestExecManageMemory:
         """Update action should require fact_id."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_memory(
-            registry, 
-            {"action": "update", "content": "new content"}, 
-            USER_ID
+            registry, {"action": "update", "content": "new content"}, USER_ID
         )
         assert "provide fact_id" in result.lower()
 
@@ -368,7 +372,7 @@ class TestExecManageMemory:
         """Delete action should require fact_id."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_memory(registry, {"action": "delete"}, USER_ID)
         assert "provide fact_id" in result.lower()
 
@@ -377,7 +381,7 @@ class TestExecManageMemory:
         """Unknown action should return error."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_memory(registry, {"action": "unknown"}, USER_ID)
         assert "unknown action" in result.lower()
 
@@ -397,8 +401,10 @@ class TestExecManageGoal:
         """Add action should require title."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
-        result = await exec_manage_goal(registry, {"action": "add", "title": ""}, USER_ID)
+
+        result = await exec_manage_goal(
+            registry, {"action": "add", "title": ""}, USER_ID
+        )
         assert "provide" in result.lower() and "title" in result.lower()
 
     @pytest.mark.asyncio
@@ -407,13 +413,17 @@ class TestExecManageGoal:
         ks = AsyncMock()
         ks.add_item = AsyncMock(return_value=456)
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_goal(
-            registry, 
-            {"action": "add", "title": "Learn Rust", "description": "Systems programming"}, 
-            USER_ID
+            registry,
+            {
+                "action": "add",
+                "title": "Learn Rust",
+                "description": "Systems programming",
+            },
+            USER_ID,
         )
-        
+
         ks.add_item.assert_called_once()
         assert "456" in result
         assert "added" in result.lower()
@@ -423,7 +433,7 @@ class TestExecManageGoal:
         """Complete action should require goal_id."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_goal(registry, {"action": "complete"}, USER_ID)
         assert "provide goal_id" in result.lower()
 
@@ -432,9 +442,43 @@ class TestExecManageGoal:
         """Unknown action should return error."""
         ks = AsyncMock()
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_manage_goal(registry, {"action": "unknown"}, USER_ID)
         assert "unknown action" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_snooze_action_requires_goal_id(self):
+        """Snooze action should require goal_id."""
+        ks = AsyncMock()
+        goal_store = AsyncMock()
+        registry = make_registry(knowledge_store=ks, goal_store=goal_store)
+        result = await exec_manage_goal(registry, {"action": "snooze"}, USER_ID)
+        assert "provide goal_id" in result.lower()
+        goal_store.snooze.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_snooze_action_calls_goal_store(self):
+        """Snooze action should call goal_store.snooze and return confirmation."""
+        ks = AsyncMock()
+        goal_store = AsyncMock()
+        goal_store.snooze = AsyncMock(return_value=True)
+        registry = make_registry(knowledge_store=ks, goal_store=goal_store)
+        result = await exec_manage_goal(
+            registry, {"action": "snooze", "goal_id": 7, "until": "2026-03-15"}, USER_ID
+        )
+        goal_store.snooze.assert_called_once_with(USER_ID, 7, "2026-03-15")
+        assert "snoozed" in result.lower()
+        assert "2026-03-15" in result
+
+    @pytest.mark.asyncio
+    async def test_snooze_action_no_goal_store_returns_message(self):
+        """Snooze when goal_store is not configured returns a clear message."""
+        ks = AsyncMock()
+        registry = make_registry(knowledge_store=ks, goal_store=None)
+        result = await exec_manage_goal(
+            registry, {"action": "snooze", "goal_id": 7}, USER_ID
+        )
+        assert "not available" in result.lower() or "not configured" in result.lower()
 
 
 class TestExecGetMemorySummary:
@@ -451,16 +495,18 @@ class TestExecGetMemorySummary:
     async def test_returns_summary_with_counts(self):
         """Should return summary with fact and goal counts."""
         ks = AsyncMock()
-        ks.get_memory_summary = AsyncMock(return_value={
-            "total_facts": 25,
-            "total_goals": 5,
-            "recent_facts_7d": 3,
-            "categories": {"preference": 10, "work": 8, "health": 7},
-        })
+        ks.get_memory_summary = AsyncMock(
+            return_value={
+                "total_facts": 25,
+                "total_goals": 5,
+                "recent_facts_7d": 3,
+                "categories": {"preference": 10, "work": 8, "health": 7},
+            }
+        )
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_memory_summary(registry, USER_ID)
-        
+
         assert "25 facts" in result
         assert "5 goals" in result
         assert "Memory summary" in result
@@ -471,7 +517,7 @@ class TestExecGetMemorySummary:
         ks = AsyncMock()
         ks.get_memory_summary = AsyncMock(side_effect=Exception("Database error"))
         registry = make_registry(knowledge_store=ks)
-        
+
         result = await exec_get_memory_summary(registry, USER_ID)
-        
+
         assert "could not retrieve" in result.lower() or "error" in result.lower()

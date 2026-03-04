@@ -53,9 +53,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Goals not updated within this many days trigger an evening nudge
-_STALE_GOAL_DAYS = 3
-
 # Default cron for the afternoon focus check-in (configurable via .env)
 _AFTERNOON_CRON_DEFAULT = "0 14 * * *"
 
@@ -190,6 +187,7 @@ class ProactiveScheduler:
                 settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT
             )
             afternoon_trigger = _parse_cron(afternoon_cron)
+            alcohol_check_trigger = _parse_cron(settings.alcohol_check_cron)
         except ValueError as e:
             logger.error("Invalid cron config, scheduler not started: %s", e)
             return
@@ -214,6 +212,14 @@ class ProactiveScheduler:
             self._evening_checkin,
             trigger=checkin_trigger,
             id="evening_checkin",
+            replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
+        )
+        self._scheduler.add_job(
+            self._alcohol_check,
+            trigger=alcohol_check_trigger,
+            id="alcohol_check",
             replace_existing=True,
             misfire_grace_time=3600,
             coalesce=True,
@@ -286,10 +292,11 @@ class ProactiveScheduler:
 
         self._scheduler.start()
         logger.info(
-            "Proactive scheduler started — briefing: %s, afternoon: %s, check-in: %s (tz: %s)",
+            "Proactive scheduler started — briefing: %s, afternoon: %s, check-in: %s, alcohol: %s (tz: %s)",
             settings.briefing_cron,
             afternoon_cron,
             settings.checkin_cron,
+            settings.alcohol_check_cron,
             settings.scheduler_timezone,
         )
 
@@ -359,6 +366,11 @@ class ProactiveScheduler:
         ):
             jobs_to_fire.append(("evening_checkin", "evening check-in missed"))
         if (
+            current_hour >= _cron_hour(settings.alcohol_check_cron)
+            and log.get("alcohol_check") != today
+        ):
+            jobs_to_fire.append(("alcohol_check", "5pm alcohol check missed"))
+        if (
             current_hour >= _cron_hour(consolidation_cron)
             and log.get("end_of_day_consolidation") != today
         ):
@@ -384,6 +396,8 @@ class ProactiveScheduler:
                     await self._afternoon_focus()
                 elif job_id == "evening_checkin":
                     await self._evening_checkin()
+                elif job_id == "alcohol_check":
+                    await self._alcohol_check()
                 elif job_id == "end_of_day_consolidation":
                     await self._end_of_day_consolidation()
             except Exception as e:
@@ -795,10 +809,11 @@ class ProactiveScheduler:
 
     async def _afternoon_focus(self) -> None:
         """
-        14:00 job — ADHD body-double mid-day check-in.
+        14:00 (or CHECKIN_CRON) job — ADHD body-double mid-day / 5pm check-in.
 
         Picks the single most important active goal and sends a gentle focus nudge,
         optionally paired with today's remaining calendar events.
+        Mediated (US-remy-mediated-reminders).
         """
         chat_id = _read_primary_chat_id()
         if chat_id is None:
@@ -809,17 +824,50 @@ class ProactiveScheduler:
         if not user_ids:
             return
 
+        user_id = user_ids[0]
         generator = AfternoonFocusGenerator(
-            user_id=user_ids[0],
+            user_id=user_id,
             goal_store=self._goal_store,
             calendar=self._calendar,
         )
+
+        # Mediated path: Claude composes at fire time (US-remy-mediated-reminders).
+        if (
+            self._claude_client is not None
+            and self._tool_registry is not None
+            and self._session_manager is not None
+            and self._conv_store is not None
+        ):
+            try:
+                payload = await generator.generate_structured()
+                from ..bot.pipeline import compose_proactive_message
+
+                await compose_proactive_message(
+                    label="Afternoon focus check-in",
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    bot=self._bot,
+                    claude_client=self._claude_client,
+                    tool_registry=self._tool_registry,
+                    session_manager=self._session_manager,
+                    conv_store=self._conv_store,
+                    db=self._db,
+                    context=payload,
+                )
+                _record_delivery("afternoon_focus")
+                return
+            except Exception as e:
+                logger.warning(
+                    "Claude afternoon focus failed, falling back to template: %s", e
+                )
+
+        # Fallback: template-generated message
         content = await generator.generate()
         await self._send(chat_id, content)
         _record_delivery("afternoon_focus")
 
     async def _evening_checkin(self) -> None:
-        """19:00 job — nudge about goals that haven't been mentioned recently."""
+        """19:00 job — nudge about goals that haven't been mentioned recently. Mediated (US-remy-mediated-reminders)."""
         chat_id = _read_primary_chat_id()
         if chat_id is None:
             logger.debug("Evening check-in skipped — no primary chat ID set")
@@ -829,18 +877,116 @@ class ProactiveScheduler:
         if not user_ids:
             return
 
+        user_id = user_ids[0]
         generator = EveningCheckinGenerator(
-            user_id=user_ids[0],
+            user_id=user_id,
             goal_store=self._goal_store,
-            stale_days=_STALE_GOAL_DAYS,
+            stale_days=settings.stale_goal_days,
+            conv_store=self._conv_store,
+            calendar=self._calendar,
         )
+
+        # Mediated path: Claude composes at fire time (US-remy-mediated-reminders).
+        if (
+            self._claude_client is not None
+            and self._tool_registry is not None
+            and self._session_manager is not None
+            and self._conv_store is not None
+        ):
+            try:
+                payload = await generator.generate_structured()
+                if payload is not None:
+                    from ..bot.pipeline import compose_proactive_message
+
+                    await compose_proactive_message(
+                        label="Evening check-in",
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        bot=self._bot,
+                        claude_client=self._claude_client,
+                        tool_registry=self._tool_registry,
+                        session_manager=self._session_manager,
+                        conv_store=self._conv_store,
+                        db=self._db,
+                        context=payload,
+                    )
+                    _record_delivery("evening_checkin")
+                    return
+            except Exception as e:
+                logger.warning(
+                    "Claude evening check-in failed, falling back to template: %s", e
+                )
+
+        # Fallback: template-generated message
         content = await generator.generate()
         if not content:
             return
-
         logger.info("Sending evening check-in to chat %d", chat_id)
         await self._send(chat_id, content)
         _record_delivery("evening_checkin")
+
+    async def _alcohol_check(self) -> None:
+        """
+        17:00 (alcohol_check_cron) — 5pm alcohol/sobriety check-in.
+
+        Mediated only: compassionate, context-relevant message for the high-risk
+        window (US-remy-mediated-reminders). Always routed through Remy.
+        """
+        chat_id = _read_primary_chat_id()
+        if chat_id is None:
+            logger.debug("5pm alcohol check skipped — no primary chat ID set")
+            return
+
+        user_ids = settings.telegram_allowed_users
+        if not user_ids:
+            return
+
+        user_id = user_ids[0]
+        context: dict = {"alcohol_check": True, "goals": [], "calendar_summary": None}
+        if self._goal_store is not None:
+            goals = await self._goal_store.get_active(user_id, limit=5)
+            context["goals"] = [{"title": g.get("title")} for g in goals]
+        if self._calendar is not None:
+            try:
+                events = await self._calendar.list_events(days=1)
+                if events:
+                    context["calendar_summary"] = ", ".join(
+                        self._calendar.format_event(e) for e in events[:5]
+                    )
+                else:
+                    context["calendar_summary"] = "Nothing scheduled."
+            except Exception as e:
+                logger.debug("Could not load calendar for alcohol check: %s", e)
+
+        if (
+            self._claude_client is None
+            or self._tool_registry is None
+            or self._session_manager is None
+            or self._conv_store is None
+        ):
+            logger.warning(
+                "5pm alcohol check skipped — mediated path required but dependencies missing"
+            )
+            return
+
+        try:
+            from ..bot.pipeline import compose_proactive_message
+
+            await compose_proactive_message(
+                label="5pm alcohol check-in",
+                user_id=user_id,
+                chat_id=chat_id,
+                bot=self._bot,
+                claude_client=self._claude_client,
+                tool_registry=self._tool_registry,
+                session_manager=self._session_manager,
+                conv_store=self._conv_store,
+                db=self._db,
+                context=context,
+            )
+            _record_delivery("alcohol_check")
+        except Exception as e:
+            logger.error("5pm alcohol check failed: %s", e)
 
     async def _monthly_retrospective(self) -> None:
         """Last-day-of-month job — generate and send a monthly retrospective."""

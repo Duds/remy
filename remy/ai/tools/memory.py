@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -377,7 +378,24 @@ async def exec_manage_goal(registry: ToolRegistry, inp: dict, user_id: int) -> s
             return f"No goal with ID {goal_id} found."
         return f"✅ Goal {goal_id} permanently deleted."
 
-    return f"Unknown action '{action}'. Use: add, update, complete, abandon, or delete."
+    elif action == "snooze":
+        if not goal_id:
+            return "Please provide goal_id to snooze. Call get_goals to find IDs."
+        if registry._goal_store is None:
+            return "Snooze is not available (goal store not configured)."
+
+        raw_until = (inp.get("until") or "").strip()
+        if raw_until:
+            until = raw_until[:10]
+        else:
+            until_dt = datetime.now(timezone.utc) + timedelta(days=7)
+            until = until_dt.strftime("%Y-%m-%d")
+        ok = await registry._goal_store.snooze(user_id, int(goal_id), until)
+        if not ok:
+            return f"No goal with ID {goal_id} found."
+        return f"✅ Goal {goal_id} snoozed. It won't appear in evening check-ins until {until}."
+
+    return f"Unknown action '{action}'. Use: add, update, complete, abandon, delete, or snooze."
 
 
 async def exec_get_memory_summary(registry: ToolRegistry, user_id: int) -> str:

@@ -305,6 +305,8 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_plans_knowledge_goal_id ON plans(knowledge_goal_id);",
     # 014: US-remy-mediated-reminders — context-aware reminder delivery via Claude
     "ALTER TABLE automations ADD COLUMN mediated INTEGER DEFAULT 0;",
+    # 015: US-context-aware-reminders — snooze goals from evening check-in
+    "ALTER TABLE goals ADD COLUMN snoozed_until TEXT;",
 ]
 
 # Triggers to keep FTS indices in sync with source tables

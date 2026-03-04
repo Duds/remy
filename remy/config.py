@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     # Scheduler (cron in user's local timezone)
     briefing_cron: str = "0 7 * * *"
     checkin_cron: str = "0 19 * * *"
+    # 5pm alcohol/sobriety check-in — high-risk window; mediated, compassionate (US-remy-mediated-reminders)
+    alcohol_check_cron: str = "0 17 * * *"
     scheduler_timezone: str = "Australia/Sydney"
     # Morning briefing email scope: inbox_only | primary_tabs | all_mail (US-gmail-check-all-mail)
     briefing_email_scope: str = "inbox_only"
@@ -221,6 +223,7 @@ class Settings(BaseSettings):
 
     @property
     def grocery_list_file(self) -> str:
+        """Deprecated: grocery list is now in KnowledgeStore. Kept for migrate_legacy_data only."""
         return os.path.join(self.data_dir, "grocery_list.txt")
 
     @property

@@ -39,6 +39,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Synthetic trigger prefix for proactive messages — parseable by Remy AI and ingest.
+PROACTIVE_PREFIX = "[Proactive]"
+
+
+def _trigger_text_for_proactive(label: str, context: dict | None) -> str:
+    """
+    Build the synthetic user message for proactive triggers so Remy AI can ingest it.
+
+    Format: "[Proactive] type=<trigger_type> [label=<human label>]"
+    - morning_briefing, afternoon_focus, evening_checkin, alcohol_check: type only (context carries intent).
+    - reminder: type=reminder and the user's label (e.g. sobriety check) for clarity.
+    """
+    if context is not None:
+        if context.get("evening_checkin"):
+            return f"{PROACTIVE_PREFIX} type=evening_checkin"
+        if context.get("afternoon_checkin"):
+            return f"{PROACTIVE_PREFIX} type=afternoon_focus"
+        if context.get("alcohol_check"):
+            return f"{PROACTIVE_PREFIX} type=alcohol_check"
+        # Morning briefing or other context-carrying triggers
+        return f"{PROACTIVE_PREFIX} type=morning_briefing"
+    return f"{PROACTIVE_PREFIX} type=reminder label={label!r}"
+
 
 def _reminder_system_prompt(label: str) -> str:
     """
@@ -77,6 +100,67 @@ def _briefing_system_prompt(context: dict) -> str:
         "- Optionally mention downloads cleanup or stale plans if relevant\n"
         "- If relay_unread or relay_pending are non-zero, add one line: e.g. '📬 N unread message(s) from cowork.' and/or '📋 N pending task(s) from cowork.'\n\n"
         "Structured context:\n"
+        f"```json\n{ctx_json}\n```"
+    )
+
+
+def _evening_checkin_system_prompt(context: dict) -> str:
+    """
+    US-remy-mediated-reminders: system prompt for evening check-in.
+    Injects stale goals and optional calendar so Claude composes a warm nudge.
+    """
+    ctx_json = json.dumps(context, indent=0)
+    return (
+        f"{settings.soul_md}\n\n"
+        "---\n"
+        "EVENING CHECK-IN: Dale hasn't mentioned these goals recently. "
+        "Compose a short, warm nudge — not a list. You're Remy checking in, not a task reminder.\n\n"
+        "- Reference the goals naturally; one or two sentences is enough\n"
+        "- If there's calendar context (today's events), you can tie it in (e.g. 'You had X today — still on for Y?')\n"
+        "- Invite a quick reply; don't overwhelm\n\n"
+        "Structured context:\n"
+        f"```json\n{ctx_json}\n```"
+    )
+
+
+def _afternoon_checkin_system_prompt(context: dict) -> str:
+    """
+    US-remy-mediated-reminders: system prompt for afternoon focus (5pm / mid-day check-in).
+    Injects top goal and remaining calendar so Claude composes a focused nudge.
+    """
+    ctx_json = json.dumps(context, indent=0)
+    return (
+        f"{settings.soul_md}\n\n"
+        "---\n"
+        "AFTERNOON FOCUS CHECK-IN: Mid-day body-double nudge. "
+        "Compose a short, warm focus message — you're Remy helping Dale stay on track.\n\n"
+        "- If there's a top_goal, centre the nudge on it; ask how it's going\n"
+        "- If there's remaining_calendar, mention what's still on today's schedule\n"
+        "- Keep it to one or two sentences; encourage the next few focused hours\n"
+        "- If no goals yet, gently invite Dale to name what matters today\n\n"
+        "Structured context:\n"
+        f"```json\n{ctx_json}\n```"
+    )
+
+
+def _alcohol_check_system_prompt(context: dict) -> str:
+    """
+    US-remy-mediated-reminders: 5pm alcohol/sobriety check-in.
+    High-risk window (e.g. 5–6:30pm). Compose a compassionate, context-relevant message
+    that meets Dale where he is — not a canned 'don't drink' reminder.
+    """
+    ctx_json = json.dumps(context, indent=0)
+    return (
+        f"{settings.soul_md}\n\n"
+        "---\n"
+        "5PM ALCOHOL CHECK-IN: This is the daily 5pm sobriety / alcohol check-in. "
+        "Dale's highest-risk window is often 5:00–6:30pm (e.g. the 'bottle shop run' impulse). "
+        "Your job is to meet him where he is — compassionate, context-aware, never preachy or generic.\n\n"
+        "- Use what you know from memory and today's conversation: how his day went, what he's working on, how he seems\n"
+        "- One or two short sentences; warmth and presence over advice\n"
+        "- If context includes goals or calendar, you can gently tie in (e.g. 'You had X today — how are you doing heading into the evening?')\n"
+        "- Do NOT echo 'don't drink' or sound like a reminder app; sound like Remy checking in\n\n"
+        "Structured context (goals, calendar, etc.):\n"
         f"```json\n{ctx_json}\n```"
     )
 
@@ -137,7 +221,7 @@ async def run_proactive_trigger(
     Run a scheduler-triggered reminder through the full Claude pipeline.
 
     1. Loads today's conversation history for the user.
-    2. Appends a synthetic "[Reminder] {label}" user turn.
+    2. Appends a synthetic proactive trigger turn (parseable: [Proactive] type=...).
     3. Calls claude_client.stream_with_tools() with a reminder-aware system prompt.
     4. Streams the response live to Telegram (editing a placeholder message).
     5. Persists both the trigger turn and the assistant response to ConversationStore
@@ -167,13 +251,20 @@ async def run_proactive_trigger(
         messages = _sanitize_messages_for_claude(messages)
 
         # ------------------------------------------------------------------ #
-        # 2. Append the synthetic trigger message                              #
+        # 2. Append the synthetic trigger message (parseable for Remy AI)     #
         # ------------------------------------------------------------------ #
-        trigger_text = f"[Reminder] {label}"
+        trigger_text = _trigger_text_for_proactive(label, context)
         messages.append({"role": "user", "content": trigger_text})
 
         if context is not None:
-            system_prompt = _briefing_system_prompt(context)
+            if context.get("evening_checkin"):
+                system_prompt = _evening_checkin_system_prompt(context)
+            elif context.get("afternoon_checkin"):
+                system_prompt = _afternoon_checkin_system_prompt(context)
+            elif context.get("alcohol_check"):
+                system_prompt = _alcohol_check_system_prompt(context)
+            else:
+                system_prompt = _briefing_system_prompt(context)
         else:
             system_prompt = _reminder_system_prompt(label)
 

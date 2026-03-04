@@ -16,11 +16,11 @@ from remy.memory.facts import FactStore
 from remy.memory.goals import GoalStore
 from remy.memory.automations import AutomationStore
 from remy.models import Goal
+from remy.config import settings
 from remy.scheduler.proactive import (
     ProactiveScheduler,
     _parse_cron,
     _read_primary_chat_id,
-    _STALE_GOAL_DAYS,
 )
 
 
@@ -243,6 +243,7 @@ async def test_evening_checkin_skipped_when_no_stale_goals(db, goal_store):
         patch("remy.scheduler.proactive.settings") as mock_settings,
     ):
         mock_settings.telegram_allowed_users = [1]
+        mock_settings.stale_goal_days = 3
         # Don't patch stale detection — goal was just inserted, so not stale
         await sched._evening_checkin()
 
@@ -251,12 +252,12 @@ async def test_evening_checkin_skipped_when_no_stale_goals(db, goal_store):
 
 @pytest.mark.asyncio
 async def test_evening_checkin_sends_for_stale_goals(db, goal_store):
-    """Goals older than _STALE_GOAL_DAYS should trigger a check-in message."""
+    """Goals older than settings.stale_goal_days should trigger a check-in message."""
     await goal_store.upsert(1, [Goal(title="Old goal")])
 
     # Manually backdate the goal's created_at to make it stale
     stale_ts = (
-        datetime.now(timezone.utc) - timedelta(days=_STALE_GOAL_DAYS + 1)
+        datetime.now(timezone.utc) - timedelta(days=settings.stale_goal_days + 1)
     ).strftime("%Y-%m-%d %H:%M:%S")
     async with db.get_connection() as conn:
         await conn.execute(
@@ -273,6 +274,7 @@ async def test_evening_checkin_sends_for_stale_goals(db, goal_store):
         patch("remy.scheduler.proactive.settings") as mock_settings,
     ):
         mock_settings.telegram_allowed_users = [1]
+        mock_settings.stale_goal_days = 3
         await sched._evening_checkin()
 
     bot.send_message.assert_called_once()

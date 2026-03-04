@@ -45,7 +45,6 @@ class ToolRegistry:
         scheduler_ref: dict | None = None,
         mistral_client=None,
         moonshot_client=None,
-        grocery_list_file: str = "",
         conversation_analyzer=None,
         job_store=None,
         plan_store=None,
@@ -68,7 +67,6 @@ class ToolRegistry:
         self._docs = docs_client
         self._automation_store = automation_store
         self._scheduler_ref = scheduler_ref or {}
-        self._grocery_list_file = grocery_list_file
         self._conversation_analyzer = conversation_analyzer
         self._job_store = job_store
         self._plan_store = plan_store

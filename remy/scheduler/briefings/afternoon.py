@@ -2,10 +2,11 @@
 Afternoon focus generator.
 
 Produces the mid-day ADHD body-double check-in with top priority goal
-and remaining calendar events.
+and remaining calendar events. Supports mediated delivery (US-remy-mediated-reminders).
 """
 
 import logging
+from typing import Any
 
 from .base import BriefingGenerator
 
@@ -21,6 +22,31 @@ class AfternoonFocusGenerator(BriefingGenerator):
     - Remaining calendar events for today
     - Encouragement message
     """
+
+    async def _get_context_data(self) -> tuple[str | None, list[str]]:
+        """Return (top_goal_title or None, list of remaining calendar event strings)."""
+        goals = await self._get_active_goals(limit=5)
+        top_goal = goals[0]["title"] if goals else None
+        calendar_lines: list[str] = []
+        if self._calendar is not None:
+            try:
+                events = await self._calendar.list_events(days=1)
+                if events:
+                    calendar_lines = [
+                        self._calendar.format_event(e) for e in events[:3]
+                    ]
+            except Exception as e:
+                logger.debug("Could not load calendar for afternoon focus: %s", e)
+        return top_goal, calendar_lines
+
+    async def generate_structured(self) -> dict[str, Any]:
+        """Return structured context for mediated delivery (compose_proactive_message)."""
+        top_goal, calendar_lines = await self._get_context_data()
+        return {
+            "afternoon_checkin": True,
+            "top_goal": top_goal,
+            "remaining_calendar": calendar_lines,
+        }
 
     async def generate(self) -> str:
         """Generate the afternoon focus check-in content."""

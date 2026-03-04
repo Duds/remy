@@ -51,6 +51,7 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `ANTHROPIC_MAX_TOKENS` | — | Max tokens per response (default: `4096`) |
 | `BRIEFING_CRON` | — | Cron schedule for morning briefing (default: `0 7 * * *`) |
 | `CHECKIN_CRON` | — | Cron schedule for evening check-in (default: `0 19 * * *`) |
+| `ALCOHOL_CHECK_CRON` | — | 5pm alcohol/sobriety check-in — mediated, compassionate (default: `0 17 * * *`) |
 | `SCHEDULER_TIMEZONE` | — | Timezone for scheduler (default: `Australia/Sydney`) |
 | `LOG_LEVEL` | — | Logging level (default: `INFO`) |
 | `HF_TOKEN` | — | HuggingFace token — prevents rate limiting on embedding model downloads |

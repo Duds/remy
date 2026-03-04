@@ -96,6 +96,9 @@ def test_format_event_with_time():
     result = client.format_event(event)
     assert "09:00" in result
     assert "Team standup" in result
+    # Bug 9: timed events must include date so model/user see correct day
+    assert "01 Mar" in result or "Mar 01" in result
+    assert any(d in result for d in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
 
 
 def test_format_event_all_day():

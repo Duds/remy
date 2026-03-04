@@ -8,27 +8,127 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from .base import reject_unauthorized
+from .callbacks import make_run_again_keyboard
+from ...ai.tools.automations import grocery_list_impl
 from ...config import settings
 from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...memory.facts import FactStore
+    from ...memory.knowledge import KnowledgeStore
 
 logger = logging.getLogger(__name__)
+
+
+async def run_research_flow(
+    *,
+    bot,
+    chat_id: int,
+    user_id: int,
+    topic: str,
+    claude_client,
+    thread_id: int | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    """
+    Run web search + Claude synthesis and send the result to the chat.
+    Used by /research command and by the Run again callback.
+    """
+    from ...web.search import web_search
+    from ..working_message import WorkingMessage
+
+    wm = WorkingMessage(bot, chat_id, thread_id)
+    await wm.start()
+
+    async def _upload_action_heartbeat() -> None:
+        try:
+            while True:
+                try:
+                    await bot.send_chat_action(
+                        chat_id,
+                        ChatAction.UPLOAD_DOCUMENT,
+                        message_thread_id=thread_id,
+                    )
+                except Exception as exc:
+                    logger.debug("Research chat action heartbeat failed: %s", exc)
+                await asyncio.sleep(4)
+        except asyncio.CancelledError:
+            pass
+
+    heartbeat_task = asyncio.create_task(_upload_action_heartbeat())
+    try:
+        results = await web_search(topic, max_results=5)
+        if not results:
+            await wm.stop()
+            await bot.send_message(
+                chat_id,
+                "❌ Web search unavailable. Install `duckduckgo-search` or try again later.",
+                message_thread_id=thread_id,
+            )
+            return
+
+        snippets = "\n\n".join(
+            f"Source {i}: {r.get('title', '')}\nURL: {r.get('href', '')}\n{r.get('body', '')}"
+            for i, r in enumerate(results, 1)
+        )
+
+        synthesis = await claude_client.complete(
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Research topic: {topic}\n\n"
+                        f"Web search results:\n{snippets}\n\n"
+                        "Synthesise the key findings into a clear, useful summary. "
+                        "Cite source numbers. Be factual and concise."
+                    ),
+                }
+            ],
+            system="You are a research assistant. Synthesise web search results accurately.",
+            max_tokens=1024,
+        )
+
+        await wm.stop()
+        msg = f"📚 *Research: {topic}*\n\n{synthesis}"
+        if len(msg) > 4000:
+            msg = msg[:4000] + "…"
+        send_kwargs = {"parse_mode": "MarkdownV2"}
+        if thread_id is not None:
+            send_kwargs["message_thread_id"] = thread_id
+        if reply_markup is not None:
+            send_kwargs["reply_markup"] = reply_markup
+        await bot.send_message(
+            chat_id,
+            format_telegram_message(msg),
+            **send_kwargs,
+        )
+    except Exception as exc:
+        await wm.stop()
+        await bot.send_message(
+            chat_id,
+            f"❌ Could not synthesise results: {exc}",
+            message_thread_id=thread_id,
+        )
+    finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
 
 def make_web_handlers(
     *,
     claude_client=None,
     fact_store: "FactStore | None" = None,
+    knowledge_store: "KnowledgeStore | None" = None,
 ):
     """
     Factory that returns web and shopping handlers.
@@ -79,81 +179,24 @@ def make_web_handlers(
                 "❌ Claude not available for research synthesis."
             )
             return
-        from ...web.search import web_search
-        from ..working_message import WorkingMessage
 
         topic = " ".join(context.args)
         thread_id = getattr(update.message, "message_thread_id", None)
         chat_id = update.message.chat_id
+        user_id = update.effective_user.id
 
-        wm = WorkingMessage(context.bot, chat_id, thread_id)
-        await wm.start()
-
-        async def _upload_action_heartbeat() -> None:
-            """Send UPLOAD_DOCUMENT every 4s until cancelled."""
-            try:
-                while True:
-                    try:
-                        await context.bot.send_chat_action(
-                            chat_id,
-                            ChatAction.UPLOAD_DOCUMENT,
-                            message_thread_id=thread_id
-                            if thread_id is not None
-                            else None,
-                        )
-                    except Exception as exc:
-                        logger.debug("Research chat action heartbeat failed: %s", exc)
-                    await asyncio.sleep(4)
-            except asyncio.CancelledError:
-                pass
-
-        heartbeat_task = asyncio.create_task(_upload_action_heartbeat())
-        try:
-            results = await web_search(topic, max_results=5)
-            if not results:
-                await wm.stop()
-                await update.message.reply_text(
-                    "❌ Web search unavailable. Install `duckduckgo-search` or try again later."
-                )
-                return
-
-            snippets = "\n\n".join(
-                f"Source {i}: {r.get('title', '')}\nURL: {r.get('href', '')}\n{r.get('body', '')}"
-                for i, r in enumerate(results, 1)
-            )
-
-            synthesis = await claude_client.complete(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Research topic: {topic}\n\n"
-                            f"Web search results:\n{snippets}\n\n"
-                            "Synthesise the key findings into a clear, useful summary. "
-                            "Cite source numbers. Be factual and concise."
-                        ),
-                    }
-                ],
-                system="You are a research assistant. Synthesise web search results accurately.",
-                max_tokens=1024,
-            )
-
-            await wm.stop()
-            msg = f"📚 *Research: {topic}*\n\n{synthesis}"
-            if len(msg) > 4000:
-                msg = msg[:4000] + "…"
-            await update.message.reply_text(
-                format_telegram_message(msg), parse_mode="MarkdownV2"
-            )
-        except Exception as exc:
-            await wm.stop()
-            await update.message.reply_text(f"❌ Could not synthesise results: {exc}")
-        finally:
-            heartbeat_task.cancel()
-            try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
+        run_again_markup = make_run_again_keyboard(
+            "research", {"topic": topic}, user_id
+        )
+        await run_research_flow(
+            bot=context.bot,
+            chat_id=chat_id,
+            user_id=user_id,
+            topic=topic,
+            claude_client=claude_client,
+            thread_id=thread_id,
+            reply_markup=run_again_markup,
+        )
 
     async def save_url_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/save-url <url> [note] — save a bookmark."""
@@ -207,79 +250,61 @@ def make_web_handlers(
 
     async def grocery_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
-        /grocery-list              — show current list
-        /grocery-list add <items>  — add items (comma-separated or space-separated)
-        /grocery-list done <item>  — remove item by name
+        /grocery-list              — show list (with IDs for remove-by-ID)
+        /grocery-list add <items>  — add items (comma- or space-separated)
+        /grocery-list done <item|id> — remove by name or ID (e.g. done 43)
         /grocery-list clear        — clear the whole list
         """
         if update.message is None or update.effective_user is None:
             return
         if await reject_unauthorized(update):
             return
+        if knowledge_store is None:
+            await update.message.reply_text(
+                "Grocery list requires memory (KnowledgeStore) to be configured."
+            )
+            return
 
-        grocery_file = settings.grocery_list_file
-
-        def _read_items() -> list[str]:
-            try:
-                with open(grocery_file, encoding="utf-8") as f:
-                    return [line.strip() for line in f if line.strip()]
-            except FileNotFoundError:
-                return []
-
-        def _write_items(items: list[str]) -> None:
-            Path(grocery_file).parent.mkdir(parents=True, exist_ok=True)
-            with open(grocery_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(items) + ("\n" if items else ""))
-
+        user_id = update.effective_user.id
         args = context.args or []
         sub = args[0].lower() if args else ""
 
         if sub == "add":
-            raw = " ".join(args[1:])
-            if not raw:
+            items_raw = " ".join(args[1:]).strip()
+            if not items_raw:
                 await update.message.reply_text("Usage: /grocery-list add <items>")
                 return
-            new_items = (
-                [i.strip() for i in raw.split(",") if i.strip()]
-                if "," in raw
-                else [raw.strip()]
-            )
-            current = await asyncio.to_thread(_read_items)
-            await asyncio.to_thread(_write_items, current + new_items)
-            added = ", ".join(new_items)
-            await update.message.reply_text(f"✅ Added: {added}")
+            # Normalise: support "milk, eggs" or "milk eggs"
+            if "," in items_raw:
+                items_raw = ",".join(
+                    i.strip() for i in items_raw.split(",") if i.strip()
+                )
+            msg = await grocery_list_impl(knowledge_store, user_id, "add", items_raw)
+            await update.message.reply_text(msg)
 
         elif sub == "done":
-            item_name = " ".join(args[1:]).strip().lower()
-            if not item_name:
-                await update.message.reply_text("Usage: /grocery-list done <item>")
-                return
-            current = await asyncio.to_thread(_read_items)
-            updated = [i for i in current if i.lower() != item_name]
-            if len(updated) == len(current):
+            items_raw = " ".join(args[1:]).strip()
+            if not items_raw:
                 await update.message.reply_text(
-                    f"❌ '{item_name}' not found in the list."
+                    "Usage: /grocery-list done <item or ID>"
                 )
                 return
-            await asyncio.to_thread(_write_items, updated)
-            await update.message.reply_text(f"✅ Removed: {item_name}")
+            msg = await grocery_list_impl(knowledge_store, user_id, "remove", items_raw)
+            await update.message.reply_text(msg)
 
         elif sub == "clear":
-            await asyncio.to_thread(_write_items, [])
-            await update.message.reply_text("✅ Grocery list cleared.")
+            msg = await grocery_list_impl(knowledge_store, user_id, "clear", "")
+            await update.message.reply_text(msg)
 
         else:
-            items = await asyncio.to_thread(_read_items)
-            if not items:
+            msg = await grocery_list_impl(knowledge_store, user_id, "show", "")
+            if "empty" in msg.lower():
                 await update.message.reply_text(
-                    "🛒 Grocery list is empty.\n"
-                    "Use `/grocery-list add milk, eggs, bread` to add items.",
+                    "🛒 " + msg + "\nUse `/grocery-list add milk, eggs` to add.",
                     parse_mode="Markdown",
                 )
                 return
-            lines = [f"🛒 *Grocery list — {len(items)} item(s):*\n"]
-            lines += [f"• {item}" for item in items]
-            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            await update.message.reply_text("🛒 " + msg)
 
     async def price_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/price-check <item> — search for current prices and synthesise with Claude."""
@@ -337,6 +362,20 @@ def make_web_handlers(
         except Exception as e:
             await update.message.reply_text(f"❌ Could not analyse prices: {e}")
 
+    async def _run_research_flow_for_callback(
+        bot, chat_id: int, user_id: int, topic: str, thread_id: int | None = None
+    ) -> None:
+        """Bound run_research_flow for Run again callback (claude_client from closure)."""
+        await run_research_flow(
+            bot=bot,
+            chat_id=chat_id,
+            user_id=user_id,
+            topic=topic,
+            claude_client=claude_client,
+            thread_id=thread_id,
+            reply_markup=None,
+        )
+
     return {
         "search": search_command,
         "research": research_command,
@@ -344,4 +383,5 @@ def make_web_handlers(
         "bookmarks": bookmarks_command,
         "grocery-list": grocery_list_command,
         "price-check": price_check_command,
+        "run_research_flow": _run_research_flow_for_callback,
     }

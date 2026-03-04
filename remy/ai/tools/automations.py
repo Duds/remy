@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .registry import ToolRegistry
@@ -229,118 +228,82 @@ async def exec_breakdown_task(registry: ToolRegistry, inp: dict) -> str:
     return response if isinstance(response, str) else str(response)
 
 
-async def exec_grocery_list(registry: ToolRegistry, inp: dict, user_id: int = 0) -> str:
-    """Manage the shopping/grocery list via unified KnowledgeStore (or file fallback)."""
-    action = inp.get("action", "show")
-    items_raw = inp.get("items", "").strip()
+async def grocery_list_impl(
+    store: Any,
+    user_id: int,
+    action: str,
+    items_raw: str,
+) -> str:
+    """
+    Single implementation for grocery/shopping list (KnowledgeStore).
 
-    if registry._knowledge_store is not None and user_id:
-        if action == "show":
-            items = await registry._knowledge_store.get_by_type(
-                user_id, "shopping_item", limit=100
-            )
-            if not items:
-                return "Shopping list is empty."
-            lines = [f"• [ID:{i.id}] {i.content}" for i in items]
-            return (
-                "Shopping list:\n"
-                + "\n".join(lines)
-                + "\n\n(Use the ID to remove specific items)"
-            )
+    Used by both the grocery_list tool and the /grocery-list command.
+    store must have get_by_type(user_id, entity_type, limit), upsert(user_id, items), delete(user_id, item_id).
+    """
+    from ...models import KnowledgeItem
 
-        elif action == "add":
-            if not items_raw:
-                return "Please specify what to add."
-            new_items = [
-                s.strip() for s in items_raw.replace(";", ",").split(",") if s.strip()
-            ]
-            from ...models import KnowledgeItem
-
-            ki_list = [
-                KnowledgeItem(entity_type="shopping_item", content=it)
-                for it in new_items
-            ]
-            await registry._knowledge_store.upsert(user_id, ki_list)
-            return f"✅ Added to shopping list: {', '.join(new_items)}"
-
-        elif action == "remove":
-            if not items_raw:
-                return "Please specify what to remove (name substring or item ID)."
-            if items_raw.isdigit():
-                removed = await registry._knowledge_store.delete(
-                    user_id, int(items_raw)
-                )
-                return (
-                    f"✅ Removed item {items_raw}."
-                    if removed
-                    else f"Item {items_raw} not found."
-                )
-            all_items = await registry._knowledge_store.get_by_type(
-                user_id, "shopping_item", limit=100
-            )
-            removed_count = 0
-            for item in all_items:
-                if items_raw.lower() in item.content.lower():
-                    await registry._knowledge_store.delete(user_id, item.id)
-                    removed_count += 1
-            return f"✅ Removed {removed_count} item(s) matching '{items_raw}'."
-
-        elif action == "clear":
-            all_items = await registry._knowledge_store.get_by_type(
-                user_id, "shopping_item", limit=500
-            )
-            for item in all_items:
-                await registry._knowledge_store.delete(user_id, item.id)
-            return "✅ Shopping list cleared."
-
-        return f"Unknown action: {action}"
-
-    grocery_file = registry._grocery_list_file
-    if not grocery_file:
-        return "Grocery list not configured."
-
-    def _read():
-        try:
-            with open(grocery_file, encoding="utf-8") as f:
-                return [ln.strip() for ln in f if ln.strip()]
-        except FileNotFoundError:
-            return []
-
-    def _write(items: list[str]):
-        os.makedirs(os.path.dirname(grocery_file) or ".", exist_ok=True)
-        with open(grocery_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(items) + ("\n" if items else ""))
+    action = (action or "show").strip().lower()
+    items_raw = (items_raw or "").strip()
 
     if action == "show":
-        items = await asyncio.to_thread(_read)
+        items = await store.get_by_type(user_id, "shopping_item", limit=100)
         if not items:
-            return "Grocery list is empty."
-        return "Grocery list:\n" + "\n".join(f"• {i}" for i in items)
+            return "Shopping list is empty."
+        lines = [f"• [ID:{i.id}] {i.content}" for i in items]
+        return (
+            "Shopping list:\n"
+            + "\n".join(lines)
+            + "\n\n(Use the ID to remove specific items)"
+        )
 
-    elif action == "add":
+    if action == "add":
         if not items_raw:
             return "Please specify what to add."
         new_items = [
-            i.strip() for i in items_raw.replace(";", ",").split(",") if i.strip()
+            s.strip() for s in items_raw.replace(";", ",").split(",") if s.strip()
         ]
-        items = await asyncio.to_thread(_read)
-        items.extend(new_items)
-        await asyncio.to_thread(_write, items)
-        return f"✅ Added to grocery list: {', '.join(new_items)}"
+        ki_list = [
+            KnowledgeItem(entity_type="shopping_item", content=it) for it in new_items
+        ]
+        await store.upsert(user_id, ki_list)
+        return f"✅ Added to shopping list: {', '.join(new_items)}"
 
-    elif action == "remove":
+    if action == "remove":
         if not items_raw:
-            return "Please specify what to remove."
-        items = await asyncio.to_thread(_read)
-        lower_target = items_raw.lower()
-        before = len(items)
-        items = [i for i in items if lower_target not in i.lower()]
-        await asyncio.to_thread(_write, items)
-        removed = before - len(items)
-        return f"✅ Removed {removed} item(s) matching '{items_raw}'."
+            return "Please specify what to remove (name substring or item ID)."
+        if items_raw.isdigit():
+            removed = await store.delete(user_id, int(items_raw))
+            return (
+                f"✅ Removed item {items_raw}."
+                if removed
+                else f"Item {items_raw} not found."
+            )
+        all_items = await store.get_by_type(user_id, "shopping_item", limit=100)
+        removed_count = 0
+        for item in all_items:
+            if items_raw.lower() in item.content.lower():
+                await store.delete(user_id, item.id)
+                removed_count += 1
+        return f"✅ Removed {removed_count} item(s) matching '{items_raw}'."
 
-    elif action == "clear":
-        await asyncio.to_thread(_write, [])
-        return "✅ Grocery list cleared."
+    if action == "clear":
+        all_items = await store.get_by_type(user_id, "shopping_item", limit=500)
+        for item in all_items:
+            await store.delete(user_id, item.id)
+        return "✅ Shopping list cleared."
 
     return f"Unknown action: {action}"
+
+
+async def exec_grocery_list(registry: ToolRegistry, inp: dict, user_id: int = 0) -> str:
+    """Manage the shopping/grocery list via KnowledgeStore. Delegates to grocery_list_impl."""
+    if registry._knowledge_store is None or not user_id:
+        return (
+            "Grocery list requires memory (KnowledgeStore) to be configured. "
+            "Use the /grocery-list command or ensure memory is enabled."
+        )
+    action = inp.get("action", "show")
+    items_raw = (inp.get("items") or "").strip()
+    return await grocery_list_impl(
+        registry._knowledge_store, user_id, action, items_raw
+    )

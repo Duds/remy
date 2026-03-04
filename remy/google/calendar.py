@@ -24,15 +24,15 @@ _TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 def _parse_event_start(start: dict, today: date | None = None) -> str:
     """Return a human-readable time string from an event start dict.
 
-    For timed events: "HH:MM" (24-hour).
-    For all-day events: "dd MMM" (Australian style, US-conversational-briefing-via-remy).
-    For all-day events that started before `today`: "(ongoing)".
+    For timed events: "ddd dd MMM HH:MM" (e.g. "Mon 09 Mar 21:00") so the model
+    and user see an unambiguous day. For all-day events: "dd MMM" (Australian
+    style). For all-day events that started before `today`: "(ongoing)".
     """
     dt_str = start.get("dateTime")
     if dt_str:
         try:
             dt = datetime.fromisoformat(dt_str)
-            return dt.strftime("%H:%M")
+            return dt.strftime("%a %d %b %H:%M")
         except Exception:
             return dt_str
     # All-day event

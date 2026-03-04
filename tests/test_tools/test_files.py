@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -58,8 +58,23 @@ class TestExecGetFileDownloadLink:
         assert "provide" in result.lower() or "path" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_disabled_when_base_url_unset(self):
+    @patch("remy.ai.tools.files.settings")
+    async def test_disabled_when_base_url_unset(self, mock_settings):
         """Should return disabled message when FILE_LINK_BASE_URL is not set."""
+        # Patch only file_link so path sanitization still uses real allowed_base_dirs
+        from remy.config import settings as real_settings
+
+        mock_settings.file_link_base_url = ""
+        mock_settings.file_link_secret = getattr(
+            real_settings, "file_link_secret", None
+        )
+        mock_settings.health_api_token = getattr(
+            real_settings, "health_api_token", None
+        )
+        mock_settings.file_link_expiry_minutes = getattr(
+            real_settings, "file_link_expiry_minutes", 15
+        )
+        mock_settings.allowed_base_dirs = real_settings.allowed_base_dirs
         registry = make_registry()
         result = await exec_get_file_download_link(
             registry, {"path": "~/Documents/notes.md"}

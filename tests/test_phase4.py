@@ -4,9 +4,7 @@ Search results are mocked — no network required.
 """
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-
 
 
 # ── web/search helpers ────────────────────────────────────────────────────────
@@ -22,7 +20,11 @@ def test_format_results_basic():
     from remy.web.search import format_results
 
     results = [
-        {"title": "Python Docs", "href": "https://python.org", "body": "The Python programming language."},
+        {
+            "title": "Python Docs",
+            "href": "https://python.org",
+            "body": "The Python programming language.",
+        },
     ]
     out = format_results(results)
     assert "Python Docs" in out
@@ -46,6 +48,7 @@ def test_web_search_returns_results():
     fake = [{"title": "Python", "href": "https://python.org", "body": "Python lang."}]
     with patch("remy.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake)):
         from remy.web.search import web_search
+
         results = asyncio.run(web_search("python"))
     assert results == fake
 
@@ -55,12 +58,16 @@ def test_web_search_error_returns_empty():
     # Patch at the ddgs package level so the import inside _sync() gets the mock
     with patch.dict("sys.modules", {"ddgs": MagicMock()}):
         import sys
+
         mock_ddgs_module = sys.modules["ddgs"]
         mock_ddgs_instance = MagicMock()
-        mock_ddgs_instance.__enter__.return_value.text.side_effect = RuntimeError("rate limited")
+        mock_ddgs_instance.__enter__.return_value.text.side_effect = RuntimeError(
+            "rate limited"
+        )
         mock_ddgs_module.DDGS.return_value = mock_ddgs_instance
-        
+
         from remy.web.search import web_search
+
         results = asyncio.run(web_search("test"))
     assert results == []
 
@@ -121,9 +128,15 @@ def test_search_with_results():
     from remy.bot.handlers import make_handlers
 
     fake_results = [
-        {"title": "Python", "href": "https://python.org", "body": "The Python language."}
+        {
+            "title": "Python",
+            "href": "https://python.org",
+            "body": "The Python language.",
+        }
     ]
-    with patch("remy.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake_results)):
+    with patch(
+        "remy.web.search.asyncio.to_thread", new=AsyncMock(return_value=fake_results)
+    ):
         handlers = make_handlers(session_manager=None, router=None, conv_store=None)
         update = make_update()
         asyncio.run(handlers["search"](update, make_context(["python", "programming"])))
@@ -133,7 +146,9 @@ def test_search_with_results():
 def test_save_url_no_fact_store():
     from remy.bot.handlers import make_handlers
 
-    handlers = make_handlers(session_manager=None, router=None, conv_store=None, fact_store=None)
+    handlers = make_handlers(
+        session_manager=None, router=None, conv_store=None, fact_store=None
+    )
     update = make_update()
     asyncio.run(handlers["save-url"](update, make_context(["https://python.org"])))
     assert "not available" in update.message.last_text.lower()
@@ -149,7 +164,11 @@ def test_save_url_with_fact_store():
         session_manager=None, router=None, conv_store=None, fact_store=mock_fs
     )
     update = make_update()
-    asyncio.run(handlers["save-url"](update, make_context(["https://python.org", "Python", "docs"])))
+    asyncio.run(
+        handlers["save-url"](
+            update, make_context(["https://python.org", "Python", "docs"])
+        )
+    )
     mock_fs.add.assert_called_once()
     assert "Bookmark saved" in update.message.last_text
 
@@ -171,10 +190,12 @@ def test_bookmarks_list():
     from remy.bot.handlers import make_handlers
 
     mock_fs = MagicMock()
-    mock_fs.get_by_category = AsyncMock(return_value=[
-        {"content": "https://python.org — Python docs"},
-        {"content": "https://realpython.com"},
-    ])
+    mock_fs.get_by_category = AsyncMock(
+        return_value=[
+            {"content": "https://python.org — Python docs"},
+            {"content": "https://realpython.com"},
+        ]
+    )
     handlers = make_handlers(
         session_manager=None, router=None, conv_store=None, fact_store=mock_fs
     )
@@ -184,79 +205,121 @@ def test_bookmarks_list():
     assert "2 item" in update.message.last_text
 
 
-def test_grocery_list_show_empty(tmp_path):
+def test_grocery_list_show_empty():
     from remy.bot.handlers import make_handlers
 
-    with patch("remy.bot.handlers.web.settings") as mock_settings, \
-         patch("remy.bot.handlers.base.settings") as mock_base_settings:
-        mock_settings.telegram_allowed_users = [12345]
-        mock_settings.grocery_list_file = str(tmp_path / "grocery.txt")
+    ks = AsyncMock()
+    ks.get_by_type = AsyncMock(return_value=[])
+    with patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_base_settings.telegram_allowed_users = [12345]
-        handlers = make_handlers(session_manager=None, router=None, conv_store=None)
+        handlers = make_handlers(
+            session_manager=None,
+            router=None,
+            conv_store=None,
+            knowledge_store=ks,
+        )
         update = make_update()
         asyncio.run(handlers["grocery-list"](update, make_context()))
     assert "empty" in update.message.last_text.lower()
 
 
-def test_grocery_list_add_and_show(tmp_path):
+def test_grocery_list_add_and_show():
     from remy.bot.handlers import make_handlers
 
-    grocery_file = str(tmp_path / "grocery.txt")
-    with patch("remy.bot.handlers.web.settings") as mock_settings, \
-         patch("remy.bot.handlers.base.settings") as mock_base_settings:
-        mock_settings.telegram_allowed_users = [12345]
-        mock_settings.grocery_list_file = grocery_file
+    ks = AsyncMock()
+    ks.upsert = AsyncMock()
+    ks.get_by_type = AsyncMock(
+        return_value=[
+            MagicMock(content="milk", id=1),
+            MagicMock(content="eggs", id=2),
+        ]
+    )
+    with patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_base_settings.telegram_allowed_users = [12345]
-        handlers = make_handlers(session_manager=None, router=None, conv_store=None)
+        handlers = make_handlers(
+            session_manager=None,
+            router=None,
+            conv_store=None,
+            knowledge_store=ks,
+        )
         update = make_update()
-
-        # Add items
-        asyncio.run(handlers["grocery-list"](update, make_context(["add", "milk,", "eggs"])))
+        asyncio.run(
+            handlers["grocery-list"](update, make_context(["add", "milk,", "eggs"]))
+        )
         assert "Added" in update.message.last_text
-
-        # Show list
         asyncio.run(handlers["grocery-list"](update, make_context()))
     assert "milk" in update.message.last_text
 
 
-def test_grocery_list_done(tmp_path):
+def test_grocery_list_done():
     from remy.bot.handlers import make_handlers
 
-    grocery_file = str(tmp_path / "grocery.txt")
-    Path(grocery_file).write_text("milk\neggs\nbread\n")
-
-    with patch("remy.bot.handlers.web.settings") as mock_settings, \
-         patch("remy.bot.handlers.base.settings") as mock_base_settings:
-        mock_settings.telegram_allowed_users = [12345]
-        mock_settings.grocery_list_file = grocery_file
+    ks = AsyncMock()
+    ks.get_by_type = AsyncMock(
+        return_value=[
+            MagicMock(content="milk", id=1),
+            MagicMock(content="eggs", id=2),
+            MagicMock(content="bread", id=3),
+        ]
+    )
+    ks.delete = AsyncMock(return_value=True)
+    with patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_base_settings.telegram_allowed_users = [12345]
-        handlers = make_handlers(session_manager=None, router=None, conv_store=None)
+        handlers = make_handlers(
+            session_manager=None,
+            router=None,
+            conv_store=None,
+            knowledge_store=ks,
+        )
         update = make_update()
         asyncio.run(handlers["grocery-list"](update, make_context(["done", "eggs"])))
-
     assert "Removed" in update.message.last_text
-    remaining = Path(grocery_file).read_text()
-    assert "eggs" not in remaining
-    assert "milk" in remaining
+    ks.delete.assert_called_once_with(12345, 2)
 
 
-def test_grocery_list_clear(tmp_path):
+def test_grocery_list_done_by_id():
+    """Unified list shows IDs; /grocery-list done <id> removes by ID without get_by_type."""
     from remy.bot.handlers import make_handlers
 
-    grocery_file = str(tmp_path / "grocery.txt")
-    Path(grocery_file).write_text("milk\neggs\n")
-
-    with patch("remy.bot.handlers.web.settings") as mock_settings, \
-         patch("remy.bot.handlers.base.settings") as mock_base_settings:
-        mock_settings.telegram_allowed_users = [12345]
-        mock_settings.grocery_list_file = grocery_file
+    ks = AsyncMock()
+    ks.delete = AsyncMock(return_value=True)
+    with patch("remy.bot.handlers.base.settings") as mock_base_settings:
         mock_base_settings.telegram_allowed_users = [12345]
-        handlers = make_handlers(session_manager=None, router=None, conv_store=None)
+        handlers = make_handlers(
+            session_manager=None,
+            router=None,
+            conv_store=None,
+            knowledge_store=ks,
+        )
+        update = make_update()
+        asyncio.run(handlers["grocery-list"](update, make_context(["done", "42"])))
+    assert "Removed" in update.message.last_text
+    ks.delete.assert_called_once_with(12345, 42)
+
+
+def test_grocery_list_clear():
+    from remy.bot.handlers import make_handlers
+
+    ks = AsyncMock()
+    ks.get_by_type = AsyncMock(
+        return_value=[
+            MagicMock(content="milk", id=1),
+            MagicMock(content="eggs", id=2),
+        ]
+    )
+    ks.delete = AsyncMock()
+    with patch("remy.bot.handlers.base.settings") as mock_base_settings:
+        mock_base_settings.telegram_allowed_users = [12345]
+        handlers = make_handlers(
+            session_manager=None,
+            router=None,
+            conv_store=None,
+            knowledge_store=ks,
+        )
         update = make_update()
         asyncio.run(handlers["grocery-list"](update, make_context(["clear"])))
-
     assert "cleared" in update.message.last_text.lower()
-    assert Path(grocery_file).read_text().strip() == ""
+    assert ks.delete.call_count == 2
 
 
 def test_price_check_no_args():
