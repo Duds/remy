@@ -18,7 +18,7 @@ This runs `relay_mcp/server.py` with `--db data/relay.db`. One process, one DB f
 **With Docker:**
 
 ```bash
-make relay-up   # Starts remy + relay + ollama
+make remy-up    # Starts remy + relay + ollama
 ```
 
 The relay container uses `--db /app/data/relay.db` and mounts `./data:/app/data`, so the DB path on the host is `./data/relay.db` — the same as `make relay-run` when run from the repo.
@@ -34,7 +34,7 @@ When working in the remy project in Cursor, the relay MCP config in `.cursor/mcp
 - **URL:** `http://127.0.0.1:8765/mcp`
 - **Transport:** Cursor uses `mcp-proxy` with `streamablehttp` to that URL.
 
-So Remy does **not** spawn a per-session stdio relay. It uses the same shared server. Ensure the shared relay is running (`make relay-run` or `make relay-up`) before relying on relay tools in Cursor.
+So Remy does **not** spawn a per-session stdio relay. It uses the same shared server. Ensure the shared relay is running (`make remy-up` or `make relay-run`) before relying on relay tools in Cursor.
 
 Remy’s Python code (Telegram “Send to cowork”, briefings, relay tool executors) writes to the same DB: by default `data/relay.db` (i.e. `data_dir/relay.db`). If you run the relay server with a different DB path, set `RELAY_DB_PATH` in `.env` to that path so Remy’s client uses it too.
 
@@ -99,7 +99,7 @@ make relay-verify
 
 **Manual (both agents using shared backend):**
 
-1. Start the shared relay: `make relay-run` (or `make relay-up`).
+1. Start the shared relay: `make remy-up` (or `make relay-run` for relay-only, no Docker).
 2. **Remy → cowork:** In Cursor (remy project), use the relay tools to post a message to cowork (e.g. `relay_post_message` with `to_agent="cowork"`). In Claude Desktop (cowork), call `relay_get_messages(agent="cowork")` — the message should appear.
 3. **Cowork → Remy:** In Claude Desktop, post a message to remy. In Cursor, call `relay_get_messages(agent="remy")` or use Telegram `/relay` — the message should appear.
 

@@ -24,7 +24,7 @@ The relay lets **remy** and **cowork** exchange messages, tasks, and notes acros
 
 **Start the relay:**
 ```bash
-make relay-up      # Docker (remy + relay + ollama)
+make remy-up       # Docker (remy + relay + ollama)
 # or
 make relay-run     # Local Python (relay only)
 ```
