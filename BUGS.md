@@ -140,3 +140,24 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Fix:** (1) In `_sanitize_messages_for_claude`, stop filtering parts with `if p` and join with `"".join(parts)` so empty and space-only segments are preserved in order; skip message only when `not joined.strip()`. (2) In `_extract_text`, concatenate text blocks with `"".join(...)` instead of `" ".join(...)` so no extra spaces are inserted between blocks.
 - **Reported:** 2026-03-05
 - **Fixed:** 2026-03-05
+
+---
+
+## Bug 10: MarkdownV2 entity parse error causes Anthropic retry loop + Telegram disconnect
+
+- **Symptom:** Remy sends a message with MarkdownV2 formatting, Telegram rejects it with a `BadRequest: can't parse entities` error. The Claude client (`stream_with_tools`) then hits max iterations (6), causing multiple retries. Telegram subsequently drops the connection with `Server disconnected without sending a response`. End result: message is never delivered, and Remy disconnects from Telegram.
+- **Evidence from logs (session 2026-03-04):**
+  - `[WARNING] remy.ai.claude_client: stream_with_tools hit max iterations (6) for user 8138498165` — multiple occurrences
+  - `[WARNING] remy.bot.telegram_bot: Telegram transient error: httpx.RemoteProtocolError: Server disconnected without sending a response` — 3+ occurrences
+  - Sequence: Anthropic retry at ~11:36:59 → Telegram disconnect at ~11:37:03 confirms the error → retry → disconnect chain
+- **Root cause (hypothesis):** The MarkdownV2 space-fix pre-processing is either (a) stripping a space that Telegram requires as a delimiter around a formatting marker (e.g. `*bold*` adjacent to punctuation), or (b) shifting byte offsets so a closing `*` or `_` lands next to an unescaped special character. The entity parse failure is then treated as a retryable error, triggering the max-iterations loop rather than a clean fallback to plain text.
+- **Impact:** High. Message delivery fails silently from the user's perspective; multiple retries add latency; Telegram disconnect requires reconnect cycle.
+- **Priority:** High
+- **Status:** Open
+- **Location:** MarkdownV2 formatting/escape logic (likely `remy/bot/pipeline.py` or `remy/utils/markdown.py`); retry/fallback handling in `remy/ai/claude_client.py` (`stream_with_tools`); Telegram send logic in `remy/bot/handlers/chat.py`
+- **Suggested fix:**
+  1. Catch `BadRequest: can't parse entities` explicitly in the Telegram send path and immediately retry the send with `parse_mode=None` (plain text) — do not propagate to the Anthropic retry loop.
+  2. Audit the space-fix / escape logic for edge cases: adjacent punctuation, nested markers, backtick code spans next to special chars.
+  3. Add a unit test with known-bad MarkdownV2 strings (e.g. `*bold*.` and `_italic_,`) to confirm the escaper handles them without breaking entity parsing.
+  4. Add a DEBUG log of the raw MarkdownV2 string before send so failures can be diagnosed without guessing.
+- **Reported:** 2026-03-04 (Dale Rogers — from log analysis)

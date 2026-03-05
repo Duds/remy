@@ -519,3 +519,7 @@ See [BUGS.md](./BUGS.md) for full details. Key fixes:
 ## 📍 Where to find detail
 
 **User stories and PBIs** live in `docs/backlog/` as `US-*.md` files. Use the **next-PBI** skill (or scan backlog by status) for prioritised work. The MoSCoW table and phase sections above reference backlog IDs; implementation notes and acceptance criteria are in the backlog. For tool-level file write, Gmail create label, image consumption, and memory persistence details, see Phase 2–5 and `US-gmail-create-label`, `US-document-image-support`, `US-proactive-memory-storage`, and related US files.
+
+## Bug Reports
+
+- [ ] [2026-03-05] Morning briefing: "marked own is in the clear" — incorrect/stale emotional context leaking into briefing message. Telegram message mentioned sobriety milestone as "in the clear" when it shouldn't have. Investigate emotional_context injection in briefing template.
