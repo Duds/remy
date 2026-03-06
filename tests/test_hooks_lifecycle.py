@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from remy.hooks.lifecycle import HookContext, HookEvents, HookManager, hook_manager
+from remy.hooks.lifecycle import HookContext, HookEvents, HookManager
 
 
 def test_hook_events_include_message_sent_and_heartbeat():

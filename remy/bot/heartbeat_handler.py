@@ -7,18 +7,15 @@ message to primary chat and return outcome for heartbeat_log.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..scheduler.heartbeat_config import HEARTBEAT_OK_RESPONSE, load_heartbeat_config
 
 if TYPE_CHECKING:
     from ..memory.automations import AutomationStore
-    from ..memory.database import DatabaseManager
     from ..memory.goals import GoalStore
     from ..memory.plans import PlanStore
     from ..delivery.queue import OutboundQueue

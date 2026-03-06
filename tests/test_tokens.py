@@ -7,7 +7,6 @@ in the public API (removed to avoid blocking the event loop in async paths).
 
 from __future__ import annotations
 
-import pytest
 
 from remy.utils import tokens
 

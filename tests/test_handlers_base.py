@@ -1,6 +1,5 @@
 """Tests for remy.bot.handlers.base (Bug 8: space preservation when flattening content)."""
 
-import pytest
 
 from remy.bot.handlers.base import _sanitize_messages_for_claude
 

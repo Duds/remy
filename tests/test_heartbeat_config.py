@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from remy.scheduler.heartbeat_config import HEARTBEAT_OK_RESPONSE, load_heartbeat_config
 

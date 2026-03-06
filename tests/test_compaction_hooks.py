@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from remy.hooks import HookEvents, hook_manager
-from remy.memory.compaction import CompactionConfig, CompactionResult, CompactionService
+from remy.memory.compaction import CompactionConfig, CompactionService
 
 
 @pytest.fixture

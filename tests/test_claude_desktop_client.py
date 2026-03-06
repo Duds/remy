@@ -1,6 +1,5 @@
 """Tests for remy.ai.claude_desktop_client (Bug 8: _extract_text preserves spacing)."""
 
-import pytest
 
 from remy.ai.claude_desktop_client import _extract_text
 

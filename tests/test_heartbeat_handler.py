@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from remy.bot.heartbeat_handler import HeartbeatHandler, HeartbeatResult
+from remy.bot.heartbeat_handler import HeartbeatHandler
 
 
 @pytest.fixture

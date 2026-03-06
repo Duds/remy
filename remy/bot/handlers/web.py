@@ -17,7 +17,6 @@ from telegram.ext import ContextTypes
 from .base import reject_unauthorized
 from .callbacks import make_run_again_keyboard
 from ...ai.tools.automations import grocery_list_impl
-from ...config import settings
 from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
