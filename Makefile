@@ -2,7 +2,7 @@
         deploy deploy-update deploy-logs deploy-delete health \
         remy-up relay-up relay-run relay-stop relay-check relay-setup-check relay-verify \
         install-launchd uninstall-launchd \
-        tunnel-up tunnel-stop tunnel-logs telemetry logs
+        tunnel-up tunnel-stop tunnel-logs telemetry logs ship-it-remote
 
 # ── Local development ─────────────────────────────────────────────────────────
 run:
@@ -133,6 +133,17 @@ logs:
 		$(if $(TOKEN),-H "Authorization: Bearer $(TOKEN)") \
 		"https://$(HOST)/logs?lines=$(LINES)" || \
 		echo "Logs fetch failed — is the tunnel running?"
+
+# Remote SHIP-IT: trigger fetch, diff, tests on the host over the tunnel.
+# Requires HEALTH_API_TOKEN. Set DRY_RUN=1 to skip running tests.
+DRY_RUN ?=
+ship-it-remote:
+	@curl -sf -X POST \
+		-H "Authorization: Bearer $(TOKEN)" \
+		-H "Content-Type: application/json" \
+		$(if $(DRY_RUN),-d '{"dry_run":true}',-d '{}') \
+		"https://$(HOST)/commands/ship-it" | python3 -m json.tool || \
+		echo "SHIP-IT request failed — is the tunnel running and TOKEN set?"
 
 # ── Azure deployment ──────────────────────────────────────────────────────────
 # Required env vars (set in shell or .env.azure):

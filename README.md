@@ -248,11 +248,12 @@ Remy exposes a health server on port 8080. With a [Cloudflare Tunnel](docs/backl
 
 ### Protected endpoints (require `Authorization: Bearer <HEALTH_API_TOKEN>`)
 
-| Endpoint | Query params | Description |
+| Endpoint | Method | Description |
 |---|---|---|
-| `/diagnostics` | — | Full system diagnostics (DB, scheduler, config) |
-| `/logs` | `lines=100`, `level=ERROR\|WARNING\|INFO`, `since=startup\|1h\|6h\|24h\|all` | Recent log lines |
-| `/telemetry` | `window=1h\|6h\|24h\|7d` | API call stats: tokens, latency, model breakdown |
+| `/diagnostics` | GET | Full system diagnostics (DB, scheduler, config) |
+| `/logs` | GET | Recent log lines. Params: `lines`, `level`, `since` |
+| `/telemetry` | GET | API call stats. Param: `window=1h\|6h\|24h\|7d` |
+| `/commands/ship-it` | POST | Run SHIP-IT pipeline (fetch, diff, tests). Optional body: `{"dry_run": true}` to skip tests. |
 
 ### Remote access via Make
 
@@ -265,7 +266,12 @@ make telemetry HOST=remy.dalerogers.com.au TOKEN=$HEALTH_API_TOKEN
 
 # Logs (last 200 lines)
 make logs HOST=remy.dalerogers.com.au TOKEN=$HEALTH_API_TOKEN LINES=200
+
+# Remote SHIP-IT (run tests and diff over tunnel)
+make ship-it-remote HOST=remy.dalerogers.com.au TOKEN=$HEALTH_API_TOKEN
 ```
+
+Use `make ship-it-remote ... DRY_RUN=1` to run only fetch and diff (no tests).
 
 ### Cloudflare Tunnel setup (one-time, on the host machine)
 

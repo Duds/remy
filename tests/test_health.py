@@ -19,6 +19,7 @@ from remy.health import (
     _handle_logs,
     _handle_telemetry,
     _handle_files,
+    _handle_ship_it,
     _check_token,
 )
 
@@ -556,3 +557,68 @@ async def test_files_returns_401_when_token_invalid():
         async with TestClient(TestServer(app)) as client:
             resp = await client.get(f"/files?path={path_encoded}&token=invalidtoken")
             assert resp.status == 401
+
+
+# --------------------------------------------------------------------------- #
+# POST /commands/ship-it endpoint tests                                       #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_ship_it_returns_405_for_get():
+    """POST /commands/ship-it only accepts POST."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    app = web.Application()
+    app.router.add_post("/commands/ship-it", _handle_ship_it)
+
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/commands/ship-it")
+        assert resp.status == 405
+
+
+@pytest.mark.asyncio
+async def test_ship_it_returns_401_without_token():
+    """POST /commands/ship-it returns 401 when HEALTH_API_TOKEN set and not supplied."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    app = web.Application()
+    app.router.add_post("/commands/ship-it", _handle_ship_it)
+
+    with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post("/commands/ship-it")
+            assert resp.status == 401
+
+
+@pytest.mark.asyncio
+async def test_ship_it_returns_503_when_workspace_root_unset():
+    """POST /commands/ship-it returns 503 when WORKSPACE_ROOT is not set."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    app = web.Application()
+    app.router.add_post("/commands/ship-it", _handle_ship_it)
+
+    with patch.dict(
+        "os.environ", {"HEALTH_API_TOKEN": "secret123", "WORKSPACE_ROOT": ""}
+    ):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(
+                "/commands/ship-it",
+                headers={"Authorization": "Bearer secret123"},
+            )
+            assert resp.status == 503
+            data = await resp.json()
+            assert data.get("error") == "WORKSPACE_ROOT not set — cannot run SHIP-IT"
