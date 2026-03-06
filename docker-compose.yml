@@ -21,8 +21,8 @@ services:
       - ${HOME}/Projects:/home/remy/Projects
       - ${HOME}/Documents:/home/remy/Documents:ro
       - ${HOME}/Downloads:/home/remy/Downloads
-      # Google Drive (GDRIVE_MOUNT_PATHS): mount so Remy can index/search Drive files
-      - ${HOME}/Library/CloudStorage/GoogleDrive-hello@dalerogers.com.au:/home/remy/Library/CloudStorage/GoogleDrive-hello@dalerogers.com.au:ro
+      # Google Drive: set GDRIVE_MOUNT_PATH in .env to your host path (e.g. ~/Library/CloudStorage/GoogleDrive-<your-email>). Set GDRIVE_MOUNT_PATHS=/home/remy/GoogleDrive in .env so Remy can index/search. Unset = mount /var/empty (no Drive).
+      - ${GDRIVE_MOUNT_PATH:-/var/empty}:/home/remy/GoogleDrive:ro
     depends_on:
       ollama:
         condition: service_started

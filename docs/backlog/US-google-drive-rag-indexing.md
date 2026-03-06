@@ -39,7 +39,7 @@ Remy's RAG file index covers `~/Projects`, `~/Documents`, and `~/Downloads` (and
 
 ## Notes
 
-- Mount path is configurable via `GDRIVE_MOUNT_PATHS`. On macOS (Google Drive for Desktop) use `~/Library/CloudStorage/GoogleDrive-<your-email>` (e.g. `~/Library/CloudStorage/GoogleDrive-hello@dalerogers.com.au`). The path `~/GoogleDrive` is not used by the official app.
+- Mount path is configurable via `GDRIVE_MOUNT_PATHS`. On macOS (Google Drive for Desktop) use `~/Library/CloudStorage/GoogleDrive-<your-email>`. The path `~/GoogleDrive` is not used by the official app.
 - No new dependencies; same indexer, additional allowed base dirs.
 - Security: path traversal protections unchanged; mount paths explicitly allowlisted.
 - Out of scope: real-time Drive sync watching, Google Drive API (cloud-only) indexing.
