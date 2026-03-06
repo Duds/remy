@@ -52,10 +52,10 @@ No personal detail belongs in this file — use HEARTBEAT.local.md for private t
 
 ---
 
-## Wellbeing Check-in (e.g. afternoon sobriety reminder)
+## Wellbeing Check-in (sobriety / alcohol check-in)
 
-- **Stub:** Personal thresholds and signals belong in HEARTBEAT.local.md only (time window, e.g. 13:00–19:00, minimum hours between check-ins).
-- You receive **current time** and **already surfaced today**. If it is within the afternoon/evening window and no wellbeing check-in has been sent today (or within the minimum hours), consider a compassionate, brief check-in.
+- **Intent:** This is the **sobriety / alcohol check-in**. The user's high-risk window (e.g. 17:00–18:30) and minimum hours between check-ins are in HEARTBEAT.local.md. Personal context (triggers, wording preferences) also goes there.
+- You receive **current time**, **already surfaced today**, and **counters** (e.g. sobriety_streak in days) in the Current state block. If a counter is set, you can reference it in your message (e.g. "Day 14 — how are you doing?"). If it is within the afternoon/evening window and no wellbeing check-in has been sent within the minimum hours, consider a **compassionate, brief check-in**. Use what you know from memory and today's conversation. Warmth and presence over advice; never preachy or generic. One or two short sentences. Do not sound like a reminder app.
 - **Model:** Always use Tier 2 (Sonnet) for this evaluation — judgment and compassion, not threshold scoring.
 
 ---

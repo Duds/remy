@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 # Any other XML-like tag found in injected memory content will be escaped.
 # Attributes (id, category) are permitted on known structural tags.
 _SAFE_MEMORY_TAG = re.compile(
-    r'^</?(?:memory|facts|goals|goal|topic|shopping_list|item)(\s[^>]*)?/?>$',
+    r"^</?(?:memory|facts|goals|goal|topic|shopping_list|item|counters|counter)(\s[^>]*)?/?>$",
     re.IGNORECASE,
 )
-_ANY_TAG = re.compile(r'</?[a-zA-Z][^>]*>')
+_ANY_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
 
 # Shell metacharacters that could trigger injection
 # NOTE: Patterns are intentionally narrow to avoid false positives on normal prose.
@@ -48,9 +48,18 @@ _SHELL_INJECTION_PATTERN = re.compile(
 # NOTE: Patterns require adversarial framing (ignore/override/bypass) to avoid false positives
 # on legitimate technical discussions about system prompts.
 _PROMPT_INJECTION_PATTERNS = [
-    re.compile(r"ignore.*(?:previous|your|the).*instruction|disregard.*prompt|forget.*(?:your|the).*context", re.IGNORECASE),
-    re.compile(r"(?:ignore|override|bypass|change).*(?:your|the).*system.*prompt", re.IGNORECASE),
-    re.compile(r"(?:you.*are.*now|act.*as|pretend.*to.*be).*(?:admin|root|unrestricted|uncensored|jailbroken)", re.IGNORECASE),
+    re.compile(
+        r"ignore.*(?:previous|your|the).*instruction|disregard.*prompt|forget.*(?:your|the).*context",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:ignore|override|bypass|change).*(?:your|the).*system.*prompt",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:you.*are.*now|act.*as|pretend.*to.*be).*(?:admin|root|unrestricted|uncensored|jailbroken)",
+        re.IGNORECASE,
+    ),
 ]
 
 # Max reasonable input sizes (defaults, can be overridden via config)
@@ -62,27 +71,37 @@ MAX_TOPIC_LENGTH = 500  # chars
 # ---------------------------------------------------------------------------
 
 # Exact directory/file names that are never accessible
-_DENIED_NAMES: frozenset[str] = frozenset({
-    ".env",
-    ".git",
-    ".aws",
-    ".ssh",
-    ".gnupg",
-    ".netrc",
-    ".npmrc",
-    ".pypirc",
-    "client_secrets.json",
-    "credentials.json",
-    "google_token.json",
-    "application_default_credentials.json",
-    "service_account.json",
-})
+_DENIED_NAMES: frozenset[str] = frozenset(
+    {
+        ".env",
+        ".git",
+        ".aws",
+        ".ssh",
+        ".gnupg",
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        "client_secrets.json",
+        "credentials.json",
+        "google_token.json",
+        "application_default_credentials.json",
+        "service_account.json",
+    }
+)
 
 # File name prefixes that are never accessible (catches .env.local, .env.production …)
 _DENIED_PREFIXES: tuple[str, ...] = (".env",)
 
 # File extensions whose content is typically a private key or certificate
-_DENIED_SUFFIXES: tuple[str, ...] = (".pem", ".key", ".p12", ".pfx", ".cer", ".crt", ".jks")
+_DENIED_SUFFIXES: tuple[str, ...] = (
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".cer",
+    ".crt",
+    ".jks",
+)
 
 
 class RateLimiter:
@@ -105,7 +124,9 @@ class RateLimiter:
 
         # Clean old entries
         if user_id in self.user_messages:
-            self.user_messages[user_id] = [t for t in self.user_messages[user_id] if t > cutoff]
+            self.user_messages[user_id] = [
+                t for t in self.user_messages[user_id] if t > cutoff
+            ]
 
         # Check limit
         count = len(self.user_messages[user_id])
@@ -120,7 +141,9 @@ class RateLimiter:
         return True, None
 
 
-def validate_message_input(text: str, max_length: int | None = None) -> tuple[bool, Optional[str]]:
+def validate_message_input(
+    text: str, max_length: int | None = None
+) -> tuple[bool, Optional[str]]:
     """
     Validate a regular message for safety.
     Returns (valid: bool, reason_if_invalid: str | None)
@@ -139,7 +162,9 @@ def validate_message_input(text: str, max_length: int | None = None) -> tuple[bo
     # Flag but don't block prompt injection patterns
     for pattern in _PROMPT_INJECTION_PATTERNS:
         if pattern.search(text):
-            logger.warning("Potential prompt injection detected in message: %s…", text[:100])
+            logger.warning(
+                "Potential prompt injection detected in message: %s…", text[:100]
+            )
             break
 
     return True, None
@@ -159,7 +184,9 @@ def validate_command_input(command: str, arg: str = "") -> tuple[bool, Optional[
     return True, None
 
 
-def sanitize_file_path(path: str, allowed_bases: list[str]) -> tuple[Optional[str], Optional[str]]:
+def sanitize_file_path(
+    path: str, allowed_bases: list[str]
+) -> tuple[Optional[str], Optional[str]]:
     """
     Sanitize a file path to prevent directory traversal.
 

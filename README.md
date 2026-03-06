@@ -49,10 +49,12 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `MODEL_SIMPLE` | — | Model for quick responses (default: `claude-haiku-4-5-20251001`) |
 | `MODEL_COMPLEX` | — | Model for complex tasks (default: `claude-sonnet-4-6`) |
 | `ANTHROPIC_MAX_TOKENS` | — | Max tokens per response (default: `4096`) |
+| `HEARTBEAT_ENABLED` | — | When `true`, evaluative heartbeat replaces fixed briefing/check-in crons (default: `true`). When `false`, legacy crons run. |
 | `BRIEFING_CRON` | — | Cron schedule for morning briefing (default: `0 7 * * *`) |
 | `CHECKIN_CRON` | — | Cron schedule for evening check-in (default: `0 19 * * *`) |
-| `AFTERNOON_CHECK_CRON` | — | Afternoon check-in — mediated, compassionate (default: `0 17 * * *`) |
+| `AFTERNOON_CHECK_CRON` | — | Legacy afternoon check-in — mediated, compassionate (only when `HEARTBEAT_ENABLED=false`; default: `0 17 * * *`) |
 | `SCHEDULER_TIMEZONE` | — | Timezone for scheduler (default: `Australia/Sydney`) |
+| `BRIEFING_EMAIL_SCOPE` | — | Morning briefing: `inbox_only` \| `primary_tabs` \| `all_mail`. Heartbeat always uses all mail for unread count (default: `all_mail`) |
 | `LOG_LEVEL` | — | Logging level (default: `INFO`) |
 | `HF_TOKEN` | — | HuggingFace token — prevents rate limiting on embedding model downloads |
 | `HEALTH_API_TOKEN` | — | Bearer token protecting `/logs` and `/telemetry` endpoints |
@@ -62,6 +64,8 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `GDRIVE_MOUNT_PATHS` | — | Comma-separated paths to Google Drive mount to index (e.g. `~/Library/CloudStorage/GoogleDrive-<email>`) |
 | `RAG_PDF_OCR_ENABLED` | — | Set to `false` to disable OCR for image-only PDFs (default: `true`) |
 | `RAG_OCR_LANG` | — | Tesseract language(s), e.g. `eng` or `eng+fra` (default: `eng`) |
+
+**Heartbeat & SOUL:** When using the evaluative heartbeat (`HEARTBEAT_ENABLED=true`), create `config/HEARTBEAT.local.md` from `config/HEARTBEAT.example.md` for personal thresholds and wellbeing check-in intent (gitignored). In SOUL, add a **Proactive check-ins** section so the model knows what the morning, afternoon, and evening check-ins are for. See [docs/SERVER-SETUP.md](docs/SERVER-SETUP.md) for the full server checklist.
 
 **File index (PDF/DOCX):** Remy can index PDF and Word (.docx) files for search. For image-only or scanned PDFs, it uses **Tesseract OCR**. Install Tesseract on the host (e.g. `brew install tesseract` on macOS) so OCR can run; if Tesseract is not installed, text-only PDFs are still indexed.
 

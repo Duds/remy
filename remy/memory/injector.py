@@ -22,6 +22,7 @@ from ..models import EmotionalTone, KnowledgeItem
 
 if TYPE_CHECKING:
     from ..ai.tone import ToneDetector
+    from .counters import CounterStore
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,14 @@ class MemoryInjector:
         knowledge_store: KnowledgeStore,
         fts: FTSSearch,
         tone_detector: "ToneDetector | None" = None,
+        counter_store: "CounterStore | None" = None,
     ) -> None:
         self._db = db
         self._embeddings = embeddings
         self._knowledge = knowledge_store
         self._fts = fts
         self._tone_detector = tone_detector
+        self._counter_store = counter_store
 
     async def build_context(
         self,
@@ -69,25 +72,41 @@ class MemoryInjector:
             user_id, current_message, "goal", limit=3, min_confidence=min_confidence
         )
         shopping_task = self._get_relevant_knowledge(
-            user_id, current_message, "shopping_item", limit=5, min_confidence=min_confidence
+            user_id,
+            current_message,
+            "shopping_item",
+            limit=5,
+            min_confidence=min_confidence,
         )
         project_task = self._get_project_context(user_id)
 
-        facts, goals, shopping, project_ctx = await asyncio.gather(
-            facts_task, goals_task, shopping_task, project_task
+        async def _get_counters() -> list:
+            if self._counter_store:
+                return await self._counter_store.get_all_for_inject(user_id)
+            return []
+
+        facts, goals, shopping, project_ctx, counters_list = await asyncio.gather(
+            facts_task, goals_task, shopping_task, project_task, _get_counters()
         )
-        
+
         # Detect emotional tone if not provided (lazy - only when needed)
         detected_tone = emotional_tone
         if detected_tone is None and self._tone_detector:
             detected_tone = await self._tone_detector.detect_tone(
                 user_id, current_message, local_hour=local_hour
             )
-        
+
         # Get emotional context for tone-aware responses
         emotional_ctx = await self._get_emotional_context(user_id, detected_tone)
 
-        if not facts and not goals and not shopping and not project_ctx and not emotional_ctx:
+        if (
+            not facts
+            and not goals
+            and not shopping
+            and not project_ctx
+            and not emotional_ctx
+            and not counters_list
+        ):
             return ""
 
         parts = ["<memory>"]
@@ -98,9 +117,13 @@ class MemoryInjector:
                 meta = f.metadata or {}
                 category = meta.get("category", "general")
                 id_attr = f" id='{f.id}'" if f.id else ""
-                parts.append(f"    <fact{id_attr} category='{category}'>{f.content}</fact>")
+                parts.append(
+                    f"    <fact{id_attr} category='{category}'>{f.content}</fact>"
+                )
             for p in project_ctx:
-                parts.append(f"    <fact category='project_context'>{p['content']}</fact>")
+                parts.append(
+                    f"    <fact category='project_context'>{p['content']}</fact>"
+                )
             parts.append("  </facts>")
 
         if goals:
@@ -119,11 +142,22 @@ class MemoryInjector:
                 parts.append(f"    <item{id_attr}>{i.content}</item>")
             parts.append("  </shopping_list>")
 
+        if counters_list:
+            parts.append("  <counters>")
+            for c in counters_list:
+                name = c.get("name", "")
+                value = c.get("value", 0)
+                unit = c.get("unit", "days")
+                parts.append(f"    <counter name='{name}'>{value} {unit}</counter>")
+            parts.append("  </counters>")
+
         # Add emotional context block
         if emotional_ctx:
             parts.append("  <emotional_context>")
             if detected_tone:
-                parts.append(f"    <detected_tone>{detected_tone.value}</detected_tone>")
+                parts.append(
+                    f"    <detected_tone>{detected_tone.value}</detected_tone>"
+                )
             if emotional_ctx.get("health_issues"):
                 parts.append("    <health_context>")
                 for h in emotional_ctx["health_issues"][:3]:
@@ -149,24 +183,28 @@ class MemoryInjector:
     ) -> dict[str, Any]:
         """
         Retrieve emotional context relevant to the detected tone.
-        
+
         Only fetches context when tone suggests it's relevant:
         - STRESSED/VULNERABLE: health issues, deadlines, stressors
         - TIRED: health issues
         - NEUTRAL/PLAYFUL/CELEBRATORY: minimal context
         """
         result: dict[str, Any] = {}
-        
+
         # Only fetch detailed context for emotionally charged tones
-        if tone not in (EmotionalTone.STRESSED, EmotionalTone.VULNERABLE, 
-                        EmotionalTone.TIRED, EmotionalTone.FRUSTRATED):
+        if tone not in (
+            EmotionalTone.STRESSED,
+            EmotionalTone.VULNERABLE,
+            EmotionalTone.TIRED,
+            EmotionalTone.FRUSTRATED,
+        ):
             return result
-        
+
         try:
             facts = await self._knowledge.get_by_type(
                 user_id, "fact", limit=100, min_confidence=0.5
             )
-            
+
             # Health issues (relevant for stressed, vulnerable, tired)
             health_facts = [
                 {"content": f.content, "category": f.metadata.get("category")}
@@ -175,7 +213,7 @@ class MemoryInjector:
             ]
             if health_facts:
                 result["health_issues"] = health_facts
-            
+
             # Deadlines (relevant for stressed, frustrated)
             if tone in (EmotionalTone.STRESSED, EmotionalTone.FRUSTRATED):
                 deadline_facts = [
@@ -185,7 +223,7 @@ class MemoryInjector:
                 ]
                 if deadline_facts:
                     result["upcoming_deadlines"] = deadline_facts
-            
+
             # Semantic search for recent stressors
             if tone == EmotionalTone.STRESSED and self._embeddings:
                 stress_results = await self._embeddings.search_similar_for_type(
@@ -202,29 +240,39 @@ class MemoryInjector:
                 ]
                 if recent_stressors:
                     result["recent_stressors"] = recent_stressors
-                    
+
         except Exception as e:
             logger.debug("Failed to get emotional context: %s", e)
-        
+
         return result
 
     async def _get_relevant_knowledge(
-        self, user_id: int, query: str, entity_type: str, limit: int = 5, min_confidence: float = 0.5
+        self,
+        user_id: int,
+        query: str,
+        entity_type: str,
+        limit: int = 5,
+        min_confidence: float = 0.5,
     ) -> list:
         """Unified search across ANN, FTS, and recent history for a specific type.
-        
+
         Updates last_referenced_at for any items returned (staleness tracking).
         """
         # Note: types in Knowledge are: fact, goal, shopping_item
         # 1. Try ANN search with recency boost
         ann_results = await self._embeddings.search_similar_for_type(
-            user_id, query, source_type=f"knowledge_{entity_type}", limit=limit,
-            recency_boost=True
+            user_id,
+            query,
+            source_type=f"knowledge_{entity_type}",
+            limit=limit,
+            recency_boost=True,
         )
         if ann_results:
             ids = [r["source_id"] for r in ann_results if r.get("source_id")]
             if ids:
-                items = await self._get_by_ids(user_id, ids, min_confidence=min_confidence)
+                items = await self._get_by_ids(
+                    user_id, ids, min_confidence=min_confidence
+                )
                 # Update last_referenced_at for returned items
                 if items:
                     item_ids = [i.id for i in items if i.id]
@@ -233,14 +281,18 @@ class MemoryInjector:
 
         # 2. Fall back to FTS (to be updated to unified search)
         # For now, we'll just fall back to recent items
-        items = await self._knowledge.get_by_type(user_id, entity_type, limit=limit, min_confidence=min_confidence)
+        items = await self._knowledge.get_by_type(
+            user_id, entity_type, limit=limit, min_confidence=min_confidence
+        )
         # Update last_referenced_at for returned items
         if items:
             item_ids = [i.id for i in items if i.id]
             await self._knowledge.update_last_referenced(user_id, item_ids)
         return items
 
-    async def _get_by_ids(self, user_id: int, ids: list[int], min_confidence: float = 0.5) -> list[KnowledgeItem]:
+    async def _get_by_ids(
+        self, user_id: int, ids: list[int], min_confidence: float = 0.5
+    ) -> list[KnowledgeItem]:
         placeholders = ",".join("?" * len(ids))
         async with self._db.get_connection() as conn:
             rows = await conn.execute_fetchall(
@@ -254,8 +306,9 @@ class MemoryInjector:
                     entity_type=row["entity_type"],
                     content=row["content"],
                     metadata=json.loads(row["metadata"]),
-                    confidence=row["confidence"]
-                ) for row in rows
+                    confidence=row["confidence"],
+                )
+                for row in rows
             ]
 
     async def _get_project_context(self, user_id: int) -> list[dict[str, Any]]:
@@ -271,7 +324,7 @@ class MemoryInjector:
             async with self._db.get_connection() as conn:
                 rows = await conn.execute_fetchall(
                     "SELECT content FROM knowledge WHERE user_id=? AND entity_type='fact' AND metadata LIKE '%\"category\": \"project\"%'",
-                    (user_id,)
+                    (user_id,),
                 )
                 project_paths = [row["content"] for row in rows]
         except Exception:
@@ -290,7 +343,9 @@ class MemoryInjector:
             # A long project description stored as a single path component triggers
             # OSError [Errno 36] File name too long on .exists() / stat().
             if any(len(part.encode()) > 255 for part in Path(path_str).parts):
-                logger.debug("Skipping project path with oversized component: %.80s", path_str)
+                logger.debug(
+                    "Skipping project path with oversized component: %.80s", path_str
+                )
                 continue
             try:
                 readme = Path(path_str) / "README.md"
@@ -299,10 +354,12 @@ class MemoryInjector:
                         lambda p: p.read_text(encoding="utf-8"), readme
                     )
                     content = content[:1500]
-                    results.append({
-                        "category": "project_context",
-                        "content": f"[{path_str}] {content}",
-                    })
+                    results.append(
+                        {
+                            "category": "project_context",
+                            "content": f"[{path_str}] {content}",
+                        }
+                    )
             except Exception as e:
                 logger.debug("Failed to read project context file %s: %s", path_str, e)
         return results
@@ -338,7 +395,9 @@ class MemoryInjector:
         total_tokens = estimate_tokens(full_prompt)
         logger.debug(
             "System prompt: %d tokens (soul: %d, memory: %d)",
-            total_tokens, soul_tokens, memory_tokens
+            total_tokens,
+            soul_tokens,
+            memory_tokens,
         )
 
         return full_prompt

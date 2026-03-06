@@ -16,6 +16,7 @@ from ..scheduler.heartbeat_config import HEARTBEAT_OK_RESPONSE, load_heartbeat_c
 
 if TYPE_CHECKING:
     from ..memory.automations import AutomationStore
+    from ..memory.counters import CounterStore
     from ..memory.goals import GoalStore
     from ..memory.plans import PlanStore
     from ..delivery.queue import OutboundQueue
@@ -49,6 +50,7 @@ class HeartbeatHandler:
         calendar_client: "CalendarClient | None" = None,
         gmail_client: "GmailClient | None" = None,
         automation_store: "AutomationStore | None" = None,
+        counter_store: "CounterStore | None" = None,
         claude_client=None,  # ClaudeClient
         outbound_queue: "OutboundQueue | None" = None,
         bot: "Bot | None" = None,
@@ -58,6 +60,7 @@ class HeartbeatHandler:
         self._calendar = calendar_client
         self._gmail = gmail_client
         self._automation_store = automation_store
+        self._counter_store = counter_store
         self._claude = claude_client
         self._queue = outbound_queue
         self._bot = bot
@@ -85,7 +88,9 @@ class HeartbeatHandler:
             try:
                 goals = await self._goal_store.get_active(user_id, limit=20)
                 if goals:
-                    lines = [f"• {g.get('title', '')} (ID {g.get('id')})" for g in goals]
+                    lines = [
+                        f"• {g.get('title', '')} (ID {g.get('id')})" for g in goals
+                    ]
                     items_checked["goals"] = "Active goals:\n" + "\n".join(lines)
                 else:
                     items_checked["goals"] = "No active goals."
@@ -101,7 +106,9 @@ class HeartbeatHandler:
                 if events:
                     lines = []
                     for ev in events[:10]:
-                        start = (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date", "?")
+                        start = (ev.get("start") or {}).get("dateTime") or (
+                            ev.get("start") or {}
+                        ).get("date", "?")
                         summary = ev.get("summary", "No title")
                         lines.append(f"• {summary} — {start}")
                     items_checked["calendar"] = "Upcoming events:\n" + "\n".join(lines)
@@ -127,8 +134,12 @@ class HeartbeatHandler:
             try:
                 rows = await self._automation_store.get_all(user_id)
                 if rows:
-                    lines = [f"• [{r.get('id')}] {r.get('label', '')}" for r in rows[:15]]
-                    items_checked["reminders"] = "Scheduled reminders:\n" + "\n".join(lines)
+                    lines = [
+                        f"• [{r.get('id')}] {r.get('label', '')}" for r in rows[:15]
+                    ]
+                    items_checked["reminders"] = "Scheduled reminders:\n" + "\n".join(
+                        lines
+                    )
                 else:
                     items_checked["reminders"] = "No scheduled reminders."
             except Exception as e:
@@ -136,9 +147,24 @@ class HeartbeatHandler:
         else:
             items_checked["reminders"] = "Reminders not available."
 
-        context_block = "\n\n".join(
-            f"## {k}\n{v}" for k, v in items_checked.items()
-        )
+        # Counters (e.g. sobriety streak)
+        if self._counter_store:
+            try:
+                counters = await self._counter_store.get_all_for_inject(user_id)
+                if counters:
+                    lines = [
+                        f"• {c['name']}: {c['value']} {c.get('unit', 'days')}"
+                        for c in counters
+                    ]
+                    items_checked["counters"] = "Counters:\n" + "\n".join(lines)
+                else:
+                    items_checked["counters"] = "No counters set."
+            except Exception as e:
+                items_checked["counters"] = f"Error: {e}"
+        else:
+            items_checked["counters"] = "Counters not available."
+
+        context_block = "\n\n".join(f"## {k}\n{v}" for k, v in items_checked.items())
         prompt = (
             f"{config}\n\n---\n\n## Current state\n\n{context_block}\n\n"
             "Evaluate the above. If nothing warrants contacting the user, respond with exactly: HEARTBEAT_OK\n"
@@ -166,13 +192,22 @@ class HeartbeatHandler:
                     max_tokens=512,
                 )
                 response = (response or "").strip()
-                model_used = getattr(settings, "heartbeat_model_tier2", "claude-sonnet-4-20250514")
-                if response.upper() == HEARTBEAT_OK_RESPONSE or HEARTBEAT_OK_RESPONSE in response.upper():
+                model_used = getattr(
+                    settings, "heartbeat_model_tier2", "claude-sonnet-4-20250514"
+                )
+                if (
+                    response.upper() == HEARTBEAT_OK_RESPONSE
+                    or HEARTBEAT_OK_RESPONSE in response.upper()
+                ):
                     outcome = HEARTBEAT_OK_RESPONSE
                 else:
                     outcome = "delivered"
                     content = response[:4000]
-                    items_surfaced = {"message": (content[:200] + "…") if len(content) > 200 else content}
+                    items_surfaced = {
+                        "message": (content[:200] + "…")
+                        if len(content) > 200
+                        else content
+                    }
                     from ..delivery.send import send_via_queue_or_bot
 
                     sent = await send_via_queue_or_bot(
@@ -182,7 +217,10 @@ class HeartbeatHandler:
                         text=content,
                     )
                     if not sent:
-                        logger.warning("Heartbeat: could not enqueue or send message to chat %d", chat_id)
+                        logger.warning(
+                            "Heartbeat: could not enqueue or send message to chat %d",
+                            chat_id,
+                        )
             except Exception as e:
                 logger.exception("Heartbeat model call failed: %s", e)
                 outcome = HEARTBEAT_OK_RESPONSE

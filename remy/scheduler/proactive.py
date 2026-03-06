@@ -42,10 +42,12 @@ from .briefings import (
 
 if TYPE_CHECKING:
     from telegram import Bot
+
     from ..bot.heartbeat_handler import HeartbeatHandler
     from ..delivery.queue import OutboundQueue
     from ..google.gmail import GmailClient
     from ..memory.automations import AutomationStore
+    from ..memory.counters import CounterStore
     from ..memory.plans import PlanStore
     from ..memory.file_index import FileIndexer
     from ..ai.claude_client import ClaudeClient
@@ -164,10 +166,12 @@ class ProactiveScheduler:
         file_indexer: "FileIndexer | None" = None,
         outbound_queue: "OutboundQueue | None" = None,
         heartbeat_handler: "HeartbeatHandler | None" = None,
+        counter_store: "CounterStore | None" = None,
     ) -> None:
         self._bot = bot
         self._outbound_queue = outbound_queue
         self._heartbeat_handler = heartbeat_handler
+        self._counter_store = counter_store
         self._goal_store = goal_store
         self._fact_store = fact_store
         self._calendar = calendar_client
@@ -326,6 +330,43 @@ class ProactiveScheduler:
                 e,
             )
 
+        # Counter daily auto-increment (00:01 user TZ) — e.g. sobriety_streak +1 each day
+        if self._counter_store is not None:
+            from zoneinfo import ZoneInfo
+
+            from ..memory.counters import AUTO_INCREMENT_DAILY_COUNTERS
+
+            def _primary_user_id() -> int | None:
+                users = getattr(settings, "telegram_allowed_users", None) or []
+                return int(users[0]) if users else None
+
+            async def _counter_daily_increment() -> None:
+                user_id = _primary_user_id()
+                if user_id is None:
+                    return
+                tz = ZoneInfo(settings.scheduler_timezone)
+                for name in AUTO_INCREMENT_DAILY_COUNTERS:
+                    await self._counter_store.increment_daily_if_new_day(
+                        user_id, name, tz=tz
+                    )
+
+            self._scheduler.add_job(
+                _counter_daily_increment,
+                trigger=CronTrigger(
+                    minute=1,
+                    hour=0,
+                    timezone=settings.scheduler_timezone,
+                ),
+                id="counter_daily_increment",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+            )
+            logger.info(
+                "Counter daily auto-increment scheduled at 00:01 (%s)",
+                settings.scheduler_timezone,
+            )
+
         # Relay inbox poller — check for messages/tasks from cowork every 60s
         self._scheduler.add_job(
             self._poll_relay_inbox,
@@ -343,7 +384,9 @@ class ProactiveScheduler:
                 settings.scheduler_timezone,
             )
         else:
-            afternoon_cron = getattr(settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT)
+            afternoon_cron = getattr(
+                settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT
+            )
             logger.info(
                 "Proactive scheduler started — briefing: %s, afternoon: %s, check-in: %s, afternoon_check: %s (tz: %s)",
                 settings.briefing_cron,

@@ -285,6 +285,17 @@ CREATE TABLE IF NOT EXISTS shared_notes (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notes_tags ON shared_notes(tags);
+
+-- Counters (e.g. sobriety streak) — named integer values per user
+CREATE TABLE IF NOT EXISTS counters (
+    user_id    INTEGER NOT NULL REFERENCES users(user_id),
+    name       TEXT NOT NULL,
+    value      INTEGER NOT NULL DEFAULT 0,
+    unit       TEXT NOT NULL DEFAULT 'days',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_counters_user ON counters(user_id);
 """
 
 
@@ -320,6 +331,8 @@ _MIGRATIONS = [
     "ALTER TABLE automations ADD COLUMN mediated INTEGER DEFAULT 0;",
     # 015: US-context-aware-reminders — snooze goals from evening check-in
     "ALTER TABLE goals ADD COLUMN snoozed_until TEXT;",
+    # 016: Counter daily auto-increment — date (YYYY-MM-DD) of last auto-increment in user TZ
+    "ALTER TABLE counters ADD COLUMN last_increment_date TEXT;",
 ]
 
 # Triggers to keep FTS indices in sync with source tables

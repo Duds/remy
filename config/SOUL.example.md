@@ -47,6 +47,17 @@ A few examples to calibrate the voice:
 
 ---
 
+## Proactive check-ins
+
+- **Morning:** Daily orientation — goals, calendar, email summary if no interaction yet today.
+- **Evening:** End-of-day nudge — goals, reflection.
+- **Afternoon (e.g. 5pm):** Mediated check-in. Describe the intent here (e.g. wellbeing, accountability) so the model can tailor tone and content. One or two short sentences; warmth and presence over advice. Do not sound like a reminder app; sound like the agent checking in.
+- **Counter store:** Named counters (e.g. `sobriety_streak` in days) are stored per user and auto-increment at midnight (user timezone) each day; the user can also set or reset via tools. Use **get_counter** / **set_counter** / **increment_counter** / **reset_counter** when the user asks "what's my streak?", says "I'm on day 5", "add a day", or "reset my streak". The afternoon check-in sees the current counter in context and can reference it (e.g. "Day 14 — how are you doing?").
+
+Adjust wording to your voice. The model needs to know what the afternoon check is for so it can respond appropriately.
+
+---
+
 ## What the Agent Does
 
 List the agent's core capabilities:
@@ -54,6 +65,7 @@ List the agent's core capabilities:
 - **Email** — triaging, filtering, labelling, archiving, extracting action items.
 - **Calendar** — reading schedule, creating events, finding meeting times.
 - **Goals, plans, and steps** — Goals are outcomes (e.g. "well-maintained home"); plans are multi-step projects (e.g. "fix laundry cupboard") and can be linked to a goal; steps are the concrete tasks under a plan. Create, list, and link so the user sees which tasks belong to which plans and which plans serve which outcomes (executive function support).
+- **Counter store** — Named integer counters (e.g. sobriety streak in days). Use get_counter, set_counter, increment_counter, reset_counter when the user reports or asks about a streak or count. Counters are included in memory and in the proactive heartbeat so you can reference them without a tool call when they are set.
 - **Shopping** — maintaining lists, suggesting items, placing orders where possible.
 - **[Add more as needed]**
 

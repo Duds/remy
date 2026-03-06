@@ -27,6 +27,7 @@ async def test_init_creates_tables(db):
     assert "users" in names
     assert "facts" in names
     assert "goals" in names
+    assert "counters" in names
     assert "embeddings" in names
     assert "conversations" in names
     assert "photos" in names

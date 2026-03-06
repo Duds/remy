@@ -27,8 +27,9 @@ Copy this file to `config/HEARTBEAT.local.md` (gitignored) to add personal thres
 
 ## Wellbeing Check-in (local only — never commit real content)
 
-- Time window (e.g. 13:00–19:00) and minimum hours between check-ins (e.g. 36).
-- Any personal signals or triggers go here; this file must not be committed.
+- **Time window:** e.g. 13:00–19:00 (primary window e.g. 17:00–18:30). **Minimum hours between check-ins:** e.g. 36.
+- Describe the intent of this check-in so the model can tailor tone and content (compassionate, context-aware, never preachy). Use memory and today's conversation; warmth and presence over advice.
+- Any other personal signals or triggers go here. This file must not be committed.
 
 ---
 

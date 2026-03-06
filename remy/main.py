@@ -35,6 +35,7 @@ from .logging_config import setup_logging
 from .memory.automations import AutomationStore
 from .memory.background_jobs import BackgroundJobStore
 from .memory.conversations import ConversationStore
+from .memory.counters import CounterStore
 from .memory.plans import PlanStore
 from .memory.database import DatabaseManager
 from .memory.embeddings import EmbeddingStore
@@ -141,8 +142,9 @@ def main() -> None:
         claude_client=claude_client,
     )
 
+    counter_store = CounterStore(db)
     memory_injector = MemoryInjector(
-        db, embeddings, knowledge_store, fts, tone_detector
+        db, embeddings, knowledge_store, fts, tone_detector, counter_store=counter_store
     )
     automation_store = AutomationStore(db)
     job_store = BackgroundJobStore(db)
@@ -244,6 +246,9 @@ def main() -> None:
         plan_store=plan_store,
         # Home directory RAG
         file_indexer=file_indexer,
+        fact_store=fact_store,
+        goal_store=goal_store,
+        counter_store=counter_store,
     )
 
     # Diagnostics runner — comprehensive health checks
@@ -366,6 +371,7 @@ def main() -> None:
             calendar_client=google_calendar,
             gmail_client=google_gmail,
             automation_store=automation_store,
+            counter_store=counter_store,
             claude_client=claude_client,
             outbound_queue=outbound_queue,
             bot=app.bot,
@@ -390,6 +396,7 @@ def main() -> None:
             file_indexer=file_indexer,
             outbound_queue=outbound_queue,
             heartbeat_handler=heartbeat_handler,
+            counter_store=counter_store,
         )
         _late["proactive_scheduler"] = sched
         _proactive_ref.append(sched)

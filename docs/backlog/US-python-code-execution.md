@@ -1,17 +1,18 @@
-# User Story: Python Code Writing & Execution
+# User Story: Remy Writes and Runs Temporary Python Scripts
+
+**Status:** Phase A ✅ Implemented | Phase B/C ⬜ Backlog
 
 ## Summary
-As a user, I want to ask Remy to write and run Python snippets so that I can get quick
-calculations, data transformations, and scripting tasks done without leaving Telegram.
+
+As Dale, I want Remy to write and run temporary Python scripts on demand so that I can get calculations, graphs, and other programmatic content directly in conversation — without opening a notebook or terminal. Scripts are ephemeral by default: they run once, produce output (text or images), and leave no persistent state unless I opt into a session.
 
 ---
 
 ## Background
 
-Remy can already call external tools (web search, calendar, Gmail) but has no way to run
-arbitrary computations. Many useful tasks — number crunching, string manipulation, CSV
-parsing, date arithmetic — are more reliably handled by executing code than by asking the
-LLM to reason through them step by step.
+Remy can call external tools (web search, calendar, Gmail) but has no way to run arbitrary computations. Many useful answers — compound interest, date arithmetic, CSV summaries, a quick plot — are better delivered by running a small program than by the model reasoning step by step. I want to ask in natural language (“plot the last 7 days of step counts” or “what’s 5k at 4.2% for 3 years?”) and have Remy generate a Python snippet, run it in a safe environment, and return the result, including graphs as images and tables as formatted output.
+
+Scripts are **temporary** by default: each run is isolated (fresh process or container), no files or variables persist, and execution is time-limited. Optional session mode (Phase C) preserves variables and rich output (matplotlib figures, DataFrames) within a conversation.
 
 This feature is implemented in **three phases**:
 
@@ -22,8 +23,7 @@ This feature is implemented in **three phases**:
 3. **Phase C — Jupyter-style notebooks**: Persistent kernel sessions with state preservation,
    rich output (plots, dataframes), and conversation-scoped execution contexts.
 
-The tool is added to the existing tool registry and is available to the `quick-assistant`
-path; the `board-analyst` subagent does **not** get it (read-only).
+The tool is added to the existing tool registry and is available to the main Remy / `quick-assistant` path; the `board-analyst` subagent does **not** get it (read-only). Remy should briefly describe what she’s running (e.g. “Running a quick Python script to compute that…”) and surface errors or truncation in plain language.
 
 ---
 
@@ -639,6 +639,14 @@ RUN_PYTHON_TOOL = {
 
 ## Test Cases
 
+### User-facing (all phases)
+
+| Scenario | Expected |
+|----------|----------|
+| “What is compound interest on $10k at 5% for 10 years?” | Remy runs a small Python script and replies with the numeric result. |
+| “Plot a simple line graph of y = x² for x in 0..5” | When Phase C (or plot support) is available, Remy returns a plot image and short explanation. |
+| No persistent state by default | Two separate messages each run a script; second run does not see first run’s variables. |
+
 ### Phase A — Subprocess Sandbox
 
 | Scenario | Expected |
@@ -726,6 +734,7 @@ RUN_PYTHON_TOOL = {
 ## Out of Scope
 
 - Installing third-party packages at runtime (`pip install` inside the sandbox)
+- Running long-lived or production scripts; this is for ad-hoc, user-requested execution only
 - Interactive REPL sessions (beyond Jupyter cell execution)
 - File uploads/downloads from Telegram linked to script execution
 - Multi-user kernel sharing (each conversation gets its own kernel)

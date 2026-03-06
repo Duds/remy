@@ -17,6 +17,10 @@ Tools available:
     manage_memory         → add/update/delete memory facts
     manage_goal           → add/update/complete/abandon goals
     get_memory_summary    → summary of stored memories
+    get_counter           → get named counter (e.g. sobriety_streak)
+    set_counter           → set counter value
+    increment_counter     → increment counter
+    reset_counter         → reset counter to 0
 
   Calendar
     calendar_events       → list upcoming events
@@ -63,6 +67,9 @@ Tools available:
 
   Claude Code CLI (SAD v7 P2)
     run_claude_code       → run a coding task via Claude Code subprocess (stdout/stderr/exit_code)
+
+  Python execution (US-python-code-execution Phase A)
+    run_python            → write and run a Python snippet in a sandboxed subprocess (stdout/stderr, 10 s, 4 KB)
 
   Documents
     read_gdoc             → read a Google Doc by URL or ID
@@ -861,6 +868,28 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     # ------------------------------------------------------------------ #
+    # Python execution (sandboxed subprocess — Phase A)                    #
+    # ------------------------------------------------------------------ #
+    {
+        "name": "run_python",
+        "description": (
+            "Write and execute a Python 3 snippet in a sandboxed subprocess. "
+            "Returns stdout + stderr (max 4 KB). No network, no persistent files, "
+            "10 s time limit. Use for calculations, data transformations, and "
+            "scripting tasks where reasoning alone is unreliable."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python source code to execute.",
+                },
+            },
+            "required": ["code"],
+        },
+    },
+    # ------------------------------------------------------------------ #
     # Relay (Claude Desktop ↔ cowork)                                     #
     # ------------------------------------------------------------------ #
     {
@@ -1253,6 +1282,91 @@ TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    {
+        "name": "get_counter",
+        "description": (
+            "Get the current value of a named counter from the counter store (e.g. sobriety_streak in days). "
+            "Streak counters auto-increment at midnight (user timezone) each day; the user can also set or reset manually. "
+            "Counters are injected into memory/heartbeat when set. Use when the user asks 'what's my streak?', 'how many days?', or similar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Counter name. Use 'sobriety_streak' for the sobriety/day counter."
+                    ),
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "set_counter",
+        "description": (
+            "Set a named counter in the counter store to a value (e.g. set sobriety_streak to 5 for 'day 5'). "
+            "Use when the user reports their current day. The value is persisted and included in memory and the proactive heartbeat."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Counter name (e.g. 'sobriety_streak').",
+                },
+                "value": {
+                    "type": "integer",
+                    "description": "New value (non-negative integer).",
+                    "minimum": 0,
+                },
+                "unit": {
+                    "type": "string",
+                    "description": "Unit label for display (default 'days').",
+                },
+            },
+            "required": ["name", "value"],
+        },
+    },
+    {
+        "name": "increment_counter",
+        "description": (
+            "Increment a named counter in the counter store by 1 (or by a given amount). "
+            "Use when the user indicates another day has passed (e.g. 'add a day'). Creates the counter at 0 if missing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Counter name (e.g. 'sobriety_streak').",
+                },
+                "by": {
+                    "type": "integer",
+                    "description": "Amount to add (default 1).",
+                    "minimum": 1,
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "reset_counter",
+        "description": (
+            "Reset a named counter in the counter store to 0. Use when the user says they've reset or slipped "
+            "(e.g. 'back to day 0', 'reset my streak')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Counter name (e.g. 'sobriety_streak').",
+                },
+            },
+            "required": ["name"],
         },
     },
     # ------------------------------------------------------------------ #

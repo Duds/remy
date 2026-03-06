@@ -51,6 +51,7 @@ class ToolRegistry:
         file_indexer=None,
         fact_store=None,
         goal_store=None,
+        counter_store=None,
     ) -> None:
         self._logs_dir = logs_dir
         self._knowledge_store = knowledge_store
@@ -73,6 +74,7 @@ class ToolRegistry:
         self._file_indexer = file_indexer
         self._fact_store = fact_store
         self._goal_store = goal_store
+        self._counter_store = counter_store
 
     @property
     def schemas(self) -> list[dict]:
@@ -144,6 +146,22 @@ class ToolRegistry:
                     from .memory import exec_get_memory_summary
 
                     return await exec_get_memory_summary(self, user_id)
+                case "get_counter":
+                    from .counters import exec_get_counter
+
+                    return await exec_get_counter(self, tool_input, user_id)
+                case "set_counter":
+                    from .counters import exec_set_counter
+
+                    return await exec_set_counter(self, tool_input, user_id)
+                case "increment_counter":
+                    from .counters import exec_increment_counter
+
+                    return await exec_increment_counter(self, tool_input, user_id)
+                case "reset_counter":
+                    from .counters import exec_reset_counter
+
+                    return await exec_reset_counter(self, tool_input, user_id)
 
                 # Calendar
                 case "calendar_events":
@@ -456,6 +474,10 @@ class ToolRegistry:
                     from .claude_code import exec_run_claude_code
 
                     return await exec_run_claude_code(self, tool_input, user_id)
+                case "run_python":
+                    from .run_python import exec_run_python
+
+                    return await exec_run_python(self, tool_input, user_id)
                 case "suggest_actions":
                     return "Attached."
 
