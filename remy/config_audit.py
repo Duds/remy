@@ -3,6 +3,10 @@
 Logs all configuration values at startup and any runtime changes to a JSONL file.
 Sensitive values (API keys, tokens) are redacted.
 
+Startup logging is automatic via log_startup_config(). Runtime changes to .env
+are not automatically detected — use auditor.log_change() when applying
+config changes at runtime if you want them in the audit trail.
+
 Inspired by OpenClaw's config-audit.jsonl pattern.
 """
 

@@ -20,7 +20,7 @@ from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...memory.conversations import ConversationStore
-    from ...ai.tool_registry import ToolRegistry
+    from ...ai.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

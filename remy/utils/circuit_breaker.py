@@ -9,6 +9,16 @@ States:
 - CLOSED: Normal operation, requests pass through
 - OPEN: Failing fast, no requests allowed
 - HALF_OPEN: Testing if service recovered, limited requests allowed
+
+Operator note — what "open" means:
+- The circuit does not distinguish failure types. Rate limits (429/529),
+  connection errors, and 5xx all count as failures. "Open" means "repeated
+  failures of any kind" (failure_count >= failure_threshold).
+- Recovery is purely time-based (recovery_timeout). There is no separate
+  handling for Retry-After or rate-limit backoff.
+- In the model router, Ollama is not behind a circuit breaker; it is the
+  fallback when a provider's circuit is open or the provider fails. Only
+  Cloud providers (e.g. claude, mistral, moonshot) use breakers.
 """
 
 import asyncio
@@ -42,10 +52,14 @@ class CircuitOpenError(Exception):
 class CircuitBreaker:
     """
     Circuit breaker with configurable thresholds.
-    
+
+    All failures are treated alike (rate limit, connection refused, 5xx, etc.).
+    No error-type distinction; recovery is time-based only. See module docstring
+    for operator notes on what "open" means and Ollama's role in the router.
+
     Usage:
         breaker = CircuitBreaker(name="anthropic", failure_threshold=5)
-        
+
         try:
             result = await breaker.call(api_call())
         except CircuitOpenError:

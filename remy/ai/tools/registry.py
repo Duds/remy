@@ -452,6 +452,10 @@ class ToolRegistry:
                     return await exec_react_to_message(
                         self, tool_input, chat_id, message_id
                     )
+                case "run_claude_code":
+                    from .claude_code import exec_run_claude_code
+
+                    return await exec_run_claude_code(self, tool_input, user_id)
                 case "suggest_actions":
                     return "Attached."
 

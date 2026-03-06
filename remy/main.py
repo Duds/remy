@@ -16,8 +16,9 @@ from .ai.mistral_client import MistralClient
 from .ai.moonshot_client import MoonshotClient
 from .ai.ollama_client import OllamaClient
 from .ai.router import ModelRouter
-from .ai.tool_registry import ToolRegistry
+from .ai.tools import ToolRegistry
 from .bot.handlers import make_handlers
+from .bot.heartbeat_handler import HeartbeatHandler
 from .bot.session import SessionManager
 from .bot.telegram_bot import TelegramBot
 from .config import get_settings, settings
@@ -358,6 +359,18 @@ def main() -> None:
             logger.info("Outbound queue: replaying %d pending messages", replayed)
         outbound_queue.start_processor()
 
+        # Evaluative heartbeat handler (SAD v7) — uses queue for delivery
+        heartbeat_handler = HeartbeatHandler(
+            goal_store=goal_store,
+            plan_store=plan_store,
+            calendar_client=google_calendar,
+            gmail_client=google_gmail,
+            automation_store=automation_store,
+            claude_client=claude_client,
+            outbound_queue=outbound_queue,
+            bot=app.bot,
+        )
+
         # Wire proactive scheduler (requires live bot reference from PTB)
         sched = ProactiveScheduler(
             app.bot,
@@ -375,6 +388,8 @@ def main() -> None:
             db=db,
             plan_store=plan_store,
             file_indexer=file_indexer,
+            outbound_queue=outbound_queue,
+            heartbeat_handler=heartbeat_handler,
         )
         _late["proactive_scheduler"] = sched
         _proactive_ref.append(sched)

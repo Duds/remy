@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from ..ai.mistral_client import MistralClient
     from ..ai.moonshot_client import MoonshotClient
     from ..ai.ollama_client import OllamaClient
-    from ..ai.tool_registry import ToolRegistry
+    from ..ai.tools import ToolRegistry
     from ..config import Settings
     from ..memory.database import DatabaseManager
     from ..memory.embeddings import EmbeddingStore

@@ -1,5 +1,5 @@
 """
-Tests for remy/ai/tool_registry.py and the tool-use streaming path.
+Tests for remy/ai/tools (ToolRegistry, TOOL_SCHEMAS) and the tool-use streaming path.
 
 All external calls (Claude API, Ollama, diagnostics, memory stores) are mocked.
 No real API calls or file I/O.
@@ -11,7 +11,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from remy.ai.tool_registry import ToolRegistry, TOOL_SCHEMAS
+from remy.ai.tools import ToolRegistry, TOOL_SCHEMAS
 from remy.ai.claude_client import (
     ClaudeClient,
     TextChunk,
@@ -43,6 +43,24 @@ def make_registry(**kwargs) -> ToolRegistry:
     )
     defaults.update(kwargs)
     return ToolRegistry(**defaults)
+
+
+# --------------------------------------------------------------------------- #
+# 0. Canonical import (zero-trust: single surface, no deprecated shim)        #
+# --------------------------------------------------------------------------- #
+
+
+def test_tool_registry_and_schemas_import_from_canonical_module():
+    """ToolRegistry and TOOL_SCHEMAS must be imported from remy.ai.tools."""
+    from remy.ai.tools import ToolRegistry as TR, TOOL_SCHEMAS as SCHEMAS
+    assert TR is ToolRegistry
+    assert SCHEMAS is TOOL_SCHEMAS
+
+
+def test_deprecated_tool_registry_module_removed():
+    """remy.ai.tool_registry was removed; import must fail (no shim)."""
+    with pytest.raises(ModuleNotFoundError, match="remy.ai.tool_registry"):
+        __import__("remy.ai.tool_registry")
 
 
 # --------------------------------------------------------------------------- #

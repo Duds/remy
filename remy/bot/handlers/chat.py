@@ -73,7 +73,7 @@ from ...utils.telegram_formatting import format_telegram_message
 
 if TYPE_CHECKING:
     from ...ai.router import ModelRouter
-    from ...ai.tool_registry import ToolRegistry
+    from ...ai.tools import ToolRegistry
     from ...memory.conversations import ConversationStore
     from ...memory.facts import FactExtractor, FactStore
     from ...memory.goals import GoalExtractor, GoalStore
@@ -554,6 +554,16 @@ def make_chat_handlers(
                     await sent.edit_text("✓", reply_markup=reply_markup)
                 except Exception:
                     pass
+
+        await hook_manager.emit(
+            HookEvents.MESSAGE_SENT,
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "message_id": sent.message_id if sent else None,
+                "text_preview": final_text_accum[:100] if final_text_accum else None,
+            },
+        )
 
         streaming_ms = (
             int((time.monotonic() - t0) * 1000)

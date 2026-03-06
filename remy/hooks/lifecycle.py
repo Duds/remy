@@ -30,9 +30,12 @@ class HookEvents(str, Enum):
     BEFORE_TOOL_CALL = "before_tool_call"
     AFTER_TOOL_CALL = "after_tool_call"
     MESSAGE_SENDING = "message_sending"
+    MESSAGE_SENT = "message_sent"
     SESSION_END = "session_end"
     BEFORE_COMPACTION = "before_compaction"
     AFTER_COMPACTION = "after_compaction"
+    HEARTBEAT_START = "heartbeat_start"
+    HEARTBEAT_END = "heartbeat_end"
 
 
 @dataclass

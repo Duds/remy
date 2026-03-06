@@ -34,7 +34,7 @@ from ..models import ConversationTurn
 if TYPE_CHECKING:
     from telegram import Bot
     from ..ai.claude_client import ClaudeClient
-    from ..ai.tool_registry import ToolRegistry
+    from ..ai.tools import ToolRegistry
     from ..memory.conversations import ConversationStore
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def _trigger_text_for_proactive(label: str, context: dict | None) -> str:
     Build the synthetic user message for proactive triggers so Remy AI can ingest it.
 
     Format: "[Proactive] type=<trigger_type> [label=<human label>]"
-    - morning_briefing, afternoon_focus, evening_checkin, alcohol_check: type only (context carries intent).
+    - morning_briefing, afternoon_focus, evening_checkin, afternoon_check: type only (context carries intent).
     - reminder: type=reminder and the user's label (e.g. sobriety check) for clarity.
     """
     if context is not None:
@@ -56,8 +56,8 @@ def _trigger_text_for_proactive(label: str, context: dict | None) -> str:
             return f"{PROACTIVE_PREFIX} type=evening_checkin"
         if context.get("afternoon_checkin"):
             return f"{PROACTIVE_PREFIX} type=afternoon_focus"
-        if context.get("alcohol_check"):
-            return f"{PROACTIVE_PREFIX} type=alcohol_check"
+        if context.get("afternoon_check"):
+            return f"{PROACTIVE_PREFIX} type=afternoon_check"
         # Morning briefing or other context-carrying triggers
         return f"{PROACTIVE_PREFIX} type=morning_briefing"
     return f"{PROACTIVE_PREFIX} type=reminder label={label!r}"
@@ -143,23 +143,21 @@ def _afternoon_checkin_system_prompt(context: dict) -> str:
     )
 
 
-def _alcohol_check_system_prompt(context: dict) -> str:
+def _afternoon_check_system_prompt(context: dict) -> str:
     """
-    US-remy-mediated-reminders: 5pm alcohol/sobriety check-in.
-    High-risk window (e.g. 5–6:30pm). Compose a compassionate, context-relevant message
-    that meets Dale where he is — not a canned 'don't drink' reminder.
+    US-remy-mediated-reminders: afternoon check-in (default 5pm).
+    Compose a compassionate, context-relevant message; intent is in SOUL / HEARTBEAT.local.
     """
     ctx_json = json.dumps(context, indent=0)
     return (
         f"{settings.soul_md}\n\n"
         "---\n"
-        "5PM ALCOHOL CHECK-IN: This is the daily 5pm sobriety / alcohol check-in. "
-        "Dale's highest-risk window is often 5:00–6:30pm (e.g. the 'bottle shop run' impulse). "
-        "Your job is to meet him where he is — compassionate, context-aware, never preachy or generic.\n\n"
+        "AFTERNOON CHECK-IN: This is the daily afternoon check-in (typically 5pm). "
+        "Your job is to meet Dale where he is — compassionate, context-aware, never preachy or generic.\n\n"
         "- Use what you know from memory and today's conversation: how his day went, what he's working on, how he seems\n"
         "- One or two short sentences; warmth and presence over advice\n"
         "- If context includes goals or calendar, you can gently tie in (e.g. 'You had X today — how are you doing heading into the evening?')\n"
-        "- Do NOT echo 'don't drink' or sound like a reminder app; sound like Remy checking in\n\n"
+        "- Sound like Remy checking in, not a generic reminder\n\n"
         "Structured context (goals, calendar, etc.):\n"
         f"```json\n{ctx_json}\n```"
     )
@@ -261,8 +259,8 @@ async def run_proactive_trigger(
                 system_prompt = _evening_checkin_system_prompt(context)
             elif context.get("afternoon_checkin"):
                 system_prompt = _afternoon_checkin_system_prompt(context)
-            elif context.get("alcohol_check"):
-                system_prompt = _alcohol_check_system_prompt(context)
+            elif context.get("afternoon_check"):
+                system_prompt = _afternoon_check_system_prompt(context)
             else:
                 system_prompt = _briefing_system_prompt(context)
         else:

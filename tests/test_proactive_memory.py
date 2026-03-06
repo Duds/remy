@@ -20,7 +20,7 @@ from remy.memory.database import DatabaseManager
 from remy.memory.knowledge import KnowledgeStore
 from remy.memory.embeddings import EmbeddingStore
 from remy.models import KnowledgeItem
-from remy.ai.tool_registry import ToolRegistry, TOOL_SCHEMAS
+from remy.ai.tools import ToolRegistry, TOOL_SCHEMAS
 
 
 # --------------------------------------------------------------------------- #

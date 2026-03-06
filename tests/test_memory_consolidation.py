@@ -185,14 +185,14 @@ class TestConsolidationToolSchema:
 
     def test_tool_schema_exists(self):
         """consolidate_memory tool is in TOOL_SCHEMAS."""
-        from remy.ai.tool_registry import TOOL_SCHEMAS
+        from remy.ai.tools import TOOL_SCHEMAS
 
         tool_names = [t["name"] for t in TOOL_SCHEMAS]
         assert "consolidate_memory" in tool_names
 
     def test_tool_schema_structure(self):
         """consolidate_memory tool has correct schema structure."""
-        from remy.ai.tool_registry import TOOL_SCHEMAS
+        from remy.ai.tools import TOOL_SCHEMAS
 
         tool = next(t for t in TOOL_SCHEMAS if t["name"] == "consolidate_memory")
 
@@ -203,7 +203,7 @@ class TestConsolidationToolSchema:
 
     def test_tool_description_mentions_key_features(self):
         """Tool description covers key use cases."""
-        from remy.ai.tool_registry import TOOL_SCHEMAS
+        from remy.ai.tools import TOOL_SCHEMAS
 
         tool = next(t for t in TOOL_SCHEMAS if t["name"] == "consolidate_memory")
         desc = tool["description"].lower()

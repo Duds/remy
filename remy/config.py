@@ -79,9 +79,24 @@ class Settings(BaseSettings):
     # Scheduler (cron in user's local timezone)
     briefing_cron: str = "0 7 * * *"
     checkin_cron: str = "0 19 * * *"
-    # 5pm alcohol/sobriety check-in — high-risk window; mediated, compassionate (US-remy-mediated-reminders)
-    alcohol_check_cron: str = "0 17 * * *"
+    # Afternoon check-in (default 17:00); mediated, compassionate (US-remy-mediated-reminders)
+    afternoon_check_cron: str = "0 17 * * *"
     scheduler_timezone: str = "Australia/Sydney"
+
+    # Evaluative heartbeat (SAD v7)
+    heartbeat_enabled: bool = True
+    heartbeat_cron: str = "*/30 * * * *"
+    heartbeat_quiet_start: int = 22
+    heartbeat_quiet_end: int = 7
+    heartbeat_md_path: str = "config/HEARTBEAT.md"
+    heartbeat_model_tier0: str = "qwen3:1.7b"
+    heartbeat_model_tier1: str = "mistral"
+    heartbeat_model_tier2: str = "claude-sonnet-4-20250514"
+    wellbeing_checkin_hours: int = 36
+    orientation_wake_hour: int = 7
+    reflection_hour: int = 18
+    wellbeing_window_start: int = 13
+    wellbeing_window_end: int = 19
     # Morning briefing email scope: inbox_only | primary_tabs | all_mail (US-gmail-check-all-mail)
     briefing_email_scope: str = "inbox_only"
 

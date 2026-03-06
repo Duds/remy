@@ -49,14 +49,33 @@ class TestCircuitBreaker:
         """Enough failures open the circuit."""
         async def fail():
             raise ValueError("boom")
-        
+
         # Record failures up to threshold
         for i in range(3):
             with pytest.raises(ValueError):
                 await breaker.call(fail())
-        
+
         assert breaker.state == CircuitState.OPEN
         assert breaker.is_open
+
+    @pytest.mark.asyncio
+    async def test_all_failure_types_count_toward_open(self, breaker):
+        """Circuit does not distinguish failure type; any exception opens after threshold (zero-trust doc)."""
+        async def fail_value():
+            raise ValueError("error")
+        async def fail_connection_like():
+            raise OSError(111, "Connection refused")
+
+        # One ValueError, two OSError — mixed types still open the circuit
+        with pytest.raises(ValueError):
+            await breaker.call(fail_value())
+        with pytest.raises(OSError):
+            await breaker.call(fail_connection_like())
+        with pytest.raises(OSError):
+            await breaker.call(fail_connection_like())
+
+        assert breaker.state == CircuitState.OPEN
+        assert breaker._failure_count == 3
 
     @pytest.mark.asyncio
     async def test_open_circuit_blocks_calls(self, breaker):

@@ -39,7 +39,7 @@ def since_dt(since: Optional[str]) -> Optional[datetime]:
     return None
 
 
-# Keep the old private name as an alias so tool_registry.py still works
+# Backward-compat alias for old private name
 _since_dt = since_dt
 
 

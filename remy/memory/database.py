@@ -236,6 +236,19 @@ CREATE TABLE IF NOT EXISTS outbound_queue (
 CREATE INDEX IF NOT EXISTS idx_outbound_queue_status ON outbound_queue(status);
 CREATE INDEX IF NOT EXISTS idx_outbound_queue_created ON outbound_queue(created_at);
 
+-- Evaluative heartbeat log (SAD v7)
+CREATE TABLE IF NOT EXISTS heartbeat_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    fired_at      TEXT NOT NULL,
+    outcome       TEXT NOT NULL,
+    items_checked  TEXT,
+    items_surfaced TEXT,
+    model         TEXT,
+    tokens_used   INTEGER,
+    duration_ms   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_heartbeat_log_fired ON heartbeat_log(fired_at);
+
 -- Relay (US-claude-desktop-relay): schema matches relay_mcp for shared DB
 CREATE TABLE IF NOT EXISTS messages (
     id          TEXT PRIMARY KEY,

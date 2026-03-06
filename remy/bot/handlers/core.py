@@ -19,7 +19,7 @@ from ...config import settings
 
 if TYPE_CHECKING:
     from ...scheduler.proactive import ProactiveScheduler
-    from ...ai.tool_registry import ToolRegistry
+    from ...ai.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

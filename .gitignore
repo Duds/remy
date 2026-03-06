@@ -1,6 +1,7 @@
 # Secrets & credentials
 .env
 config/SOUL.md
+config/*.local.md
 
 # Runtime data (personal / generated)
 data/

@@ -57,7 +57,7 @@ from .callbacks import make_callback_handler
 if TYPE_CHECKING:
     from ..session import SessionManager
     from ...ai.router import ModelRouter
-    from ...ai.tool_registry import ToolRegistry
+    from ...ai.tools import ToolRegistry
     from ...memory.conversations import ConversationStore
     from ...memory.facts import FactExtractor, FactStore
     from ...memory.goals import GoalExtractor, GoalStore

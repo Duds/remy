@@ -42,12 +42,14 @@ from .briefings import (
 
 if TYPE_CHECKING:
     from telegram import Bot
+    from ..bot.heartbeat_handler import HeartbeatHandler
+    from ..delivery.queue import OutboundQueue
     from ..google.gmail import GmailClient
     from ..memory.automations import AutomationStore
     from ..memory.plans import PlanStore
     from ..memory.file_index import FileIndexer
     from ..ai.claude_client import ClaudeClient
-    from ..ai.tool_registry import ToolRegistry
+    from ..ai.tools import ToolRegistry
     from ..bot.session import SessionManager
     from ..memory.conversations import ConversationStore
 
@@ -160,8 +162,12 @@ class ProactiveScheduler:
         db=None,
         plan_store: "PlanStore | None" = None,
         file_indexer: "FileIndexer | None" = None,
+        outbound_queue: "OutboundQueue | None" = None,
+        heartbeat_handler: "HeartbeatHandler | None" = None,
     ) -> None:
         self._bot = bot
+        self._outbound_queue = outbound_queue
+        self._heartbeat_handler = heartbeat_handler
         self._goal_store = goal_store
         self._fact_store = fact_store
         self._calendar = calendar_client
@@ -180,50 +186,90 @@ class ProactiveScheduler:
 
     def start(self) -> None:
         """Register built-in jobs and start the scheduler."""
-        try:
-            briefing_trigger = _parse_cron(settings.briefing_cron)
-            checkin_trigger = _parse_cron(settings.checkin_cron)
-            afternoon_cron = getattr(
-                settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT
-            )
-            afternoon_trigger = _parse_cron(afternoon_cron)
-            alcohol_check_trigger = _parse_cron(settings.alcohol_check_cron)
-        except ValueError as e:
-            logger.error("Invalid cron config, scheduler not started: %s", e)
-            return
+        use_heartbeat = (
+            getattr(settings, "heartbeat_enabled", True)
+            and self._heartbeat_handler is not None
+            and self._db is not None
+        )
 
-        self._scheduler.add_job(
-            self._morning_briefing,
-            trigger=briefing_trigger,
-            id="morning_briefing",
-            replace_existing=True,
-            misfire_grace_time=3600,
-            coalesce=True,
-        )
-        self._scheduler.add_job(
-            self._afternoon_focus,
-            trigger=afternoon_trigger,
-            id="afternoon_focus",
-            replace_existing=True,
-            misfire_grace_time=7200,
-            coalesce=True,
-        )
-        self._scheduler.add_job(
-            self._evening_checkin,
-            trigger=checkin_trigger,
-            id="evening_checkin",
-            replace_existing=True,
-            misfire_grace_time=3600,
-            coalesce=True,
-        )
-        self._scheduler.add_job(
-            self._alcohol_check,
-            trigger=alcohol_check_trigger,
-            id="alcohol_check",
-            replace_existing=True,
-            misfire_grace_time=3600,
-            coalesce=True,
-        )
+        if use_heartbeat:
+            try:
+                heartbeat_cron = getattr(settings, "heartbeat_cron", "*/30 * * * *")
+                heartbeat_trigger = _parse_cron(heartbeat_cron)
+                from .heartbeat import run_heartbeat_job
+
+                def _primary_user_id() -> int | None:
+                    users = getattr(settings, "telegram_allowed_users", None) or []
+                    return int(users[0]) if users else None
+
+                async def _heartbeat_job() -> None:
+                    await run_heartbeat_job(
+                        self._heartbeat_handler,
+                        self._db,
+                        _read_primary_chat_id,
+                        _primary_user_id,
+                    )
+
+                self._scheduler.add_job(
+                    _heartbeat_job,
+                    trigger=heartbeat_trigger,
+                    id="evaluative_heartbeat",
+                    replace_existing=True,
+                    misfire_grace_time=600,
+                    coalesce=True,
+                )
+                logger.info(
+                    "Evaluative heartbeat scheduled (cron: %s); fixed briefing/check-in crons disabled",
+                    heartbeat_cron,
+                )
+            except ValueError as e:
+                logger.error("Invalid heartbeat cron, scheduler not started: %s", e)
+                return
+        else:
+            try:
+                briefing_trigger = _parse_cron(settings.briefing_cron)
+                checkin_trigger = _parse_cron(settings.checkin_cron)
+                afternoon_cron = getattr(
+                    settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT
+                )
+                afternoon_trigger = _parse_cron(afternoon_cron)
+                afternoon_check_trigger = _parse_cron(settings.afternoon_check_cron)
+            except ValueError as e:
+                logger.error("Invalid cron config, scheduler not started: %s", e)
+                return
+
+            self._scheduler.add_job(
+                self._morning_briefing,
+                trigger=briefing_trigger,
+                id="morning_briefing",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+            )
+            self._scheduler.add_job(
+                self._afternoon_focus,
+                trigger=afternoon_trigger,
+                id="afternoon_focus",
+                replace_existing=True,
+                misfire_grace_time=7200,
+                coalesce=True,
+            )
+            self._scheduler.add_job(
+                self._evening_checkin,
+                trigger=checkin_trigger,
+                id="evening_checkin",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+            )
+            self._scheduler.add_job(
+                self._afternoon_check,
+                trigger=afternoon_check_trigger,
+                id="afternoon_check",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+            )
         # Monthly retrospective — fires on the last day of each month at 18:00
         self._scheduler.add_job(
             self._monthly_retrospective,
@@ -291,14 +337,21 @@ class ProactiveScheduler:
         )
 
         self._scheduler.start()
-        logger.info(
-            "Proactive scheduler started — briefing: %s, afternoon: %s, check-in: %s, alcohol: %s (tz: %s)",
-            settings.briefing_cron,
-            afternoon_cron,
-            settings.checkin_cron,
-            settings.alcohol_check_cron,
-            settings.scheduler_timezone,
-        )
+        if use_heartbeat:
+            logger.info(
+                "Proactive scheduler started — evaluative heartbeat (tz: %s)",
+                settings.scheduler_timezone,
+            )
+        else:
+            afternoon_cron = getattr(settings, "afternoon_cron", _AFTERNOON_CRON_DEFAULT)
+            logger.info(
+                "Proactive scheduler started — briefing: %s, afternoon: %s, check-in: %s, afternoon_check: %s (tz: %s)",
+                settings.briefing_cron,
+                afternoon_cron,
+                settings.checkin_cron,
+                settings.afternoon_check_cron,
+                settings.scheduler_timezone,
+            )
 
     def stop(self) -> None:
         """Gracefully shut down the scheduler."""
@@ -355,21 +408,25 @@ class ProactiveScheduler:
         )
 
         jobs_to_fire: list[tuple[str, str]] = []  # (job_id, delay_reason)
-        if (
-            current_hour >= _cron_hour(afternoon_cron)
-            and log.get("afternoon_focus") != today
-        ):
-            jobs_to_fire.append(("afternoon_focus", "afternoon focus missed"))
-        if (
-            current_hour >= _cron_hour(settings.checkin_cron)
-            and log.get("evening_checkin") != today
-        ):
-            jobs_to_fire.append(("evening_checkin", "evening check-in missed"))
-        if (
-            current_hour >= _cron_hour(settings.alcohol_check_cron)
-            and log.get("alcohol_check") != today
-        ):
-            jobs_to_fire.append(("alcohol_check", "5pm alcohol check missed"))
+        heartbeat_enabled = getattr(settings, "heartbeat_enabled", True) and (
+            self._heartbeat_handler is not None
+        )
+        if not heartbeat_enabled:
+            if (
+                current_hour >= _cron_hour(afternoon_cron)
+                and log.get("afternoon_focus") != today
+            ):
+                jobs_to_fire.append(("afternoon_focus", "afternoon focus missed"))
+            if (
+                current_hour >= _cron_hour(settings.checkin_cron)
+                and log.get("evening_checkin") != today
+            ):
+                jobs_to_fire.append(("evening_checkin", "evening check-in missed"))
+            if (
+                current_hour >= _cron_hour(settings.afternoon_check_cron)
+                and log.get("afternoon_check") != today
+            ):
+                jobs_to_fire.append(("afternoon_check", "afternoon check missed"))
         if (
             current_hour >= _cron_hour(consolidation_cron)
             and log.get("end_of_day_consolidation") != today
@@ -396,8 +453,8 @@ class ProactiveScheduler:
                     await self._afternoon_focus()
                 elif job_id == "evening_checkin":
                     await self._evening_checkin()
-                elif job_id == "alcohol_check":
-                    await self._alcohol_check()
+                elif job_id == "afternoon_check":
+                    await self._afternoon_check()
                 elif job_id == "end_of_day_consolidation":
                     await self._end_of_day_consolidation()
             except Exception as e:
@@ -630,23 +687,29 @@ class ProactiveScheduler:
             )
 
     async def _send(self, chat_id: int, text: str) -> None:
-        """Send a message, swallowing errors so a bad send never kills the scheduler."""
-        try:
-            formatted = format_telegram_message(text)
-            await self._bot.send_message(
-                chat_id=chat_id, text=formatted, parse_mode="MarkdownV2"
-            )
+        """Send a message via queue (when available) or bot, swallowing errors."""
+        from ..delivery.send import send_via_queue_or_bot
+
+        formatted = format_telegram_message(text)
+        ok = await send_via_queue_or_bot(
+            queue=self._outbound_queue,
+            bot=self._bot,
+            chat_id=chat_id,
+            text=formatted,
+            parse_mode="MarkdownV2",
+        )
+        if ok:
             logger.info(
                 "Proactive send succeeded (chat %d, %d chars)", chat_id, len(text)
             )
-        except Exception:
-            try:
-                await self._bot.send_message(chat_id=chat_id, text=text)
-                logger.info(
-                    "Proactive send succeeded (plain text fallback, chat %d)", chat_id
-                )
-            except Exception as e:
-                logger.warning("Proactive send failed (chat %d): %s", chat_id, e)
+            return
+        try:
+            await self._bot.send_message(chat_id=chat_id, text=text)
+            logger.info(
+                "Proactive send succeeded (plain text fallback, chat %d)", chat_id
+            )
+        except Exception as e:
+            logger.warning("Proactive send failed (chat %d): %s", chat_id, e)
 
     async def _send_reminder(
         self,
@@ -925,16 +988,16 @@ class ProactiveScheduler:
         await self._send(chat_id, content)
         _record_delivery("evening_checkin")
 
-    async def _alcohol_check(self) -> None:
+    async def _afternoon_check(self) -> None:
         """
-        17:00 (alcohol_check_cron) — 5pm alcohol/sobriety check-in.
+        17:00 (afternoon_check_cron) — afternoon check-in.
 
-        Mediated only: compassionate, context-relevant message for the high-risk
-        window (US-remy-mediated-reminders). Always routed through Remy.
+        Mediated only: compassionate, context-relevant message (US-remy-mediated-reminders).
+        Always routed through Remy.
         """
         chat_id = _read_primary_chat_id()
         if chat_id is None:
-            logger.debug("5pm alcohol check skipped — no primary chat ID set")
+            logger.debug("Afternoon check skipped — no primary chat ID set")
             return
 
         user_ids = settings.telegram_allowed_users
@@ -942,7 +1005,7 @@ class ProactiveScheduler:
             return
 
         user_id = user_ids[0]
-        context: dict = {"alcohol_check": True, "goals": [], "calendar_summary": None}
+        context: dict = {"afternoon_check": True, "goals": [], "calendar_summary": None}
         if self._goal_store is not None:
             goals = await self._goal_store.get_active(user_id, limit=5)
             context["goals"] = [{"title": g.get("title")} for g in goals]
@@ -956,7 +1019,7 @@ class ProactiveScheduler:
                 else:
                     context["calendar_summary"] = "Nothing scheduled."
             except Exception as e:
-                logger.debug("Could not load calendar for alcohol check: %s", e)
+                logger.debug("Could not load calendar for afternoon check: %s", e)
 
         if (
             self._claude_client is None
@@ -965,7 +1028,7 @@ class ProactiveScheduler:
             or self._conv_store is None
         ):
             logger.warning(
-                "5pm alcohol check skipped — mediated path required but dependencies missing"
+                "Afternoon check skipped — mediated path required but dependencies missing"
             )
             return
 
@@ -973,7 +1036,7 @@ class ProactiveScheduler:
             from ..bot.pipeline import compose_proactive_message
 
             await compose_proactive_message(
-                label="5pm alcohol check-in",
+                label="Afternoon check-in",
                 user_id=user_id,
                 chat_id=chat_id,
                 bot=self._bot,
@@ -984,9 +1047,9 @@ class ProactiveScheduler:
                 db=self._db,
                 context=context,
             )
-            _record_delivery("alcohol_check")
+            _record_delivery("afternoon_check")
         except Exception as e:
-            logger.error("5pm alcohol check failed: %s", e)
+            logger.error("Afternoon check failed: %s", e)
 
     async def _monthly_retrospective(self) -> None:
         """Last-day-of-month job — generate and send a monthly retrospective."""

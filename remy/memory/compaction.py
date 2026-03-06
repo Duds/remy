@@ -27,7 +27,7 @@ class CompactionConfig:
     """Configuration for auto-compaction."""
 
     enabled: bool = True
-    token_threshold: int = 50_000
+    token_threshold: int = 40_000  # SAD v7: correctness + freshness; config overrides
     turn_threshold: int = 80  # Trigger compaction when turn count >= this (US-aggressive-session-compaction)
     keep_recent_messages: int = 20
     summary_model: str = "claude-haiku-4-5-20251001"

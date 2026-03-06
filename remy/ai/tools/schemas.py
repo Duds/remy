@@ -61,6 +61,9 @@ Tools available:
     git_diff              → unified diff for a commit or between refs
     git_status            → current branch and short status
 
+  Claude Code CLI (SAD v7 P2)
+    run_claude_code       → run a coding task via Claude Code subprocess (stdout/stderr/exit_code)
+
   Documents
     read_gdoc             → read a Google Doc by URL or ID
     append_to_gdoc        → append text to a Google Doc
@@ -826,6 +829,35 @@ TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    # ------------------------------------------------------------------ #
+    # Claude Code CLI (SAD v7 P2 — autonomous coding subprocess)          #
+    # ------------------------------------------------------------------ #
+    {
+        "name": "run_claude_code",
+        "description": (
+            "Run a coding task via the Claude Code CLI (subprocess). "
+            "Use for multi-step code edits, running tests, or file operations that need an agentic loop. "
+            "Returns stdout, stderr, and exit code. Requires Claude Code to be installed (npm install -g @anthropic-ai/claude-code)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Clear description of the coding task (e.g. 'Fix the bug in src/foo.py' or 'Add unit tests for Bar').",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional context (relevant files, error messages, or user instructions).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Optional path to the repo or directory to run in; if omitted, uses current working directory.",
+                },
+            },
+            "required": ["task"],
         },
     },
     # ------------------------------------------------------------------ #

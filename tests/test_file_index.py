@@ -386,11 +386,11 @@ class TestFileIndexer:
 
 
 class TestToolSchemas:
-    """Tests for the tool schemas in tool_registry."""
+    """Tests for the tool schemas (TOOL_SCHEMAS from remy.ai.tools)."""
     
     def test_search_files_schema_exists(self):
         """search_files tool schema should exist."""
-        from remy.ai.tool_registry import TOOL_SCHEMAS
+        from remy.ai.tools import TOOL_SCHEMAS
         
         names = [t["name"] for t in TOOL_SCHEMAS]
         assert "search_files" in names
@@ -402,7 +402,7 @@ class TestToolSchemas:
     
     def test_index_status_schema_exists(self):
         """index_status tool schema should exist."""
-        from remy.ai.tool_registry import TOOL_SCHEMAS
+        from remy.ai.tools import TOOL_SCHEMAS
         
         names = [t["name"] for t in TOOL_SCHEMAS]
         assert "index_status" in names

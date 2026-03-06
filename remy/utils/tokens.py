@@ -1,48 +1,12 @@
 """
 Token counting utilities for system prompt size estimation.
 
-Uses anthropic.count_tokens() if available, otherwise falls back to
-character-based estimation (~4 chars per token for English prose).
+Uses character-based estimation (~4 chars per token for prose,
+~3.5 for structured content). No synchronous API calls; safe for async paths.
 """
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 _CHARS_PER_TOKEN_PROSE = 4.0
 _CHARS_PER_TOKEN_STRUCTURED = 3.5
-
-
-def count_tokens(text: str, model: str = "claude-sonnet-4-20250514") -> int:
-    """
-    Estimate token count for text.
-
-    Attempts to use the Anthropic SDK's count_tokens() if available,
-    otherwise falls back to character-based estimation.
-
-    Args:
-        text: The text to count tokens for.
-        model: The model name (used for SDK counting if available).
-
-    Returns:
-        Estimated token count.
-    """
-    if not text:
-        return 0
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic()
-        result = client.count_tokens(  # type: ignore[attr-defined]
-            model=model,
-            messages=[{"role": "user", "content": text}],
-        )
-        return result.input_tokens
-    except (ImportError, AttributeError, Exception) as e:
-        logger.debug("Anthropic token counting unavailable, using estimate: %s", e)
-
-    return estimate_tokens(text)
 
 
 def estimate_tokens(text: str) -> int:

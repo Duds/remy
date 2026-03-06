@@ -58,7 +58,7 @@ This ensures users never need to remember slash commands — Claude detects inte
 ### 1.1 Deprecation of Unsafe Patterns
 
 - [x] **Remove/Restrict Claude Code subprocess access**
-  - ClaudeCodeRunner removed entirely from production path
+  - ClaudeCodeRunner removed (orphan deleted per zero-trust audit)
   - File writes require explicit `/write` + confirmation step
   - Allowed directories enforced via path sanitisation
 
