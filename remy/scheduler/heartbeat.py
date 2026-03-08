@@ -121,13 +121,68 @@ async def run_heartbeat_job(
     # What we've already delivered today (so model can enforce "at most once per day" etc.)
     already_surfaced_today = await _get_already_surfaced_today(db, tz)
 
+    # Agent Tasks: query unsurfaced done/failed/stalled tasks for heartbeat context
+    agent_tasks_context: str | None = None
+    unsurfaced_task_ids: list[str] = []
+    try:
+        async with db.get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT task_id, worker_type, status, synthesis, error
+                  FROM agent_tasks
+                 WHERE status IN ('failed', 'stalled', 'done')
+                   AND surfaced_to_remy = 0
+                 ORDER BY created_at ASC
+                 LIMIT 20
+                """,
+            )
+            task_rows = await cursor.fetchall()
+        if task_rows:
+            lines: list[str] = []
+            for row in task_rows:
+                tid, wtype, status, synthesis, error = row
+                unsurfaced_task_ids.append(tid)
+                if synthesis:
+                    try:
+                        syn = json.loads(synthesis)
+                        summary = syn.get("summary", "")[:200]
+                    except Exception:
+                        summary = synthesis[:200]
+                else:
+                    summary = error[:200] if error else "(no detail)"
+                lines.append(
+                    f"• [{status}] {wtype} task {tid[:8]}: {summary}"
+                )
+            agent_tasks_context = (
+                "Agent tasks requiring attention:\n" + "\n".join(lines)
+            )
+    except Exception as _at_err:
+        logger.warning("Could not query agent_tasks for heartbeat: %s", _at_err)
+
     result = await handler.run(
         user_id=user_id,
         chat_id=chat_id,
         config_text=config_text,
         current_local_time=current_local_time,
         already_surfaced_today=already_surfaced_today,
+        agent_tasks_context=agent_tasks_context,
     )
+
+    # Mark queried tasks as surfaced (they were included in the evaluation context)
+    if unsurfaced_task_ids:
+        try:
+            async with db.get_connection() as conn:
+                placeholders = ",".join("?" * len(unsurfaced_task_ids))
+                await conn.execute(
+                    f"UPDATE agent_tasks SET surfaced_to_remy=1"  # noqa: S608
+                    f" WHERE task_id IN ({placeholders})",
+                    unsurfaced_task_ids,
+                )
+                await conn.commit()
+        except Exception as _mark_err:
+            logger.warning(
+                "Could not mark agent_tasks as surfaced: %s", _mark_err
+            )
 
     fired_at = datetime.now(timezone.utc).isoformat()
     try:

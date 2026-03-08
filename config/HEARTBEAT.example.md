@@ -58,6 +58,17 @@ If HEARTBEAT.md is missing, the heartbeat runs using this template.
 
 ---
 
+## Agent Tasks
+
+- Check agent_tasks for `status = failed` where `surfaced_to_remy = 0` — surface immediately, do not suppress.
+- Check agent_tasks for `status = stalled` where `surfaced_to_remy = 0` — surface immediately.
+- Check agent_tasks for `status = done` where `surfaced_to_remy = 0` — surface in the next natural heartbeat window.
+- Use the task `synthesis` field as message content — never surface raw worker output.
+- Set `surfaced_to_remy = 1` after delivery (handled automatically by the heartbeat job).
+- Failed and stalled tasks require Dale's decision: present clearly and ask what to do next.
+
+---
+
 ## Model Selection
 
 - **Threshold checks and HEARTBEAT_OK decisions:** Tier 0 — local model (e.g. Qwen3 1.7B /no_think).

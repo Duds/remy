@@ -2,7 +2,9 @@
 .env
 config/SOUL.md
 config/HEARTBEAT.md
+config/TASK.md
 config/*.local.md
+config/skills/*.local.md
 
 # Runtime data (personal / generated)
 data/

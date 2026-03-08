@@ -296,6 +296,27 @@ CREATE TABLE IF NOT EXISTS counters (
     PRIMARY KEY (user_id, name)
 );
 CREATE INDEX IF NOT EXISTS idx_counters_user ON counters(user_id);
+
+-- Sub-agent task manifest (SAD v10 §11) — persists across restarts, read by heartbeat
+CREATE TABLE IF NOT EXISTS agent_tasks (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id          TEXT UNIQUE NOT NULL,
+    parent_id        TEXT,
+    worker_type      TEXT NOT NULL,         -- research | goal | code
+    status           TEXT NOT NULL DEFAULT 'pending',  -- pending | running | done | failed | stalled
+    task_context     TEXT NOT NULL,         -- JSON: task definition
+    result           TEXT,                  -- raw worker output
+    synthesis        TEXT,                  -- structured JSON from orchestrator
+    error            TEXT,
+    retry_count      INTEGER DEFAULT 0,
+    depth            INTEGER DEFAULT 0,     -- spawn depth (max 2)
+    created_at       TEXT NOT NULL,
+    started_at       TEXT,
+    completed_at     TEXT,
+    surfaced_to_remy INTEGER DEFAULT 0      -- 1 after heartbeat has included this task
+);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, surfaced_to_remy);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent ON agent_tasks(parent_id);
 """
 
 

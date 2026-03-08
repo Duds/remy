@@ -72,6 +72,7 @@ class HeartbeatHandler:
         config_text: str | None = None,
         current_local_time: str | None = None,
         already_surfaced_today: str | None = None,
+        agent_tasks_context: str | None = None,
     ) -> HeartbeatResult:
         """Gather context, evaluate with model, return result (and optionally enqueue message)."""
         t0 = time.monotonic()
@@ -146,6 +147,10 @@ class HeartbeatHandler:
                 items_checked["reminders"] = f"Error: {e}"
         else:
             items_checked["reminders"] = "Reminders not available."
+
+        # Agent Tasks (sub-agent system — SAD v10 §11.9)
+        if agent_tasks_context:
+            items_checked["agent_tasks"] = agent_tasks_context
 
         # Counters (e.g. sobriety streak)
         if self._counter_store:

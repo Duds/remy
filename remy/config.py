@@ -216,6 +216,15 @@ class Settings(BaseSettings):
     # If set, git_log / git_diff / etc. run from this directory. Empty = use cwd.
     workspace_root: str = ""
 
+    # ── Sub-agent orchestration (SAD v10 §11) ───────────────────────────────────
+    subagent_max_workers: int = 5         # Maximum concurrent asyncio worker tasks
+    subagent_max_depth: int = 2           # Maximum spawn depth (orchestrator → worker)
+    subagent_max_children: int = 3        # Maximum child workers per parent (research only)
+    subagent_stall_minutes: int = 30      # Minutes before a running task is marked stalled
+    subagent_worker_model: str = "mistral"                       # Tier 1 — worker execution
+    subagent_synth_model: str = "claude-sonnet-4-20250514"       # Tier 2 — synthesis
+    task_md_path: str = "config/TASK.md"  # Orchestrator behaviour config
+
     # ── Relay (US-claude-desktop-relay, US-relay-shared-backend) ───────────────
     # If set, Remy uses HTTP to talk to relay_mcp. Empty = use shared SQLite.
     relay_mcp_url: str = ""
