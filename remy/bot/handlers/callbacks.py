@@ -379,6 +379,35 @@ def make_callback_handler(
             return
 
         data = query.data or ""
+
+        # Step-limit buttons: answer once here (toast) then handle; skip generic answer() below
+        if data == "step_limit_continue":
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+                await query.answer('Send "continue" to pick up where I left off.')
+            except Exception as e:
+                logger.debug("Step limit continue edit failed: %s", e)
+                await query.answer()
+            return
+        if data == "step_limit_break":
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+                await query.answer(
+                    'Send "break this into smaller tasks" or use /breakdown.'
+                )
+            except Exception as e:
+                logger.debug("Step limit break edit failed: %s", e)
+                await query.answer()
+            return
+        if data == "step_limit_stop":
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+                await query.answer()
+            except Exception as e:
+                logger.debug("Step limit stop edit failed: %s", e)
+                await query.answer()
+            return
+
         await query.answer()
 
         if data.startswith("confirm_archive_"):
@@ -486,29 +515,6 @@ def make_callback_handler(
                 await query.edit_message_reply_markup(reply_markup=None)
             except Exception as e:
                 logger.debug("Edit reply_markup failed: %s", e)
-
-        elif data == "step_limit_continue":
-            try:
-                await query.edit_message_reply_markup(reply_markup=None)
-                await query.answer('Send "continue" to pick up where I left off.')
-            except Exception as e:
-                logger.debug("Step limit continue edit failed: %s", e)
-
-        elif data == "step_limit_break":
-            try:
-                await query.edit_message_reply_markup(reply_markup=None)
-                await query.answer(
-                    'Send "break this into smaller tasks" or use /breakdown.'
-                )
-            except Exception as e:
-                logger.debug("Step limit break edit failed: %s", e)
-
-        elif data == "step_limit_stop":
-            try:
-                await query.edit_message_reply_markup(reply_markup=None)
-                await query.answer()
-            except Exception as e:
-                logger.debug("Step limit stop edit failed: %s", e)
 
         elif data.startswith("add_to_calendar_"):
             token = data[len("add_to_calendar_") :]

@@ -86,9 +86,24 @@ class StepLimitReached:
     pass
 
 
+@dataclass
+class HandOffToSubAgent:
+    """
+    Emitted when max_iterations was hit; consumer should hand off to Board (sub-agent)
+    instead of showing step-limit message. topic is the user's request for the Board.
+    """
+
+    topic: str
+
+
 # The StreamEvent union type
 StreamEvent = Union[
-    TextChunk, ToolStatusChunk, ToolResultChunk, ToolTurnComplete, StepLimitReached
+    TextChunk,
+    ToolStatusChunk,
+    ToolResultChunk,
+    ToolTurnComplete,
+    StepLimitReached,
+    HandOffToSubAgent,
 ]
 
 
@@ -106,6 +121,27 @@ def _is_overload_error(exc: anthropic.APIStatusError) -> bool:
     if exc.status_code == 529:
         return True
     return "overloaded" in str(exc).lower()
+
+
+def _last_user_text_from_messages(messages: list[dict], max_chars: int = 200) -> str:
+    """Extract the last user message text for hand-off topic (first max_chars)."""
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            return (content.strip() or "")[:max_chars]
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif isinstance(block, dict) and "text" in block:
+                    parts.append(block["text"])
+            text = " ".join(parts).strip()
+            return text[:max_chars] if text else ""
+    return ""
 
 
 class ClaudeClient:
@@ -244,6 +280,7 @@ class ClaudeClient:
         # Working copy of messages — we'll append assistant + tool_result turns
         working_messages = list(messages)
         accumulated_usage = TokenUsage()
+        hand_off_topic = _last_user_text_from_messages(messages)
 
         max_iterations = settings.anthropic_max_tool_iterations
         for iteration in range(max_iterations):
@@ -543,11 +580,9 @@ class ClaudeClient:
             "max_iterations_reached",
             extra={"user_id": user_id, "iterations": max_iterations},
         )
-        # Yield a truncation note so the user knows the response was limited (Bug 38)
-        yield TextChunk(
-            text="\n\n_I reached my step limit for this turn. Ask me to continue or break this into smaller tasks._"
-        )
-        yield StepLimitReached()
+        # Hand off to sub-agent (Board) instead of step-limit message (consolidation)
+        yield TextChunk(text="\n\n_Handing off to the Board to continue._")
+        yield HandOffToSubAgent(topic=hand_off_topic or "Continue from previous turn")
 
     async def complete(
         self,

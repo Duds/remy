@@ -52,7 +52,7 @@ _DIAGNOSTICS_RUNNER = None
 _OUTBOUND_QUEUE = None
 _HOOK_MANAGER = None
 
-# Late-bound references for /logs and /telemetry
+# Late-bound references for /logs and /telemetry (consolidation: same pattern as StartupContext)
 _DB = None  # DatabaseManager — set via set_db()
 _DATA_DIR = "./data"  # path to data directory — set via set_data_dir()
 
@@ -614,7 +614,10 @@ async def _handle_webhook_subscribe(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
 
     if not _check_token(request):
-        return web.json_response({"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"}, status=401)
+        return web.json_response(
+            {"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"},
+            status=401,
+        )
 
     if _WEBHOOK_MANAGER is None:
         return web.json_response({"error": "Webhook manager not available"}, status=503)
@@ -645,7 +648,10 @@ async def _handle_webhook_list(request) -> "aiohttp.web.Response":
     from aiohttp import web  # type: ignore[import]
 
     if not _check_token(request):
-        return web.json_response({"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"}, status=401)
+        return web.json_response(
+            {"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"},
+            status=401,
+        )
 
     if _WEBHOOK_MANAGER is None:
         return web.json_response({"error": "Webhook manager not available"}, status=503)

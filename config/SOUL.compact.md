@@ -39,16 +39,10 @@ Locale: en-AU, metric, 24h
 Email (Gmail triage, search, labels, drafts) • Calendar • Goals (outcomes), plans (projects+steps, optional goal link) & memory • Contacts • Web search • Files & folders (read/write/search) • Git (commits, diffs, status) • Google Docs • Grocery list • Bookmarks • Projects • Reminders & one-off alerts • Analytics & costs • Conversation (compact, delete, proactive chat, consolidate) • Relay (read/reply cowork inbox, task updates) • Proactive check-ins (daily orientation, end-of-day, mediated e.g. wellbeing — schedule & thresholds in HEARTBEAT) • Counters (e.g. streaks; get/set/increment/reset; heartbeat sees them in context) • Board (convene topic) • Self-diagnostics
 
 ## Commands
-Core: /help /cancel /status /compact /delete_conversation /goals /plans /logs /relay /briefing /setmychat
-Files: /read /write /ls /find /set_project /project_status /scan_downloads /organize /clean
-Calendar: /calendar /calendar_today /schedule
-Gmail: /gmail_unread /gmail_unread_summary /gmail_classify /gmail_search /gmail_read /gmail_labels /gmail_create_label
-Docs & contacts: /gdoc /gdoc_append /contacts /contacts_birthday /contacts_details /contacts_note /contacts_prune
-Web: /search /research /save_url /bookmarks
-Grocery & shopping: /grocery_list /price_check
-Board: /board
-Reminders: /schedule_daily /schedule_weekly /list_automations /unschedule
-Goals & stats: /breakdown /stats /costs /goal_status /retrospective /consolidate /diagnostics
+Commands are shortcuts; most capabilities are tools (use natural language, e.g. "what's on my calendar tomorrow?").
+Core: /start /cancel /briefing /status /setmychat /compact /delete_conversation
+Domain: /board <topic> /diagnostics /logs [filter] /stats [period] /costs
+Goals, plans, calendar, email, contacts, files, web, relay, automations, grocery, bookmarks, research, consolidate, etc. are available via tools — no separate slash commands.
 
 ## Limits
 No: arbitrary code, system dirs, .env/.ssh/.aws, rate limit bypass

@@ -108,6 +108,7 @@ class TestTelegramBot:
             mock_builder.get_updates_read_timeout.return_value = mock_builder
             mock_builder.get_updates_write_timeout.return_value = mock_builder
             mock_builder.get_updates_pool_timeout.return_value = mock_builder
+            mock_builder.post_init.return_value = mock_builder
             mock_builder.build.return_value = MagicMock()
 
             from remy.bot.telegram_bot import TelegramBot
@@ -153,6 +154,7 @@ class TestTelegramBot:
             mock_builder.get_updates_read_timeout.return_value = mock_builder
             mock_builder.get_updates_write_timeout.return_value = mock_builder
             mock_builder.get_updates_pool_timeout.return_value = mock_builder
+            mock_builder.post_init.return_value = mock_builder
             mock_builder.build.return_value = mock_application
 
             from remy.bot.telegram_bot import TelegramBot
@@ -187,6 +189,7 @@ class TestTelegramBot:
             mock_builder.get_updates_read_timeout.return_value = mock_builder
             mock_builder.get_updates_write_timeout.return_value = mock_builder
             mock_builder.get_updates_pool_timeout.return_value = mock_builder
+            mock_builder.post_init.return_value = mock_builder
             mock_builder.build.return_value = mock_application
 
             from remy.bot.telegram_bot import TelegramBot
@@ -262,6 +265,7 @@ class TestBotRun:
             mock_builder.get_updates_read_timeout.return_value = mock_builder
             mock_builder.get_updates_write_timeout.return_value = mock_builder
             mock_builder.get_updates_pool_timeout.return_value = mock_builder
+            mock_builder.post_init.return_value = mock_builder
             mock_builder.build.return_value = mock_application
 
             from remy.bot.telegram_bot import TelegramBot

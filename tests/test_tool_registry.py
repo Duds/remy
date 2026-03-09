@@ -53,6 +53,7 @@ def make_registry(**kwargs) -> ToolRegistry:
 def test_tool_registry_and_schemas_import_from_canonical_module():
     """ToolRegistry and TOOL_SCHEMAS must be imported from remy.ai.tools."""
     from remy.ai.tools import ToolRegistry as TR, TOOL_SCHEMAS as SCHEMAS
+
     assert TR is ToolRegistry
     assert SCHEMAS is TOOL_SCHEMAS
 
@@ -567,11 +568,17 @@ async def test_stream_with_tools_hits_max_iterations_yields_truncation():
         ):
             events.append(event)
 
+    # Consolidation: max_iterations yields hand-off message + HandOffToSubAgent
+    from remy.ai.claude_client import HandOffToSubAgent
+
     truncation = [
-        e for e in events if isinstance(e, TextChunk) and "step limit" in e.text
+        e for e in events if isinstance(e, TextChunk) and "Handing off" in e.text
     ]
+    hand_offs = [e for e in events if isinstance(e, HandOffToSubAgent)]
     assert len(truncation) == 1
-    assert "step limit" in truncation[0].text
+    assert "Handing off" in truncation[0].text
+    assert len(hand_offs) == 1
+    assert hand_offs[0].topic
 
 
 @pytest.mark.asyncio

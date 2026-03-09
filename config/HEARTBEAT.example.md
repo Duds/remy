@@ -69,6 +69,12 @@ If HEARTBEAT.md is missing, the heartbeat runs using this template.
 
 ---
 
+## Date-sensitive memory
+
+Before surfacing any date-specific memory fact (e.g. anniversaries, one-off dates), verify current date. Surface only when today is that date or within an explicit lead-up window (e.g. 1–3 days before); otherwise do not mention it. Do not surface facts whose date is far in the future or past in the current context.
+
+---
+
 ## Model Selection
 
 - **Threshold checks and HEARTBEAT_OK decisions:** Tier 0 — local model (e.g. Qwen3 1.7B /no_think).
@@ -76,6 +82,8 @@ If HEARTBEAT.md is missing, the heartbeat runs using this template.
 - **Goal/calendar/email judgment, daily orientation, end-of-day:** Tier 2 — Sonnet.
 - **Wellbeing check-in:** Always Tier 2 — Sonnet.
 - **Never use Tier 3 (Opus) in the heartbeat.**
+
+(Tiers may be implemented as local vs Claude model selection; the intent — cheap for threshold checks, Sonnet for judgment and wellbeing — remains.)
 
 ---
 

@@ -10,6 +10,7 @@ import logging
 import os
 
 import telegram.error
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -23,6 +24,31 @@ from telegram.ext import (
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+# Phase 3 collapsed commands — shown in Telegram "/" menu
+PHASE3_BOT_COMMANDS = [
+    BotCommand("start", "Show overview"),
+    BotCommand("help", "Show overview"),
+    BotCommand("cancel", "Stop current task"),
+    BotCommand("status", "Backend health"),
+    BotCommand("compact", "Compress conversation"),
+    BotCommand("setmychat", "Set proactive message chat"),
+    BotCommand("briefing", "Morning briefing now"),
+    BotCommand("delete_conversation", "Clear history"),
+    BotCommand("board", "Board of Directors analysis"),
+    BotCommand("logs", "Diagnostics summary"),
+    BotCommand("stats", "Usage stats"),
+    BotCommand("costs", "API cost summary"),
+    BotCommand("diagnostics", "Full self-check"),
+]
+
+
+async def _set_phase3_commands(application: Application) -> None:
+    """Post-init: set bot command list so Telegram menu shows only Phase 3 commands."""
+    try:
+        await application.bot.set_my_commands(PHASE3_BOT_COMMANDS)
+    except Exception as e:
+        logger.warning("set_my_commands failed: %s", e)
 
 
 async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -96,6 +122,7 @@ class TelegramBot:
             .get_updates_read_timeout(timeout)
             .get_updates_write_timeout(timeout)
             .get_updates_pool_timeout(timeout)
+            .post_init(_set_phase3_commands)
             .build()
         )
         self._register_handlers(handlers)

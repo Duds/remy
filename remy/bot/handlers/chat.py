@@ -44,6 +44,7 @@ from .callbacks import (
 from ..session import SessionManager
 from ...ai.claude_client import (
     AnthropicOverloadFallbackAvailable,
+    HandOffToSubAgent,
     StepLimitReached,
     TextChunk,
     ToolResultChunk,
@@ -201,6 +202,8 @@ def make_chat_handlers(
         current_display: list[str] = []
         tool_turns: list[tuple[list[dict], list[dict]]] = []
         step_limit_reached = False
+        hand_off_requested = False
+        hand_off_topic: str | None = None
 
         in_tool_turn = False
         last_edit_len = 0
@@ -283,6 +286,8 @@ def make_chat_handlers(
                 current_display = []
                 tool_turns = []
                 step_limit_reached = False
+                hand_off_requested = False
+                hand_off_topic = None
                 in_tool_turn = False
                 last_edit_len = 0
                 chat_action_heartbeat_task: asyncio.Task | None = None
@@ -404,6 +409,11 @@ def make_chat_handlers(
 
                         elif isinstance(event, StepLimitReached):
                             step_limit_reached = True
+                        elif isinstance(event, HandOffToSubAgent):
+                            hand_off_requested = True
+                            hand_off_topic = (
+                                event.topic or "Continue from previous turn"
+                            )
 
                     break  # stream completed successfully
 
@@ -507,10 +517,10 @@ def make_chat_handlers(
             if approval_keyboard is not None:
                 break
 
-        # Step-limit keyboard takes precedence when max_iterations was hit (US-step-limit-buttons)
+        # Hand-off to Board: no step-limit keyboard; we trigger run_board after send
         # Then approval gate; then suggested_actions; then Run again for tool-heavy flows
         reply_markup: InlineKeyboardMarkup | None
-        if step_limit_reached:
+        if step_limit_reached and not hand_off_requested:
             reply_markup = make_step_limit_keyboard()
         elif approval_keyboard is not None:
             reply_markup = approval_keyboard
@@ -575,6 +585,51 @@ def make_chat_handlers(
                     await sent.edit_text("✓", reply_markup=reply_markup)
                 except Exception:
                     pass
+
+        # Hand-off to Board when max_iterations was hit (consolidation: no step limit)
+        if (
+            hand_off_requested
+            and hand_off_topic
+            and tool_registry is not None
+            and bot is not None
+        ):
+            _chat_id = chat_id
+            _thread_id = thread_id
+            _user_id = user_id
+            _topic = hand_off_topic
+
+            async def _run_hand_off_board() -> None:
+                try:
+                    result = await tool_registry.dispatch(
+                        "run_board", {"topic": _topic}, _user_id
+                    )
+                    if result and _chat_id is not None:
+                        kwargs = {}
+                        if _thread_id is not None:
+                            kwargs["message_thread_id"] = _thread_id
+                        text = (
+                            (result[:4000] + "\n\n_(truncated)_")
+                            if len(result) > 4000
+                            else result
+                        )
+                        await bot.send_message(
+                            _chat_id,
+                            text,
+                            parse_mode="Markdown",
+                            **kwargs,
+                        )
+                except Exception as e:
+                    logger.exception("Hand-off Board run failed: %s", e)
+                    try:
+                        await bot.send_message(
+                            _chat_id,
+                            f"Board hand-off failed: {e}",
+                            **({"message_thread_id": _thread_id} if _thread_id else {}),
+                        )
+                    except Exception:
+                        pass
+
+            asyncio.create_task(_run_hand_off_board())
 
         await hook_manager.emit(
             HookEvents.MESSAGE_SENT,
