@@ -487,6 +487,58 @@ class KnowledgeStore:
             rc = cursor.rowcount
             return rc is not None and rc > 0
 
+    async def supersede_knowledge(
+        self,
+        user_id: int,
+        old_item_id: int,
+        new_content: str,
+        new_metadata: dict | None = None,
+        session_key: str = "",
+    ) -> int:
+        """Replace a knowledge item's content without deleting the old row.
+
+        Sets ``superseded_by`` on the old row to record what replaced it, then
+        inserts a fresh row with the new content.  Returns the new item's ID.
+
+        Use this instead of ``delete`` + ``add_item`` when you want an audit
+        trail of how a piece of knowledge evolved over time.
+        """
+        # Fetch the old row so we can copy entity_type / metadata defaults
+        async with self._db.get_connection() as conn:
+            rows = list(
+                await conn.execute_fetchall(
+                    "SELECT entity_type, metadata FROM knowledge WHERE id=? AND user_id=?",
+                    (old_item_id, user_id),
+                )
+            )
+        if not rows:
+            raise ValueError(f"Knowledge item {old_item_id} not found for user {user_id}")
+
+        old_entity_type = rows[0]["entity_type"]
+        old_meta: dict = json.loads(rows[0]["metadata"])
+
+        merged_meta = old_meta if new_metadata is None else {**old_meta, **new_metadata}
+
+        # Mark old row as superseded
+        async with self._db.get_connection() as conn:
+            await conn.execute(
+                "UPDATE knowledge SET superseded_by=?, updated_at=datetime('now') WHERE id=? AND user_id=?",
+                (new_content[:500], old_item_id, user_id),
+            )
+            await conn.commit()
+
+        # Insert replacement row
+        from ..models import KnowledgeItem
+        from typing import cast, Literal
+
+        new_item = KnowledgeItem(
+            entity_type=cast("Literal['fact', 'goal', 'shopping_item']", old_entity_type),
+            content=new_content,
+            metadata=merged_meta,
+            confidence=1.0,
+        )
+        return await self._insert(user_id, new_item, session_key=session_key)
+
     async def migrate_legacy_data(
         self, user_id: int, grocery_file: Optional[str] = None
     ) -> dict[str, int]:

@@ -169,6 +169,32 @@ async def exec_label_emails(registry: ToolRegistry, inp: dict) -> str:
         return "Please provide message_ids."
     if not add_labels and not remove_labels:
         return "Please provide add_labels or remove_labels (or both)."
+
+    # Approval gate: bulk label/trash operations require confirmation (paperclip-ideas §4).
+    from ..bot.handlers.callbacks import (
+        BULK_EMAIL_APPROVAL_THRESHOLD,
+        make_bulk_email_keyboard,
+        store_bulk_email_approval,
+    )
+    is_trash = "TRASH" in [lbl.upper() for lbl in add_labels]
+    action_label = "trash" if is_trash else "label"
+    if len(message_ids) > BULK_EMAIL_APPROVAL_THRESHOLD:
+        user_id: int = getattr(registry, "_current_user_id", 0)
+        token = store_bulk_email_approval(
+            user_id=user_id,
+            action=action_label,
+            message_ids=message_ids,
+            add_label_ids=add_labels,
+            remove_label_ids=remove_labels,
+        )
+        label_desc = ", ".join(add_labels + remove_labels) or "none"
+        # Return a structured sentinel that chat.py detects to display the inline keyboard.
+        return (
+            f"APPROVAL_REQUIRED|token={token}|"
+            f"About to {action_label} {len(message_ids)} emails "
+            f"(labels: {label_desc}). Confirm to proceed."
+        )
+
     try:
         count = await registry._gmail.modify_labels(
             message_ids,

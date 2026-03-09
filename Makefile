@@ -2,7 +2,8 @@
         deploy deploy-update deploy-logs deploy-delete health \
         remy-up relay-up relay-run relay-stop relay-check relay-setup-check relay-verify \
         install-launchd uninstall-launchd \
-        tunnel-up tunnel-stop tunnel-logs telemetry logs ship-it-remote
+        tunnel-up tunnel-stop tunnel-logs telemetry logs ship-it-remote \
+        qmd-search qmd-query
 
 # ── Local development ─────────────────────────────────────────────────────────
 run:
@@ -22,6 +23,17 @@ test-cov:
 lint:
 	python3 -m ruff check remy/ tests/
 	python3 -m mypy remy/ --ignore-missing-imports
+
+# ── qmd — quick memory search (paperclip-ideas §10) ─────────────────────────
+## Search remy's memory (facts, knowledge, goals) with BM25 keyword search.
+## Usage: make qmd-search Q="health habits"
+qmd-search:
+	python3 -m remy.cli.qmd search "$(Q)"
+
+## Alias for qmd-search (semantic / keyword search).
+## Usage: make qmd-query Q="health habits"
+qmd-query:
+	python3 -m remy.cli.qmd query "$(Q)"
 
 # ── Datasette (local DB browser) ──────────────────────────────────────────────
 db-init:

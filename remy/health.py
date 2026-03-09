@@ -23,6 +23,10 @@ Endpoints:
                      Path must be base64url-encoded; token from get_file_download_link.
   POST /commands/ship-it → Run SHIP-IT pipeline (fetch, diff, tests). Auth required.
                            Optional JSON body: {"dry_run": true} to skip running tests.
+  POST /webhooks/subscribe → Register a webhook URL for an event. Auth required.
+                             Body: {"event": "relay_task_done", "url": "https://..."}
+  GET  /webhooks           → List registered webhook subscriptions. Auth required.
+                             Query param: event= to filter by event name.
 """
 
 from __future__ import annotations
@@ -51,6 +55,15 @@ _HOOK_MANAGER = None
 # Late-bound references for /logs and /telemetry
 _DB = None  # DatabaseManager — set via set_db()
 _DATA_DIR = "./data"  # path to data directory — set via set_data_dir()
+
+# Late-bound WebhookManager — set via set_webhook_manager()
+_WEBHOOK_MANAGER = None
+
+
+def set_webhook_manager(manager) -> None:
+    """Register the WebhookManager so /webhooks endpoints can use it."""
+    global _WEBHOOK_MANAGER
+    _WEBHOOK_MANAGER = manager
 
 
 def set_diagnostics_runner(runner) -> None:
@@ -591,6 +604,57 @@ async def _handle_ship_it(request: "aiohttp.web.Request") -> "aiohttp.web.Respon
     return web.json_response(result)
 
 
+async def _handle_webhook_subscribe(request) -> "aiohttp.web.Response":
+    """POST /webhooks/subscribe — register a webhook URL for an event.
+
+    Body (JSON): {"event": "relay_task_done", "url": "https://example.com/hook"}
+    Returns 200 with the created subscription or 400 on error.
+    Requires HEALTH_API_TOKEN auth if configured.
+    """
+    from aiohttp import web  # type: ignore[import]
+
+    if not _check_token(request):
+        return web.json_response({"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"}, status=401)
+
+    if _WEBHOOK_MANAGER is None:
+        return web.json_response({"error": "Webhook manager not available"}, status=503)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    event = str(body.get("event", "")).strip()
+    url = str(body.get("url", "")).strip()
+    if not event or not url:
+        return web.json_response({"error": "event and url are required"}, status=400)
+
+    try:
+        sub = await _WEBHOOK_MANAGER.subscribe(event, url)
+        return web.json_response({"status": "subscribed", "subscription": sub})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def _handle_webhook_list(request) -> "aiohttp.web.Response":
+    """GET /webhooks — list all webhook subscriptions.
+
+    Query param: event= to filter by event name.
+    Requires HEALTH_API_TOKEN auth if configured.
+    """
+    from aiohttp import web  # type: ignore[import]
+
+    if not _check_token(request):
+        return web.json_response({"error": "Unauthorized — set Authorization: Bearer <HEALTH_API_TOKEN>"}, status=401)
+
+    if _WEBHOOK_MANAGER is None:
+        return web.json_response({"error": "Webhook manager not available"}, status=503)
+
+    event_filter = request.rel_url.query.get("event")
+    subs = await _WEBHOOK_MANAGER.list_subscriptions(event_filter)
+    return web.json_response({"subscriptions": subs, "count": len(subs)})
+
+
 async def run_health_server(port: int | None = None) -> None:
     """
     Start the aiohttp health server on the given port.
@@ -626,6 +690,8 @@ async def run_health_server(port: int | None = None) -> None:
     app.router.add_get("/telemetry", _handle_telemetry)
     app.router.add_get("/files", _handle_files)
     app.router.add_post("/commands/ship-it", _handle_ship_it)
+    app.router.add_post("/webhooks/subscribe", _handle_webhook_subscribe)
+    app.router.add_get("/webhooks", _handle_webhook_list)
 
     runner = web.AppRunner(app, access_log=None)  # suppress per-request noise
     await runner.setup()

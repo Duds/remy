@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from ...config import settings
 from ...relay.client import (
+    create_task,
     get_messages_for_remy,
     get_tasks_for_remy,
     post_message_to_cowork,
@@ -162,6 +163,50 @@ async def exec_relay_update_task(
     except Exception as e:
         logger.warning("relay_update_task failed: %s", e)
         return json.dumps({"error": str(e), "task_id": task_id, "updated": False})
+
+
+async def exec_relay_create_task(
+    registry: ToolRegistry,
+    inp: dict,
+    user_id: int,
+) -> str:
+    """Create a new relay task addressed to cowork.
+
+    Requires ``relay_can_create_tasks = true`` in settings (default: false).
+    """
+    if not settings.relay_can_create_tasks:
+        return json.dumps(
+            {
+                "error": "relay_can_create_tasks is disabled. Enable it in config to allow Remy to create tasks.",
+                "created": False,
+            }
+        )
+
+    task_type = (inp.get("task_type") or "").strip()
+    description = (inp.get("description") or "").strip()
+    if not task_type or not description:
+        return json.dumps(
+            {"error": "task_type and description are required", "created": False}
+        )
+
+    to_agent = (inp.get("to_agent") or COWORK_AGENT).strip()
+    params = inp.get("params") or {}
+
+    try:
+        result = await create_task(
+            task_type=task_type,
+            description=description,
+            from_agent=REMY_AGENT,
+            to_agent=to_agent,
+            params=params,
+            db_path=_relay_db_path(),
+        )
+        if result is None:
+            return json.dumps({"error": "Failed to create task", "created": False})
+        return json.dumps({**result, "created": True})
+    except Exception as e:
+        logger.warning("relay_create_task failed: %s", e)
+        return json.dumps({"error": str(e), "created": False})
 
 
 async def exec_relay_post_note(

@@ -262,19 +262,83 @@ class GoalStore:
             return rc is not None and rc > 0
 
     async def add(
-        self, user_id: int, title: str, description: str | None = None
+        self, user_id: int, title: str, description: str | None = None,
+        parent_goal_id: int | None = None,
     ) -> int:
         """Manually add a goal (bypasses extraction). Returns the new goal ID."""
         goal = Goal(title=title[:200], description=description)
-        await self._insert(user_id, goal)
         async with self._db.get_connection() as conn:
-            rows = list(
-                await conn.execute_fetchall(
-                    "SELECT id FROM goals WHERE user_id=? AND title=? ORDER BY id DESC LIMIT 1",
-                    (user_id, title),
-                )
+            cursor = await conn.execute(
+                """
+                INSERT INTO goals (user_id, title, description, status, parent_goal_id)
+                VALUES (?, ?, ?, 'active', ?)
+                """,
+                (user_id, goal.title, goal.description, parent_goal_id),
             )
-            return int(rows[0]["id"]) if rows else 0
+            goal_id_raw = cursor.lastrowid
+            if goal_id_raw is None:
+                raise RuntimeError("INSERT into goals did not return lastrowid")
+            goal_id = goal_id_raw
+            await conn.commit()
+
+        embed_text = f"{goal.title}. {goal.description or ''}"
+        try:
+            emb_id = await self._embeddings.upsert_embedding(
+                user_id, "goal", goal_id, embed_text
+            )
+            async with self._db.get_connection() as conn:
+                await conn.execute(
+                    "UPDATE goals SET embedding_id=? WHERE id=?",
+                    (emb_id, goal_id),
+                )
+                await conn.commit()
+        except Exception as e:
+            logger.warning("Could not embed goal %d: %s", goal_id, e)
+
+        return goal_id
+
+    async def get_goal_ancestors(self, user_id: int, goal_id: int) -> list[dict[str, Any]]:
+        """Return the ancestry chain for a goal, from immediate parent up to the root.
+
+        Each item is a dict with keys: id, title, description, status.
+        The first element is the immediate parent; the last is the root goal.
+        Returns [] if the goal has no parent or is not found.
+        """
+        ancestors: list[dict[str, Any]] = []
+        current_id: int | None = goal_id
+        seen: set[int] = {goal_id}  # Guard against cycles
+
+        while current_id is not None:
+            async with self._db.get_connection() as conn:
+                rows = list(
+                    await conn.execute_fetchall(
+                        "SELECT id, title, description, status, parent_goal_id FROM goals WHERE id=? AND user_id=?",
+                        (current_id, user_id),
+                    )
+                )
+            if not rows:
+                break
+            row = rows[0]
+            parent_id = row["parent_goal_id"]
+            if parent_id is None:
+                break
+            if parent_id in seen:
+                logger.warning("Cycle detected in goal ancestry at id=%d", parent_id)
+                break
+            seen.add(parent_id)
+            async with self._db.get_connection() as conn:
+                parent_rows = list(
+                    await conn.execute_fetchall(
+                        "SELECT id, title, description, status FROM goals WHERE id=? AND user_id=?",
+                        (parent_id, user_id),
+                    )
+                )
+            if not parent_rows:
+                break
+            ancestors.append(dict(parent_rows[0]))
+            current_id = parent_id
+
+        return ancestors
 
 
 async def extract_and_store_goals(

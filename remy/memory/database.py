@@ -354,6 +354,23 @@ _MIGRATIONS = [
     "ALTER TABLE goals ADD COLUMN snoozed_until TEXT;",
     # 016: Counter daily auto-increment — date (YYYY-MM-DD) of last auto-increment in user TZ
     "ALTER TABLE counters ADD COLUMN last_increment_date TEXT;",
+    # 017: Supersede-not-delete for knowledge items (paperclip-ideas §1)
+    "ALTER TABLE knowledge ADD COLUMN superseded_by TEXT;",
+    # 018: Idempotency key for background_jobs to prevent cron double-execution (paperclip-ideas §9)
+    "ALTER TABLE background_jobs ADD COLUMN idempotency_key TEXT;",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_background_jobs_idempotency ON background_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;",
+    # 019: Goal ancestry chains — parent_goal_id allows nested goal hierarchy (paperclip-ideas §6)
+    "ALTER TABLE goals ADD COLUMN parent_goal_id INTEGER REFERENCES goals(id);",
+    "CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_goal_id);",
+    # 020: Outgoing webhook subscriptions (paperclip-ideas §L)
+    """CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        event      TEXT NOT NULL,
+        url        TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(event, url)
+    );""",
+    "CREATE INDEX IF NOT EXISTS idx_webhook_subs_event ON webhook_subscriptions(event);",
 ]
 
 # Triggers to keep FTS indices in sync with source tables

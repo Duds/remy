@@ -30,15 +30,42 @@ class BackgroundJobStore:
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
 
-    async def create(self, user_id: int, job_type: str, input_text: str = "") -> int:
-        """Insert a new job with status 'queued'. Returns the new job ID."""
+    async def create(
+        self,
+        user_id: int,
+        job_type: str,
+        input_text: str = "",
+        idempotency_key: str | None = None,
+    ) -> int:
+        """Insert a new job with status 'queued'. Returns the new job ID.
+
+        If ``idempotency_key`` is given and a row with that key already exists,
+        the existing job ID is returned without creating a duplicate.  This
+        prevents double-execution when the scheduler fires on a crash-restart.
+        """
+        if idempotency_key:
+            # Check for existing row first
+            async with self._db.get_connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT id FROM background_jobs WHERE idempotency_key=?",
+                    (idempotency_key,),
+                )
+                existing = await cursor.fetchone()
+            if existing:
+                logger.debug(
+                    "Skipping duplicate background_job (idempotency_key=%s, id=%d)",
+                    idempotency_key,
+                    existing[0],
+                )
+                return int(existing[0])
+
         async with self._db.get_connection() as conn:
             cursor = await conn.execute(
                 """
-                INSERT INTO background_jobs (user_id, job_type, status, input_text)
-                VALUES (?, ?, 'queued', ?)
+                INSERT INTO background_jobs (user_id, job_type, status, input_text, idempotency_key)
+                VALUES (?, ?, 'queued', ?, ?)
                 """,
-                (user_id, job_type, input_text),
+                (user_id, job_type, input_text, idempotency_key),
             )
             await conn.commit()
             rid = cursor.lastrowid

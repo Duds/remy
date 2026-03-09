@@ -277,6 +277,55 @@ async def update_task(
         return None
 
 
+async def create_task(
+    task_type: str,
+    description: str,
+    *,
+    from_agent: str = "remy",
+    to_agent: str = "cowork",
+    params: dict | None = None,
+    data_dir: str | None = None,
+    db_path: str | Path | None = None,
+) -> dict | None:
+    """Create a new relay task addressed to *to_agent*.
+
+    Returns dict with task_id, status on success; None on failure.
+    Caller must check ``settings.relay_can_create_tasks`` before calling.
+    """
+    if not task_type or not description:
+        return None
+
+    if data_dir is None and db_path is None:
+        from ..config import settings
+
+        data_dir = settings.data_dir
+
+    path = _get_db_path(data_dir or "", db_path)
+    if not path.exists() and db_path is None:
+        if not await _ensure_db(path):
+            return None
+
+    params_json = json.dumps(params or {})
+
+    try:
+        async with aiosqlite.connect(str(path)) as conn:
+            task_id = str(uuid.uuid4())[:8]
+            now = datetime.now(timezone.utc).isoformat()
+            await conn.execute(
+                """
+                INSERT INTO tasks (id, from_agent, to_agent, task_type, description, params, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (task_id, from_agent, to_agent, task_type, description[:2000], params_json, now, now),
+            )
+            await conn.commit()
+        logger.info("Relay: created task %s → %s (type=%s)", from_agent, to_agent, task_type)
+        return {"task_id": task_id, "status": "pending"}
+    except Exception as e:
+        logger.warning("Relay create_task failed: %s", e)
+        return None
+
+
 async def post_note(
     content: str,
     *,

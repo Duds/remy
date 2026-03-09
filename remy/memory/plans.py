@@ -469,6 +469,49 @@ class PlanStore:
 
             return results
 
+    async def get_plan_with_goal_chain(self, plan_id: int, user_id: int) -> dict[str, Any] | None:
+        """Get a plan with full goal ancestry chain (plan → goal → parent goals).
+
+        Returns the plan dict (same as get_plan) augmented with a ``goal_chain``
+        list ordered from the directly linked goal up to the root goal.  Each
+        entry has: id, title, description, status.
+
+        Returns None if the plan is not found.
+        """
+        plan = await self.get_plan(plan_id)
+        if plan is None:
+            return None
+
+        goal_id: int | None = plan.get("goal_id")
+        if not goal_id:
+            plan["goal_chain"] = []
+            return plan
+
+        chain: list[dict[str, Any]] = []
+        current_id: int | None = goal_id
+        seen: set[int] = set()
+
+        while current_id is not None and current_id not in seen:
+            seen.add(current_id)
+            async with self._db.get_connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT id, title, description, status, parent_goal_id FROM goals WHERE id=? AND user_id=?",
+                    (current_id, user_id),
+                )
+                row = await cursor.fetchone()
+            if row is None:
+                break
+            chain.append({
+                "id": row["id"],
+                "title": row["title"],
+                "description": row["description"],
+                "status": row["status"],
+            })
+            current_id = row["parent_goal_id"]
+
+        plan["goal_chain"] = chain
+        return plan
+
     async def delete_plan(self, user_id: int, plan_id: int) -> bool:
         """Delete a plan and all its steps/attempts. Returns True if deleted."""
         async with self._db.get_connection() as conn:

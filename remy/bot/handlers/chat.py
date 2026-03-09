@@ -493,11 +493,33 @@ def make_chat_handlers(
                             suggested_actions = actions
                             break
 
+        # Detect APPROVAL_REQUIRED sentinel in tool result blocks (paperclip-ideas §4 bulk email gate)
+        approval_keyboard: InlineKeyboardMarkup | None = None
+        for _, result_blocks in tool_turns:
+            for block in result_blocks:
+                if not isinstance(block, dict):
+                    continue
+                content = block.get("content", "")
+                if isinstance(content, list):
+                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
+                if isinstance(content, str) and content.startswith("APPROVAL_REQUIRED|"):
+                    parts = content.split("|", 2)
+                    token_part = next((p for p in parts if p.startswith("token=")), "")
+                    token = token_part[len("token="):] if token_part else ""
+                    if token:
+                        from ..handlers.callbacks import make_bulk_email_keyboard
+                        approval_keyboard = make_bulk_email_keyboard(token)
+                        break
+            if approval_keyboard is not None:
+                break
+
         # Step-limit keyboard takes precedence when max_iterations was hit (US-step-limit-buttons)
-        # Then suggested_actions; then Run again for tool-heavy flows (run_board, web_search)
+        # Then approval gate; then suggested_actions; then Run again for tool-heavy flows
         reply_markup: InlineKeyboardMarkup | None
         if step_limit_reached:
             reply_markup = make_step_limit_keyboard()
+        elif approval_keyboard is not None:
+            reply_markup = approval_keyboard
         elif suggested_actions:
             reply_markup = make_suggested_actions_keyboard(suggested_actions, user_id)
         else:

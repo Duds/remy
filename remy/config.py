@@ -231,6 +231,13 @@ class Settings(BaseSettings):
     relay_mcp_secret: str = ""
     # Optional path to relay SQLite DB; empty = data_dir/relay.db (same as shared server).
     relay_db_path: str = ""
+    # Allow Remy to create new relay tasks (not just update existing ones). Default off.
+    relay_can_create_tasks: bool = False
+
+    # ── Monthly budget enforcement (paperclip-ideas §5) ─────────────────────
+    # Set to 0 to disable. Costs computed from api_calls table (Anthropic only).
+    monthly_budget_usd: float = Field(default=50.0, description="Monthly LLM spend cap in USD (0 = disabled)")
+    budget_warning_pct: float = Field(default=0.80, description="Warn once per day at this fraction of monthly budget")
 
     @property
     def relay_db_path_resolved(self) -> str:

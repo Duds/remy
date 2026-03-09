@@ -83,6 +83,54 @@ def make_archive_keyboard(token: str) -> InlineKeyboardMarkup:
     )
 
 
+# ── Bulk email approval gate (paperclip-ideas §4) ─────────────────────────────
+# Threshold: require confirmation before labelling or trashing more than this many emails.
+BULK_EMAIL_APPROVAL_THRESHOLD = 10
+
+# Pending bulk email actions: token -> {user_id, action, message_ids, label_ids, created_at}
+_pending_bulk_email: dict[str, dict] = {}
+
+
+def _clean_stale_bulk_email() -> None:
+    now = time.time()
+    stale = [t for t, v in _pending_bulk_email.items() if now - v["created_at"] > _PENDING_TTL_SECONDS]
+    for t in stale:
+        del _pending_bulk_email[t]
+
+
+def store_bulk_email_approval(
+    user_id: int,
+    action: str,  # "label" or "trash"
+    message_ids: list[str],
+    add_label_ids: list[str] | None = None,
+    remove_label_ids: list[str] | None = None,
+) -> str:
+    """Store a pending bulk email action for approval. Returns token for callback_data."""
+    _clean_stale_bulk_email()
+    token = secrets.token_hex(8)
+    _pending_bulk_email[token] = {
+        "user_id": user_id,
+        "action": action,
+        "message_ids": message_ids,
+        "add_label_ids": add_label_ids or [],
+        "remove_label_ids": remove_label_ids or [],
+        "created_at": time.time(),
+    }
+    return token
+
+
+def make_bulk_email_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Build [✅ Confirm] [❌ Cancel] inline keyboard for bulk email approval."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Confirm", callback_data=f"bulk_email_confirm_{token}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"bulk_email_cancel_{token}"),
+            ],
+        ]
+    )
+
+
 def _clean_stale_reminders() -> None:
     """Remove expired reminder payloads."""
     now = time.time()
@@ -337,6 +385,51 @@ def make_callback_handler(
             _pending_confirmations.pop(token, None)
             try:
                 await query.edit_message_text("Cancelled.")
+            except Exception as e:
+                logger.debug("Edit message failed: %s", e)
+
+        elif data.startswith("bulk_email_confirm_"):
+            token = data[len("bulk_email_confirm_"):]
+            pending = _pending_bulk_email.pop(token, None)
+            if pending is None or pending.get("user_id") != user_id:
+                await query.answer("Confirmation expired or not found.", show_alert=True)
+            else:
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+                await query.answer("Processing…")
+                # Execute the deferred bulk action
+                action = pending["action"]
+                message_ids: list[str] = pending["message_ids"]
+                add_labels: list[str] = pending.get("add_label_ids") or []
+                remove_labels: list[str] = pending.get("remove_label_ids") or []
+                try:
+                    from ...ai.tools.registry import ToolRegistry  # type: ignore[attr-defined]
+                    if gmail := getattr(context.application, "_gmail_client", None):
+                        if add_labels or remove_labels:
+                            count = await gmail.modify_labels(
+                                message_ids,
+                                add_label_ids=add_labels or None,
+                                remove_label_ids=remove_labels or None,
+                            )
+                            label_desc = ", ".join(add_labels + remove_labels)
+                            await query.message.reply_text(
+                                f"✅ Bulk {action} complete: updated {count} email(s) (labels: {label_desc})."
+                            )
+                        else:
+                            await query.message.reply_text("⚠️ No labels specified — nothing done.")
+                    else:
+                        await query.message.reply_text("⚠️ Gmail not available — action cancelled.")
+                except Exception as e:
+                    logger.warning("Bulk email confirm execution failed: %s", e)
+                    await query.message.reply_text(f"❌ Bulk {action} failed: {e}")
+
+        elif data.startswith("bulk_email_cancel_"):
+            token = data[len("bulk_email_cancel_"):]
+            _pending_bulk_email.pop(token, None)
+            try:
+                await query.edit_message_text("❌ Bulk email action cancelled.")
             except Exception as e:
                 logger.debug("Edit message failed: %s", e)
 

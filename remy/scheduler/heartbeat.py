@@ -2,6 +2,10 @@
 
 SAD v7: single job runs every 30 min (configurable), skips quiet hours,
 emits HEARTBEAT_START/END, runs HeartbeatHandler, writes heartbeat_log.
+
+Paperclip additions:
+- Budget enforcement: warns at budget_warning_pct, pauses non-critical LLM calls at monthly_budget_usd.
+- Auto-requeue: relay tasks stuck in_progress for >30 min are reverted to pending.
 """
 
 from __future__ import annotations
@@ -66,6 +70,128 @@ async def _get_already_surfaced_today(db, tz: ZoneInfo | timezone) -> str:
     return "\n".join(lines)
 
 
+# Module-level flag set by check_budget(); guards non-critical LLM calls.
+budget_exhausted: bool = False
+
+# Track the date we last sent the budget warning to avoid spamming.
+_budget_warning_sent_date: str = ""
+
+
+async def check_budget(db, enqueue_message=None) -> dict:
+    """Compute month-to-date Anthropic spend and enforce budget limits.
+
+    Returns a dict: {"month_usd": float, "budget_usd": float, "pct": float, "exhausted": bool}.
+    When enqueue_message is provided it is called with a warning string when thresholds are crossed.
+    """
+    global budget_exhausted, _budget_warning_sent_date
+
+    limit = settings.monthly_budget_usd
+    if limit <= 0:
+        return {"month_usd": 0.0, "budget_usd": 0.0, "pct": 0.0, "exhausted": False}
+
+    # Sum Anthropic tokens for the current calendar month (UTC).
+    month_start = datetime.now(timezone.utc).strftime("%Y-%m-01T00:00:00")
+    try:
+        async with db.get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT COALESCE(SUM(input_tokens), 0)  AS inp,
+                       COALESCE(SUM(output_tokens), 0) AS out
+                FROM api_calls
+                WHERE provider = 'anthropic'
+                  AND timestamp >= ?
+                """,
+                (month_start,),
+            )
+            row = await cursor.fetchone()
+    except Exception as e:
+        logger.warning("Budget check failed (non-fatal): %s", e)
+        return {"month_usd": 0.0, "budget_usd": limit, "pct": 0.0, "exhausted": False}
+
+    inp_tokens = int(row[0]) if row else 0
+    out_tokens = int(row[1]) if row else 0
+    # Approximate pricing: Sonnet input $3/M, output $15/M
+    month_usd = (inp_tokens * 3 + out_tokens * 15) / 1_000_000
+    pct = month_usd / limit if limit else 0.0
+
+    if pct >= 1.0:
+        budget_exhausted = True
+        if enqueue_message:
+            msg = f"⛔ Monthly LLM budget exhausted (${month_usd:.2f}/${limit:.2f}). Non-critical calls paused."
+            try:
+                enqueue_message(msg)
+            except Exception:
+                pass
+        logger.warning("Monthly budget exhausted: $%.2f / $%.2f", month_usd, limit)
+    elif pct >= settings.budget_warning_pct:
+        budget_exhausted = False
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if today != _budget_warning_sent_date:
+            _budget_warning_sent_date = today
+            if enqueue_message:
+                msg = f"⚠️ LLM budget at {pct*100:.0f}% (${month_usd:.2f}/${limit:.2f})."
+                try:
+                    enqueue_message(msg)
+                except Exception:
+                    pass
+            logger.info("Budget warning: $%.2f / $%.2f (%.0f%%)", month_usd, limit, pct * 100)
+    else:
+        budget_exhausted = False
+
+    return {
+        "month_usd": month_usd,
+        "budget_usd": limit,
+        "pct": pct,
+        "exhausted": budget_exhausted,
+    }
+
+
+async def requeue_stuck_relay_tasks(db) -> int:
+    """Revert relay tasks that have been in_progress for >30 minutes back to pending.
+
+    Returns the number of tasks requeued.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime(
+        "%Y-%m-%dT%H:%M:%S"
+    )
+    try:
+        async with db.get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id FROM tasks
+                WHERE to_agent = 'remy'
+                  AND status = 'in_progress'
+                  AND updated_at < ?
+                """,
+                (cutoff,),
+            )
+            stuck = [row[0] for row in await cursor.fetchall()]
+
+        if not stuck:
+            return 0
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        async with db.get_connection() as conn:
+            for task_id in stuck:
+                await conn.execute(
+                    """
+                    UPDATE tasks
+                    SET status = 'pending',
+                        notes = COALESCE(notes || ' | ', '') || 'Auto-requeued: timed out after 30 minutes (' || ? || ')',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, now, task_id),
+                )
+            await conn.commit()
+
+        logger.info("Auto-requeued %d stuck relay task(s)", len(stuck))
+        return len(stuck)
+    except Exception as e:
+        logger.warning("requeue_stuck_relay_tasks failed (non-fatal): %s", e)
+        return 0
+
+
 def _in_quiet_hours() -> bool:
     """True if current time is in heartbeat quiet hours (no evaluation)."""
     tz: ZoneInfo | timezone
@@ -87,6 +213,7 @@ async def run_heartbeat_job(
     db,  # DatabaseManager
     get_primary_chat_id,  # callable[[], int | None]
     get_primary_user_id,  # callable[[], int | None]
+    enqueue_message=None,  # optional callable(str) to send a Telegram message
 ) -> None:
     """Run one heartbeat evaluation: silence guard, gather, evaluate, log."""
     if _in_quiet_hours():
@@ -102,6 +229,12 @@ async def run_heartbeat_job(
     if chat_id is None or user_id is None:
         logger.debug("Heartbeat skipped — no primary chat or user")
         return
+
+    # Budget enforcement (paperclip §5): check spend and surface warnings
+    await check_budget(db, enqueue_message=enqueue_message)
+
+    # Auto-requeue stuck relay tasks (paperclip §7)
+    await requeue_stuck_relay_tasks(db)
 
     await hook_manager.emit(
         HookEvents.HEARTBEAT_START, {"chat_id": chat_id, "user_id": user_id}
