@@ -4,7 +4,7 @@ SAD v7: single job runs every 30 min (configurable), skips quiet hours,
 emits HEARTBEAT_START/END, runs HeartbeatHandler, writes heartbeat_log.
 
 Paperclip additions:
-- Budget enforcement: warns at budget_warning_pct, pauses non-critical LLM calls at monthly_budget_usd.
+- Budget enforcement: warns at budget_warning_pct, pauses non-critical LLM calls at monthly_budget_aud.
 - Auto-requeue: relay tasks stuck in_progress for >30 min are reverted to pending.
 """
 
@@ -80,14 +80,21 @@ _budget_warning_sent_date: str = ""
 async def check_budget(db, enqueue_message=None) -> dict:
     """Compute month-to-date Anthropic spend and enforce budget limits.
 
-    Returns a dict: {"month_usd": float, "budget_usd": float, "pct": float, "exhausted": bool}.
+    Costs are approximated in USD from token counts, then compared against the
+    AUD cap (monthly_budget_aud). A fixed exchange rate of 1 USD = 1.55 AUD is
+    used for the conversion; adjust AUD_PER_USD below if rates shift materially.
+
+    Returns a dict: {"month_aud": float, "budget_aud": float, "pct": float, "exhausted": bool}.
     When enqueue_message is provided it is called with a warning string when thresholds are crossed.
     """
     global budget_exhausted, _budget_warning_sent_date
 
-    limit = settings.monthly_budget_usd
-    if limit <= 0:
-        return {"month_usd": 0.0, "budget_usd": 0.0, "pct": 0.0, "exhausted": False}
+    # Approximate USD → AUD conversion (Anthropic bills in USD).
+    AUD_PER_USD = 1.55
+
+    limit_aud = settings.monthly_budget_aud
+    if limit_aud <= 0:
+        return {"month_aud": 0.0, "budget_aud": 0.0, "pct": 0.0, "exhausted": False}
 
     # Sum Anthropic tokens for the current calendar month (UTC).
     month_start = datetime.now(timezone.utc).strftime("%Y-%m-01T00:00:00")
@@ -106,41 +113,42 @@ async def check_budget(db, enqueue_message=None) -> dict:
             row = await cursor.fetchone()
     except Exception as e:
         logger.warning("Budget check failed (non-fatal): %s", e)
-        return {"month_usd": 0.0, "budget_usd": limit, "pct": 0.0, "exhausted": False}
+        return {"month_aud": 0.0, "budget_aud": limit_aud, "pct": 0.0, "exhausted": False}
 
     inp_tokens = int(row[0]) if row else 0
     out_tokens = int(row[1]) if row else 0
-    # Approximate pricing: Sonnet input $3/M, output $15/M
+    # Approximate pricing: Sonnet input $3/M, output $15/M (USD), converted to AUD
     month_usd = (inp_tokens * 3 + out_tokens * 15) / 1_000_000
-    pct = month_usd / limit if limit else 0.0
+    month_aud = month_usd * AUD_PER_USD
+    pct = month_aud / limit_aud if limit_aud else 0.0
 
     if pct >= 1.0:
         budget_exhausted = True
         if enqueue_message:
-            msg = f"⛔ Monthly LLM budget exhausted (${month_usd:.2f}/${limit:.2f}). Non-critical calls paused."
+            msg = f"⛔ Monthly LLM budget exhausted (A${month_aud:.2f}/A${limit_aud:.2f}). Non-critical calls paused."
             try:
                 enqueue_message(msg)
             except Exception:
                 pass
-        logger.warning("Monthly budget exhausted: $%.2f / $%.2f", month_usd, limit)
+        logger.warning("Monthly budget exhausted: A$%.2f / A$%.2f", month_aud, limit_aud)
     elif pct >= settings.budget_warning_pct:
         budget_exhausted = False
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != _budget_warning_sent_date:
             _budget_warning_sent_date = today
             if enqueue_message:
-                msg = f"⚠️ LLM budget at {pct*100:.0f}% (${month_usd:.2f}/${limit:.2f})."
+                msg = f"⚠️ LLM budget at {pct*100:.0f}% (A${month_aud:.2f}/A${limit_aud:.2f})."
                 try:
                     enqueue_message(msg)
                 except Exception:
                     pass
-            logger.info("Budget warning: $%.2f / $%.2f (%.0f%%)", month_usd, limit, pct * 100)
+            logger.info("Budget warning: A$%.2f / A$%.2f (%.0f%%)", month_aud, limit_aud, pct * 100)
     else:
         budget_exhausted = False
 
     return {
-        "month_usd": month_usd,
-        "budget_usd": limit,
+        "month_aud": month_aud,
+        "budget_aud": limit_aud,
         "pct": pct,
         "exhausted": budget_exhausted,
     }

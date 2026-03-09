@@ -236,7 +236,7 @@ class Settings(BaseSettings):
 
     # ── Monthly budget enforcement (paperclip-ideas §5) ─────────────────────
     # Set to 0 to disable. Costs computed from api_calls table (Anthropic only).
-    monthly_budget_usd: float = Field(default=50.0, description="Monthly LLM spend cap in USD (0 = disabled)")
+    monthly_budget_aud: float = Field(default=80.0, description="Monthly LLM spend cap in AUD (0 = disabled)")
     budget_warning_pct: float = Field(default=0.80, description="Warn once per day at this fraction of monthly budget")
 
     @property
