@@ -11,7 +11,6 @@ No duplicate runner: BackgroundTaskRunner remains the only fire-and-forget execu
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid

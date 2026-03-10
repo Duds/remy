@@ -315,6 +315,41 @@ class TestExecCheckStatus:
         assert "Claude" in result
         assert "not configured" in result.lower()
 
+    @pytest.mark.asyncio
+    async def test_moonshot_balance_shown_when_configured(self):
+        """When Moonshot client returns balance, status includes credits line."""
+        moonshot = AsyncMock()
+        moonshot.is_available = AsyncMock(return_value=True)
+        moonshot.get_balance = AsyncMock(return_value=10.5)
+        registry = make_registry(claude_client=None, moonshot_client=moonshot)
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                side_effect=Exception("Connection refused")
+            )
+            result = await exec_check_status(registry)
+
+        assert "Moonshot" in result
+        assert "10.50" in result or "10.5" in result
+        moonshot.get_balance.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_moonshot_low_balance_shows_warning(self):
+        """When balance below threshold (default 5.0), status includes 'low' marker."""
+        moonshot = AsyncMock()
+        moonshot.is_available = AsyncMock(return_value=True)
+        moonshot.get_balance = AsyncMock(return_value=2.0)
+        registry = make_registry(claude_client=None, moonshot_client=moonshot)
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
+                side_effect=Exception("Connection refused")
+            )
+            result = await exec_check_status(registry)
+
+        assert "Moonshot" in result
+        assert "low" in result.lower()
+
 
 class TestExecManageMemory:
     """Tests for exec_manage_memory executor."""

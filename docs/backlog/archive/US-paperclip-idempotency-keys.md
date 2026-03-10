@@ -1,9 +1,11 @@
 # User Story: Idempotency Keys for Cron / Scheduled Jobs (Paperclip-inspired)
 
-**Status:** 📋 Backlog
-**Priority:** ⭐⭐ Medium
-**Effort:** Low
-**Source:** [docs/paperclip-ideas.md §9](../paperclip-ideas.md)
+**Status:** ❌ Obsolete — 2026-03-10  
+**Reason:** Legacy briefing/check-in crons (morning_briefing, afternoon_checkin, evening_checkin) are deprecated; proactive messaging is now via the evaluative heartbeat only. This PBI targeted those legacy jobs, so it is a non-starter. Any future idempotency for heartbeat-driven “daily orientation” or “reflection” would be a separate story.
+
+**Priority:** ⭐⭐ Medium (was)  
+**Effort:** Low  
+**Source:** [docs/paperclip-ideas.md §9](../../paperclip-ideas.md)
 
 ## Summary
 

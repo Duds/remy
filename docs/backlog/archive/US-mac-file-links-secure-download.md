@@ -1,6 +1,6 @@
 # User Story: Mac File Links and Secure Download via Tunnel
 
-**Status:** 🔄 In Progress (download-link method implemented)
+**Status:** ✅ Done
 
 ## Summary
 

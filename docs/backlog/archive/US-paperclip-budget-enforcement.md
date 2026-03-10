@@ -1,9 +1,9 @@
 # User Story: Budget Enforcement / Monthly Cost Cap (Paperclip-inspired)
 
-**Status:** 📋 Backlog
+**Status:** ✅ Done
 **Priority:** ⭐⭐⭐ High
 **Effort:** Low
-**Source:** [docs/paperclip-ideas.md §5](../paperclip-ideas.md)
+**Source:** [docs/paperclip-ideas.md §5](../../paperclip-ideas.md)
 
 ## Summary
 

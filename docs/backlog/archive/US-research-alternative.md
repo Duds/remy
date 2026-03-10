@@ -1,5 +1,7 @@
 # User Story: Research Platform Alternatives
 
+✅ Done
+
 ## Summary
 As a user, I want to ask Remy "what's a good alternative to X?" for any platform or service
 and receive a structured comparison — without needing a dedicated slash command.

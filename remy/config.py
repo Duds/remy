@@ -60,8 +60,9 @@ class Settings(BaseSettings):
     mistral_model_medium: str = "mistral-medium-latest"
     mistral_model_large: str = "mistral-large-latest"
 
-    # Moonshot AI
+    # Moonshot AI (pre-paid credits; balance check via GET /v1/users/me/balance)
     moonshot_api_key: str = ""
+    moonshot_balance_warn_usd: float = 5.0  # Warn in /status and heartbeat when balance below this
     moonshot_model_v1: str = "moonshot-v1-8k"
     moonshot_model_v1_128k: str = "moonshot-v1-128k"
     moonshot_model_k2_thinking: str = "moonshot-k2-thinking"
@@ -82,9 +83,9 @@ class Settings(BaseSettings):
     chunk_log_path: str = ""  # default: logs_dir/chunk_log.jsonl
 
     # Scheduler (cron in user's local timezone)
+    # Legacy fixed-time crons (deprecated when heartbeat_enabled=True; used only when HEARTBEAT_ENABLED=false)
     briefing_cron: str = "0 7 * * *"
     checkin_cron: str = "0 19 * * *"
-    # Afternoon check-in (default 17:00); mediated, compassionate (US-remy-mediated-reminders)
     afternoon_check_cron: str = "0 17 * * *"
     scheduler_timezone: str = "Australia/Sydney"
 

@@ -1,18 +1,18 @@
 """
 Proactive scheduler — sends unsolicited messages to Dale based on time and context.
 
-Three built-in jobs:
-  1. Morning briefing   (default 07:00 AEST) — goals, calendar, birthdays, downloads
-  2. Afternoon focus    (default 14:00 AEST) — mid-day ADHD body-double nudge
-  3. Evening check-in   (default 19:00 AEST) — nudges on goals not mentioned for N days
+When HEARTBEAT_ENABLED=true (default): a single evaluative_heartbeat job runs on a cron
+(e.g. */30 * * * *). It uses config/HEARTBEAT.md to decide whether to send daily
+orientation, reflection, wellbeing, etc. No fixed-time briefing crons are registered.
 
-Plus user-defined automation jobs stored in the automations table.
+When HEARTBEAT_ENABLED=false (deprecated): legacy fixed-time jobs are registered:
+  - Morning briefing (BRIEFING_CRON), afternoon focus, evening check-in, afternoon check.
+Legacy crons are deprecated; use the heartbeat and HEARTBEAT.md instead.
 
-Uses APScheduler AsyncIOScheduler so it runs inside the existing asyncio event loop
-without spawning threads.
+User-defined automation jobs (automations table) and week-at-a-glance (Monday 07:15)
+are always available when their triggers are configured.
 
-Primary chat ID is read from `data/primary_chat_id.txt` (written by /setmychat).
-If that file doesn't exist, the scheduler runs silently.
+Uses APScheduler AsyncIOScheduler. Primary chat ID from data/primary_chat_id.txt (/setmychat).
 """
 
 import asyncio
@@ -28,7 +28,6 @@ from apscheduler.events import EVENT_JOB_MISSED, JobExecutionEvent
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
 from ..config import settings
 from ..memory.facts import FactStore
@@ -48,11 +47,7 @@ from .briefings.week_at_a_glance import generate_week_image
 if TYPE_CHECKING:
     from telegram import Bot
 
-try:
-    from telegram.error import BadRequest
-except ImportError:
-    BadRequest = Exception  # noqa: A001
-
+    from ..memory.background_jobs import BackgroundJobStore
     from ..memory.knowledge import KnowledgeStore
     from ..bot.heartbeat_handler import HeartbeatHandler
     from ..delivery.queue import OutboundQueue
@@ -65,6 +60,11 @@ except ImportError:
     from ..ai.tools import ToolRegistry
     from ..bot.session import SessionManager
     from ..memory.conversations import ConversationStore
+
+try:
+    from telegram.error import BadRequest
+except ImportError:
+    BadRequest = Exception  # noqa: A001  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +179,10 @@ class ProactiveScheduler:
         heartbeat_handler: "HeartbeatHandler | None" = None,
         counter_store: "CounterStore | None" = None,
         knowledge_store: "KnowledgeStore | None" = None,
+        bg_job_store: "BackgroundJobStore | None" = None,
     ) -> None:
         self._bot = bot
+        self._bg_job_store = bg_job_store
         self._outbound_queue = outbound_queue
         self._heartbeat_handler = heartbeat_handler
         self._counter_store = counter_store
@@ -249,6 +251,12 @@ class ProactiveScheduler:
                 logger.warning(
                     "HEARTBEAT_ENABLED=true but heartbeat_handler or db is None — "
                     "falling back to legacy briefing/check-in crons. Check initialisation."
+                )
+            else:
+                logger.warning(
+                    "Legacy briefing/check-in crons are deprecated. Set HEARTBEAT_ENABLED=true "
+                    "and use config/HEARTBEAT.md for proactive messaging (daily orientation, "
+                    "reflection, wellbeing). Legacy crons will be removed in a future release."
                 )
             try:
                 briefing_trigger = _parse_cron(settings.briefing_cron)
@@ -873,7 +881,7 @@ class ProactiveScheduler:
                 logger.warning(
                     "Proactive reminder send failed (chat %d): %s", chat_id, e2
                 )
-        except Exception as e:
+        except Exception:
             try:
                 await self._bot.send_message(
                     chat_id=chat_id,
@@ -905,6 +913,15 @@ class ProactiveScheduler:
             return
 
         user_id = user_ids[0]
+        job_type = "morning_briefing"
+        if self._bg_job_store is not None:
+            key = f"{job_type}:{datetime.now(ZoneInfo(settings.scheduler_timezone)).strftime('%Y-%m-%d')}"
+            job_id = await self._bg_job_store.claim_daily_job(user_id, job_type, key)
+            if job_id is None:
+                return
+        else:
+            job_id = None
+
         logger.info("Sending morning briefing to chat %d", chat_id)
 
         generator = MorningBriefingGenerator(

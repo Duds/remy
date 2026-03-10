@@ -1,6 +1,6 @@
 # User Story: Moonshot Credit Balance Monitoring
 
-⬜ Backlog
+✅ Done
 
 ## Summary
 

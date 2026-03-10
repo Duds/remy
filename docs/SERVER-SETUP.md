@@ -25,7 +25,7 @@ Optional overrides (defaults are fine for most):
 - `HEARTBEAT_QUIET_START` / `HEARTBEAT_QUIET_END` — e.g. 22 and 7
 - `ORIENTATION_WAKE_HOUR`, `REFLECTION_HOUR`, `WELLBEING_WINDOW_START`, `WELLBEING_WINDOW_END`
 
-When `HEARTBEAT_ENABLED=false`, legacy crons run. The afternoon check (`AFTERNOON_CHECK_CRON`, default `0 17 * * *`) is the mediated check-in — set it to the time you want.
+**Legacy crons are deprecated.** When `HEARTBEAT_ENABLED=false`, fixed-time briefing/check-in crons still run (morning, afternoon, evening), but this path will be removed in a future release. Keep `HEARTBEAT_ENABLED=true` and configure `config/HEARTBEAT.md` for daily orientation, reflection, and wellbeing.
 
 ### Email scope
 
@@ -34,8 +34,9 @@ When `HEARTBEAT_ENABLED=false`, legacy crons run. The afternoon check (`AFTERNOO
 ### Optional
 
 - `SOUL_MD_PATH`, `SOUL_COMPACT_PATH`
-- `HEALTH_API_TOKEN`, `RELAY_MCP_URL`, `RELAY_MCP_SECRET`, `RELAY_DB_PATH`
+- `HEALTH_API_TOKEN`
 - `FILE_LINK_BASE_URL`, `GDRIVE_MOUNT_PATHS`
+- `MOONSHOT_API_KEY`, `MOONSHOT_BALANCE_WARN_USD` — when set, `/status` and heartbeat show Moonshot credit balance and a low-balance warning below the threshold (default 5.0 USD).
 
 ---
 
@@ -70,7 +71,7 @@ When HEARTBEAT.md is missing (e.g. fresh clone), the heartbeat runs using HEARTB
 ## 4. Quick checklist on the server
 
 1. Copy `.env.example` → `.env`; set `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY`, `TELEGRAM_ALLOWED_USERS_RAW`.
-2. Set `HEARTBEAT_ENABLED=true`, `SCHEDULER_TIMEZONE` to your timezone. If using legacy crons, set `AFTERNOON_CHECK_CRON` (e.g. `0 17 * * *`).
+2. Set `HEARTBEAT_ENABLED=true`, `SCHEDULER_TIMEZONE` to your timezone. (Legacy crons are deprecated; do not rely on `HEARTBEAT_ENABLED=false`.)
 3. In SOUL: add the **Proactive check-ins** block so the afternoon check intent is clear.
 4. Copy `config/HEARTBEAT.example.md` → `config/HEARTBEAT.md`; fill in your thresholds and wellbeing check-in intent (HEARTBEAT.md is gitignored).
 5. Restart the bot and verify health: `curl http://localhost:8080/health`.

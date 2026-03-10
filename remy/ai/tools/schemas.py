@@ -584,6 +584,9 @@ TOOL_SCHEMAS: list[dict] = [
             "Search the web using DuckDuckGo and return results. "
             "Use this when the user asks you to search for something, look something up, "
             "find current information, research a topic, or check prices. "
+            "Also use for 'what's a good alternative to X?' (e.g. 'Notion alternatives for ADHD users'): "
+            "run one or two queries, then synthesise a structured comparison — direct alternatives, "
+            "key differentiators, pricing tier, privacy if relevant, and a recommended pick with rationale. "
             "Limit: 3 searches per turn. Prefer one or two well-formed queries before synthesising."
         ),
         "input_schema": {

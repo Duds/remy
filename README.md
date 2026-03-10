@@ -51,10 +51,10 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `MODEL_SIMPLE` | — | Model for quick responses (default: `claude-haiku-4-5-20251001`) |
 | `MODEL_COMPLEX` | — | Model for complex tasks (default: `claude-sonnet-4-6`) |
 | `ANTHROPIC_MAX_TOKENS` | — | Max tokens per response (default: `4096`) |
-| `HEARTBEAT_ENABLED` | — | When `true`, evaluative heartbeat replaces fixed briefing/check-in crons (default: `true`). When `false`, legacy crons run. |
+| `HEARTBEAT_ENABLED` | — | When `true`, evaluative heartbeat runs (default). When `false`, **deprecated** legacy briefing/check-in crons run; set `true` and use `config/HEARTBEAT.md` instead. |
 | `BRIEFING_CRON` | — | Cron schedule for morning briefing (default: `0 7 * * *`) |
 | `CHECKIN_CRON` | — | Cron schedule for evening check-in (default: `0 19 * * *`) |
-| `AFTERNOON_CHECK_CRON` | — | Legacy afternoon check-in — mediated, compassionate (only when `HEARTBEAT_ENABLED=false`; default: `0 17 * * *`) |
+| `AFTERNOON_CHECK_CRON` | — | **Deprecated.** Legacy afternoon check-in (only when `HEARTBEAT_ENABLED=false`; default: `0 17 * * *`). Prefer heartbeat. |
 | `SCHEDULER_TIMEZONE` | — | Timezone for scheduler (default: `Australia/Sydney`) |
 | `BRIEFING_EMAIL_SCOPE` | — | Morning briefing: `inbox_only` \| `primary_tabs` \| `all_mail`. Heartbeat always uses all mail for unread count (default: `all_mail`) |
 | `LOG_LEVEL` | — | Logging level (default: `INFO`) |
@@ -70,8 +70,10 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `RAG_OCR_LANG` | — | Tesseract language(s), e.g. `eng` or `eng+fra` (default: `eng`) |
 | `REMY_WEBHOOK_SECRET` | — | Secret for incoming webhooks (POST `/incoming`). When set, third-party callers must send `X-Webhook-Secret` header. |
 | `TELEGRAM_BOT_USERNAME` | — | Bot username (e.g. `RemyBot`) for dashboard Telegram Login Widget. When set, GET `/dashboard` serves the login page. |
+| `MOONSHOT_API_KEY` | — | Moonshot AI API key (optional). When set, `/status` and heartbeat show credit balance. |
+| `MOONSHOT_BALANCE_WARN_USD` | — | Low-balance threshold in USD (default: `5.0`). When balance is below this, `/status` and heartbeat show a warning. Set to `0` to disable. |
 
-**Heartbeat & SOUL:** The repo ships `config/HEARTBEAT.example.md` as the template. Copy it to `config/HEARTBEAT.md` (gitignored) for your private config — that file is never committed, so forks get only the template. When using the evaluative heartbeat (`HEARTBEAT_ENABLED=true`), put your thresholds and wellbeing check-in intent in HEARTBEAT.md. In SOUL, add a **Proactive check-ins** section so the model knows what the morning, afternoon, and evening check-ins are for. See [docs/SERVER-SETUP.md](docs/SERVER-SETUP.md) for the full server checklist.
+**Heartbeat & SOUL:** Proactive messaging (good morning, reflection, wellbeing) is driven by the **evaluative heartbeat** (`HEARTBEAT_ENABLED=true`, default). The repo ships `config/HEARTBEAT.example.md` as the template; copy it to `config/HEARTBEAT.md` (gitignored) for your private config. Put your thresholds and check-in intent in HEARTBEAT.md. In SOUL, add a **Proactive check-ins** section so the model knows what morning/evening check-ins are for. Legacy fixed-time briefing/check-in crons are **deprecated**; keep `HEARTBEAT_ENABLED=true`. See [docs/SERVER-SETUP.md](docs/SERVER-SETUP.md) for the full server checklist.
 
 **File index (PDF/DOCX):** Remy can index PDF and Word (.docx) files for search. For image-only or scanned PDFs, it uses **Tesseract OCR**. Install Tesseract on the host (e.g. `brew install tesseract` on macOS) so OCR can run; if Tesseract is not installed, text-only PDFs are still indexed.
 

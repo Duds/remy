@@ -1,5 +1,7 @@
 # User Story: Persistent Background Job Tracking
 
+✅ Done
+
 ## Summary
 As a user, I want to be able to check the status of any background task Remy is working on,
 and re-read completed results after the fact — even if the bot restarts mid-task.

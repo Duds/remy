@@ -92,6 +92,36 @@ class MoonshotClient:
                 logger.error("Moonshot stream failed: %s", e)
                 yield f"⚠️ _Moonshot connection failed: {e}_"
 
+    async def get_balance(self) -> float | None:
+        """
+        Return current Moonshot credit balance (USD). Returns None if key unset or call fails.
+        GET /v1/users/me/balance. Failures are logged at WARNING only; no exception.
+        """
+        if not self._api_key:
+            return None
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                headers = {"Authorization": f"Bearer {self._api_key}"}
+                response = await client.get(
+                    f"{self._base_url}/users/me/balance", headers=headers
+                )
+                if response.status_code != 200:
+                    logger.warning(
+                        "Moonshot balance check failed (%d): %s",
+                        response.status_code,
+                        response.text[:200],
+                    )
+                    return None
+                data = response.json()
+                # Accept common field names (balance, remain_balance, etc.)
+                balance = data.get("balance") or data.get("remain_balance")
+                if balance is not None:
+                    return float(balance)
+                return None
+            except Exception as e:
+                logger.warning("Moonshot balance check failed: %s", e)
+                return None
+
     async def is_available(self) -> bool:
         """Check if Moonshot API is available."""
         if not self._api_key:

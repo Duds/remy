@@ -236,7 +236,14 @@ async def exec_check_status(registry: ToolRegistry) -> str:
 
     if registry._moonshot_client is not None:
         available = await registry._moonshot_client.is_available()
-        lines.append(f"Moonshot: {'✅ online' if available else '❌ offline'}")
+        balance = await registry._moonshot_client.get_balance()
+        from ...config import settings
+        warn_usd = getattr(settings, "moonshot_balance_warn_usd", 5.0)
+        if balance is not None:
+            low = " ⚠️ low" if warn_usd > 0 and balance < warn_usd else ""
+            lines.append(f"Moonshot: {'✅ online' if available else '❌ offline'} — credits ${balance:.2f}{low}")
+        else:
+            lines.append(f"Moonshot: {'✅ online' if available else '❌ offline'}")
 
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:

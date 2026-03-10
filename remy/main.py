@@ -382,6 +382,7 @@ def main() -> None:
             claude_client=claude_client,
             outbound_queue=outbound_queue,
             bot=app.bot,
+            moonshot_client=moonshot_client,
         )
 
         # Wire proactive scheduler (requires live bot reference from PTB)

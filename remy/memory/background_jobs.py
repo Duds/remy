@@ -158,3 +158,49 @@ class BackgroundJobStore:
             )
             row = await cursor.fetchone()
             return dict(row) if row else None
+
+    async def get_by_idempotency_key(self, key: str) -> dict | None:
+        """Return the row for this idempotency key, or None."""
+        async with self._db.get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id, user_id, job_type, status, input_text, result_text,
+                       created_at, completed_at, idempotency_key
+                FROM background_jobs WHERE idempotency_key = ?
+                """,
+                (key,),
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def claim_daily_job(
+        self, user_id: int, job_type: str, idempotency_key: str
+    ) -> int | None:
+        """
+        Claim a daily job run. If this key already exists with status running or done,
+        returns None (skip). Otherwise inserts a row with status='running' and returns job_id.
+        Call set_done(job_id, "") or set_failed(job_id, reason) after the job finishes.
+        """
+        existing = await self.get_by_idempotency_key(idempotency_key)
+        if existing and existing.get("status") in ("running", "done"):
+            logger.debug(
+                "Skipping %s — already ran today (idempotency key: %s)",
+                job_type,
+                idempotency_key,
+            )
+            return None
+        async with self._db.get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO background_jobs (user_id, job_type, status, input_text, idempotency_key)
+                VALUES (?, ?, 'running', '', ?)
+                """,
+                (user_id, job_type, idempotency_key),
+            )
+            await conn.commit()
+            rid = cursor.lastrowid
+            if rid is None:
+                raise RuntimeError(
+                    "INSERT into background_jobs did not return lastrowid"
+                )
+            return rid

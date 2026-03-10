@@ -14,7 +14,6 @@ from telegram.ext import ContextTypes
 
 from .base import reject_unauthorized, _task_start_times
 from ..session import SessionManager
-from ...config import settings
 
 if TYPE_CHECKING:
     from ...scheduler.proactive import ProactiveScheduler

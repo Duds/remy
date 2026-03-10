@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ..delivery.queue import OutboundQueue
     from ..google.calendar import CalendarClient
     from ..google.gmail import GmailClient
+    from ..ai.moonshot_client import MoonshotClient
     from telegram import Bot
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class HeartbeatHandler:
         claude_client=None,  # ClaudeClient
         outbound_queue: "OutboundQueue | None" = None,
         bot: "Bot | None" = None,
+        moonshot_client: "MoonshotClient | None" = None,
     ) -> None:
         self._goal_store = goal_store
         self._plan_store = plan_store
@@ -64,6 +66,7 @@ class HeartbeatHandler:
         self._claude = claude_client
         self._queue = outbound_queue
         self._bot = bot
+        self._moonshot_client = moonshot_client
 
     async def run(
         self,
@@ -168,6 +171,23 @@ class HeartbeatHandler:
                 items_checked["counters"] = f"Error: {e}"
         else:
             items_checked["counters"] = "Counters not available."
+
+        # Moonshot credit balance (pre-paid; low balance can cause silent fallbacks)
+        if self._moonshot_client:
+            try:
+                balance = await self._moonshot_client.get_balance()
+                if balance is not None:
+                    from ..config import settings
+                    warn = getattr(settings, "moonshot_balance_warn_usd", 5.0)
+                    if warn > 0 and balance < warn:
+                        items_checked["moonshot_credits"] = (
+                            f"⚠️ Moonshot credits low: ${balance:.2f} remaining — "
+                            "top up to avoid fallbacks."
+                        )
+                    else:
+                        items_checked["moonshot_credits"] = f"Moonshot credits: ${balance:.2f}"
+            except Exception:
+                pass  # Silent to user per PBI; already logged in get_balance
 
         context_block = "\n\n".join(f"## {k}\n{v}" for k, v in items_checked.items())
         prompt = (
