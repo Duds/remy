@@ -1,5 +1,7 @@
 # User Story: Refactor Primary Chat ID Storage into Shared Helper
 
+**Status:** ✅ Done (Completed: 2026-03-10)
+
 ## Summary
 
 As a developer, I want the primary chat ID storage logic extracted into a shared helper function

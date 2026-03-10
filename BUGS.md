@@ -37,19 +37,6 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 
 ---
 
-## Bug 2: Relay MCP tools fail with 'str' object has no attribute 'request_context'
-
-- **Symptom:** `relay_get_tasks` and `relay_get_messages` (and other relay_mcp tools) fail immediately with `AttributeError: 'str' object has no attribute 'request_context'` when called from Claude Desktop (cowork) or Cursor.
-- **Impact:** Relay between Cowork and Remy is completely non-functional — no messages or tasks can be read or posted via the MCP server.
-- **Root cause:** The MCP Python SDK does not inject a request context object as the second argument to tool handlers; it can pass a string (e.g. request ID). The server was using `ctx.request_context.lifespan_state["db"]`, so `ctx` was a string.
-- **Status:** ✅ Fixed
-- **Location:** `relay_mcp/server.py`
-- **Fix:** Removed the `ctx` parameter from all nine tool handlers. DB connection is now held in a module-level `_db_connection` set during lifespan and accessed via `_get_db()`. Handlers take only the Pydantic `params` argument.
-- **Reported:** 2026-03-03 (Dale Rogers)
-- **Fixed:** 2026-03-04
-
----
-
 ## Bug 1: `react_to_message` still emitting "✓" tick message — Bug 35 regression
 
 - **Symptom:** After calling `react_to_message` as the sole response, a standalone "✓" (or similar tick character) is still sent as a separate Telegram text message. Thought to have been fixed in Bug 35 (archived).
@@ -62,41 +49,6 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Location:** `remy/bot/handlers/chat.py`, `remy/bot/handlers.py`, `remy/bot/pipeline.py`
 - **Fix:** Reordered logic to check for `react_to_message`-only BEFORE `_flush_display`, then delete the status message instead of editing to "✓". Added identical handling to `handlers.py` (was missing entirely) and `pipeline.py`. Used `_REACTION_ONLY_TOOLS = frozenset({"react_to_message"})` for clarity. Wrapped delete in `try/except BadRequest` and log failures at DEBUG.
 - **Reported:** 2026-03-04
-- **Fixed:** 2026-03-04
-
----
-
-## Bug 3: Relay cross-agent messages not delivered — Remy ↔ Cowork routing broken
-
-- **Symptom:** `relay_post_message` executes successfully and returns a message ID on Remy's side. Cowork's `relay_get_messages` returns empty — no messages ever arrive. The reverse is also true: no messages from cowork have ever appeared in Remy's relay inbox. Both agents are effectively isolated despite the relay MCP appearing functional on each end individually.
-- **Evidence:**
-  - Remy sent messages with IDs `4882d954`, `446801bd`, `914baf90`, `bb559afd` — none were received by cowork.
-  - Cowork relay inbox has remained empty throughout the session.
-  - Remy relay inbox also empty — no inbound messages from cowork.
-  - APScheduler log shows `_poll_relay_inbox` jobs running (and occasionally missing their slot), confirming polling is active but finding nothing.
-  - No relay-specific errors logged on Remy's side — tool calls return success, so the failure is silent.
-- **Impact:** Complete failure of Remy ↔ Cowork communication channel. Multi-agent coordination (task delegation, shared notes, cross-agent queries) is non-functional.
-- **Root cause:** Remy and cowork were using **different relay_mcp processes and/or different DB files** (stdio per client vs one shared HTTP server).
-- **Status:** ✅ Fixed
-- **Priority:** High
-- **Location:** `relay_mcp/server.py`, relay MCP config (both Remy and cowork sides)
-- **Fix:** Use a **single shared relay backend** per [US-relay-shared-backend](docs/backlog/US-relay-shared-backend.md): run one relay server (`make remy-up` or `make relay-run`), point both Cursor (Remy) and Claude Desktop (cowork) at `http://127.0.0.1:8765/mcp`, and use agent names `remy` and `cowork`. Setup: [docs/relay-setup.md](docs/relay-setup.md). Automated shared-DB test: `make relay-verify`.
-- **Reported:** 2026-03-04 (Dale Rogers)
-- **Fixed:** 2026-03-04
-
----
-
-## Bug 4: Forward-to-cowork button shows "✅ Sent to cowork" when message is not delivered to cowork
-
-- **Symptom:** After tapping [Send to cowork], the message is replaced with "✅ Sent to cowork." but cowork never receives the message. User reasonably believes the content was delivered.
-- **Evidence:** Same as Bug 3 — Remy wrote to its local relay DB and the callback treated a successful local write as success; cowork read from a different DB/process, so delivery never occurred.
-- **Impact:** Misleading UX. User loses trust that the button does anything useful; content may be re-sent manually or lost.
-- **Root cause:** Same as Bug 3 — two relay backends. Fixing Bug 3 (single shared relay backend) resolves this bug.
-- **Status:** ✅ Fixed
-- **Priority:** High (same as Bug 3)
-- **Location:** `remy/bot/handlers/callbacks.py` (forward_to_cowork), `remy/relay/client.py`
-- **Fix:** Once both agents use the shared relay per [docs/relay-setup.md](docs/relay-setup.md), [Send to cowork] writes to the same DB cowork reads from, so "✅ Sent to cowork." reflects actual delivery. See Bug 3 fix.
-- **Reported:** 2026-03-04 (Dale Rogers)
 - **Fixed:** 2026-03-04
 
 ---
@@ -153,14 +105,11 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Root cause (hypothesis):** The MarkdownV2 space-fix pre-processing is either (a) stripping a space that Telegram requires as a delimiter around a formatting marker (e.g. `*bold*` adjacent to punctuation), or (b) shifting byte offsets so a closing `*` or `_` lands next to an unescaped special character. The entity parse failure is then treated as a retryable error, triggering the max-iterations loop rather than a clean fallback to plain text.
 - **Impact:** High. Message delivery fails silently from the user's perspective; multiple retries add latency; Telegram disconnect requires reconnect cycle.
 - **Priority:** High
-- **Status:** Open
+- **Status:** ✅ Fixed
 - **Location:** MarkdownV2 formatting/escape logic (likely `remy/bot/pipeline.py` or `remy/utils/markdown.py`); retry/fallback handling in `remy/ai/claude_client.py` (`stream_with_tools`); Telegram send logic in `remy/bot/handlers/chat.py`
-- **Suggested fix:**
-  1. Catch `BadRequest: can't parse entities` explicitly in the Telegram send path and immediately retry the send with `parse_mode=None` (plain text) — do not propagate to the Anthropic retry loop.
-  2. Audit the space-fix / escape logic for edge cases: adjacent punctuation, nested markers, backtick code spans next to special chars.
-  3. Add a unit test with known-bad MarkdownV2 strings (e.g. `*bold*.` and `_italic_,`) to confirm the escaper handles them without breaking entity parsing.
-  4. Add a DEBUG log of the raw MarkdownV2 string before send so failures can be diagnosed without guessing.
+- **Fix:** (1) Catch `BadRequest: can't parse entities` in Telegram send path (`remy/bot/streaming.py`, `remy/bot/handlers/chat.py`) and retry with `parse_mode=None`. (2) DEBUG log of raw formatted string before send. (3) Unit tests for edge cases (`*bold*.`, `_italic_,`) in `tests/test_telegram_formatting.py`.
 - **Reported:** 2026-03-04 (Dale Rogers — from log analysis)
+- **Fixed:** 2026-03-10
 
 ---
 
@@ -193,11 +142,8 @@ Archived bugs 1–41 (all fixed) → [docs/archive/BUGS-archived-2026-03-04.md](
 - **Root cause:** The mediated check-in prompt does not instruct the agent to call `get_counter` at fire time. The counter value in the injected context block (`<counters>`) is a snapshot from when the heartbeat was built, not the live value. The prompt does not reference the counter block or direct the agent to use it.
 - **Impact:** Medium. Sobriety milestone support and acknowledgement is a meaningful part of the evening check-in. Missing or stale streak data means the check-in feels generic and misses an opportunity to reinforce progress.
 - **Priority:** Medium
-- **Status:** Open
-- **Location:** Evening check-in prompt / `remy/scheduler/proactive.py` (mediated check-in prompt template); counter injection in `remy/memory/memory_injector.py`
-- **Suggested fix:**
-  1. Add an explicit `get_counter("sobriety_streak")` call at the start of the mediated evening check-in so the live value is always used.
-  2. Alternatively, ensure the heartbeat counter snapshot is refreshed immediately before the check-in fires (not at bot start or last heartbeat).
-  3. Update the check-in prompt to reference the `<counters>` block and instruct the agent to acknowledge milestones (e.g. "Day 7", "Day 30") when relevant.
-  4. Add a test: fire a mock check-in with a known counter value and assert the counter tool is called and the value appears in the output.
+- **Status:** ✅ Fixed
+- **Location:** Evening check-in prompt / `remy/scheduler/proactive.py` (mediated check-in prompt template); counter injection at fire time in `remy/scheduler/proactive.py`.
+- **Fix:** Counters are injected at evening check-in fire time in `remy/scheduler/proactive.py`. Prompt in `remy/bot/pipeline.py` updated to state that the 'counters' array in context is live at send time and to acknowledge sobriety_streak.
 - **Reported:** 2026-03-06 (Dale Rogers)
+- **Fixed:** 2026-03-10

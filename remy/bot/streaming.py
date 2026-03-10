@@ -91,6 +91,9 @@ class StreamingReply:
             if split_at < 0:
                 split_at = _TELEGRAM_MAX_LEN
             part = display[:split_at]
+            assert len(part) <= 4096, (
+                f"Overflow split produced {len(part)}-char message (limit 4096)"
+            )
             display = display[split_at:].lstrip()
 
             await self._edit_or_skip(part)
@@ -122,9 +125,13 @@ class StreamingReply:
 
     async def _edit_or_skip(self, text: str) -> None:
         """Edit the current message with MarkdownV2 formatting."""
-        from ..utils.telegram_formatting import format_telegram_message
-        
+        from ..utils.telegram_formatting import (
+            format_telegram_message,
+            is_entity_parse_error,
+        )
+
         formatted = format_telegram_message(text)
+        logger.debug("Telegram send (MarkdownV2) raw: %r", formatted)
         try:
             await self._message.edit_text(formatted, parse_mode="MarkdownV2")
             self._last_sent = text
@@ -132,14 +139,15 @@ class StreamingReply:
             err = str(e).lower()
             if "message is not modified" in err:
                 return
-            # If MarkdownV2 fails (e.g. unbalanced), fallback to plain text escaping
+            if is_entity_parse_error(e):
+                logger.debug(
+                    "MarkdownV2 entity parse error, falling back to plain text: %s", e
+                )
             try:
                 await self._message.edit_text(text)
                 self._last_sent = text
             except BadRequest:
-                pass
-            else:
-                logger.debug("Telegram BadRequest on edit: %s", e)
+                logger.debug("Telegram BadRequest on edit (plain fallback failed): %s", e)
         except Exception as e:
             logger.debug("Could not edit message: %s", e)
 

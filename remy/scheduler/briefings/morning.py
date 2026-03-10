@@ -66,10 +66,6 @@ class MorningBriefingGenerator(BriefingGenerator):
         if stale_plans_section:
             sections.append(stale_plans_section)
 
-        relay_section = await self._build_relay_section()
-        if relay_section:
-            sections.append(relay_section)
-
         return "\n\n".join(sections)
 
     async def generate_structured(self) -> dict[str, Any]:
@@ -249,29 +245,6 @@ class MorningBriefingGenerator(BriefingGenerator):
         else:
             payload["unread_email"] = {"count": 0, "senders": [], "scope": ""}
 
-        # Relay inbox (US-claude-desktop-relay, US-relay-shared-backend)
-        try:
-            from ...relay import get_messages_for_remy, get_tasks_for_remy
-
-            _, unread = await get_messages_for_remy(
-                agent="remy",
-                unread_only=True,
-                mark_read=False,
-                limit=1,
-                db_path=settings.relay_db_path_resolved,
-            )
-            _, pending = await get_tasks_for_remy(
-                agent="remy",
-                status="pending",
-                limit=1,
-                db_path=settings.relay_db_path_resolved,
-            )
-            payload["relay_unread"] = unread
-            payload["relay_pending"] = pending
-        except Exception:
-            payload["relay_unread"] = 0
-            payload["relay_pending"] = 0
-
         return payload
 
     async def _build_goals_section(self) -> str:
@@ -401,31 +374,3 @@ class MorningBriefingGenerator(BriefingGenerator):
             lines.append(f"_…and {len(stale) - 5} more steps_")
 
         return "\n".join(lines)
-
-    async def _build_relay_section(self) -> str:
-        """One-liner if there are unread relay messages or pending tasks from cowork (US-relay-shared-backend)."""
-        try:
-            from ...config import settings
-            from ...relay import get_messages_for_remy, get_tasks_for_remy
-
-            messages, unread = await get_messages_for_remy(
-                agent="remy",
-                unread_only=True,
-                mark_read=False,
-                limit=5,
-                db_path=settings.relay_db_path_resolved,
-            )
-            tasks, pending = await get_tasks_for_remy(
-                agent="remy",
-                status="pending",
-                limit=5,
-                db_path=settings.relay_db_path_resolved,
-            )
-        except Exception:
-            return ""
-        lines = []
-        if unread > 0:
-            lines.append(f"📬 {unread} unread message(s) from cowork.")
-        if pending > 0:
-            lines.append(f"📋 {pending} pending task(s) from cowork.")
-        return "\n".join(lines) if lines else ""

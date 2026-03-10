@@ -36,20 +36,6 @@ services:
       start_period: 20s
       retries: 3
 
-  relay:
-    build: ./relay_mcp
-    ports:
-      - "127.0.0.1:8765:8765"   # local only — Claude Code agents connect here
-    volumes:
-      - ./data:/app/data         # relay.db lives alongside other remy data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s = socket.create_connection(('localhost', 8765), timeout=3); s.close()"]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-
   ollama:
     image: ollama/ollama:latest
     ports:

@@ -890,117 +890,6 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     # ------------------------------------------------------------------ #
-    # Relay (Claude Desktop ↔ cowork)                                     #
-    # ------------------------------------------------------------------ #
-    {
-        "name": "relay_get_messages",
-        "description": (
-            "Check Remy's relay inbox for messages from cowork (Claude Desktop). "
-            "Call at the start of any cowork session or when Dale asks what's in the relay."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "unread_only": {
-                    "type": "boolean",
-                    "description": "If true, return only unread messages (default true).",
-                },
-                "mark_read": {
-                    "type": "boolean",
-                    "description": "If true, mark returned messages as read (default true).",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max messages to return (default 20, max 100).",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "relay_post_message",
-        "description": "Send a message from Remy to cowork (Claude Desktop) via the relay channel.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "The message content to send to cowork.",
-                },
-                "thread_id": {
-                    "type": "string",
-                    "description": "Optional thread ID to reply in-thread.",
-                },
-            },
-            "required": ["content"],
-        },
-    },
-    {
-        "name": "relay_get_tasks",
-        "description": "List tasks assigned to Remy from cowork. Use to find pending work.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": [
-                        "pending",
-                        "in_progress",
-                        "done",
-                        "needs_clarification",
-                        "all",
-                    ],
-                    "description": "Filter tasks by status (default: pending).",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max tasks to return (default 20, max 100).",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "relay_update_task",
-        "description": "Claim, complete, or flag a relay task from cowork.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "The task ID to update."},
-                "status": {
-                    "type": "string",
-                    "enum": ["in_progress", "done", "needs_clarification"],
-                    "description": "New task status.",
-                },
-                "result": {
-                    "type": "string",
-                    "description": "Result summary (for done).",
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Clarification notes (for needs_clarification).",
-                },
-            },
-            "required": ["task_id", "status"],
-        },
-    },
-    {
-        "name": "relay_post_note",
-        "description": "Post a shared observation or finding to the relay for cowork to read.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "content": {"type": "string", "description": "Note content."},
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional tags (e.g. ['gmail', 'audit']).",
-                },
-            },
-            "required": ["content"],
-        },
-    },
-    # ------------------------------------------------------------------ #
     # Google Docs                                                          #
     # ------------------------------------------------------------------ #
     {
@@ -1842,9 +1731,10 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "name": "save_bookmark",
         "description": (
-            "Save a URL as a bookmark with an optional note. "
+            "Save a URL as a bookmark with an optional note and optional tag. "
             "Use when the user says 'save this link', 'bookmark this URL', "
-            "'remember this page for later', or shares a URL to save."
+            "'remember this page for later', or shares a URL to save. "
+            "Tags: preferences, work, personal."
         ),
         "input_schema": {
             "type": "object",
@@ -1857,6 +1747,11 @@ TOOL_SCHEMAS: list[dict] = [
                     "type": "string",
                     "description": "Optional note describing what the bookmark is for.",
                 },
+                "tag": {
+                    "type": "string",
+                    "enum": ["preferences", "work", "personal"],
+                    "description": "Optional tag to organise the bookmark.",
+                },
             },
             "required": ["url"],
         },
@@ -1864,9 +1759,9 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "name": "list_bookmarks",
         "description": (
-            "List saved bookmarks, optionally filtered by keyword. "
+            "List saved bookmarks, optionally filtered by keyword or tag. "
             "Use when the user asks 'show my bookmarks', 'what links have I saved?', "
-            "or 'find that bookmark about X'."
+            "'find that bookmark about X', or 'list work bookmarks'."
         ),
         "input_schema": {
             "type": "object",
@@ -1874,6 +1769,11 @@ TOOL_SCHEMAS: list[dict] = [
                 "filter": {
                     "type": "string",
                     "description": "Optional keyword to filter bookmarks by.",
+                },
+                "tag": {
+                    "type": "string",
+                    "enum": ["preferences", "work", "personal"],
+                    "description": "Optional tag to filter bookmarks by.",
                 },
             },
             "required": [],
@@ -2040,11 +1940,11 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "suggest_actions",
         "description": (
             "Attach inline action buttons to your reply so Dale can tap instead of typing. "
-            "Use suggest_actions only when offering 2–4 decisions Dale can make (e.g. add event, archive email, forward to cowork, dismiss). "
+            "Use suggest_actions only when offering 2–4 decisions Dale can make (e.g. add event, archive email, dismiss). "
             "Call at the END of your turn when your response suggests clear next steps. "
-            "Decisions only: [Add to calendar] for a suggested/mentioned event not yet on the calendar; [Archive] after triage; [Forward to cowork] when the message is a candidate to send; [Dismiss] to acknowledge. "
+            "Decisions only: [Add to calendar] for a suggested/mentioned event not yet on the calendar; [Archive] after triage; [Dismiss] to acknowledge. "
             "Do NOT attach a button for every item in a list when the list is informational (e.g. do not add [Add to calendar] per existing calendar event in a briefing — those are already on the calendar). "
-            "Supported callback_id: add_to_calendar, forward_to_cowork, break_down, dismiss."
+            "Supported callback_id: add_to_calendar, break_down, dismiss."
         ),
         "input_schema": {
             "type": "object",
@@ -2063,7 +1963,6 @@ TOOL_SCHEMAS: list[dict] = [
                                 "type": "string",
                                 "enum": [
                                     "add_to_calendar",
-                                    "forward_to_cowork",
                                     "break_down",
                                     "dismiss",
                                 ],
@@ -2071,7 +1970,7 @@ TOOL_SCHEMAS: list[dict] = [
                             },
                             "payload": {
                                 "type": "object",
-                                "description": "Context for the action. add_to_calendar: title, when (ISO) — use only for suggested events not yet on the calendar. break_down: topic. forward_to_cowork: text.",
+                                "description": "Context for the action. add_to_calendar: title, when (ISO) — use only for suggested events not yet on the calendar. break_down: topic.",
                             },
                         },
                         "required": ["label", "callback_id"],

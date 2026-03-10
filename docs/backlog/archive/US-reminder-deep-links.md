@@ -1,6 +1,6 @@
 # User Story: Deep Links for Reminders
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ## Summary
 As a user, I want to tap a reminder notification and land in Telegram with that reminder’s context (e.g. `t.me/RemyBot?start=reminder_<id>`) so that I can act on it or see details without hunting through the chat.

@@ -16,7 +16,45 @@ from remy.bot.handlers.callbacks import (
     store_run_again_payload,
     make_run_again_keyboard,
     make_suggested_actions_keyboard,
+    store_pending_attachment,
+    make_attachment_keyboard,
 )
+
+
+class TestStorePendingAttachment:
+    """Test pending attachment storage (document/photo action buttons)."""
+
+    def test_returns_token(self):
+        token = store_pending_attachment(
+            file_id="abc123", is_photo=True, caption="", user_id=99
+        )
+        assert isinstance(token, str)
+        assert len(token) == 12  # 6 bytes hex
+
+    def test_different_calls_different_tokens(self):
+        t1 = store_pending_attachment("f1", True, "c1", 1)
+        t2 = store_pending_attachment("f2", False, "c2", 1)
+        assert t1 != t2
+
+
+class TestMakeAttachmentKeyboard:
+    """Test attachment action keyboard (Summarise / Extract tasks / Save)."""
+
+    def test_returns_three_buttons(self):
+        kb = make_attachment_keyboard("token123")
+        assert kb is not None
+        assert len(kb.inline_keyboard) == 1
+        row = kb.inline_keyboard[0]
+        assert len(row) == 3
+        labels = [b.text for b in row]
+        assert "Summarise" in labels
+        assert "Extract tasks" in labels
+        assert "Save" in labels
+        data = [b.callback_data for b in row]
+        assert all(d.startswith("attach_act:") for d in data)
+        assert any("s:" in d for d in data)
+        assert any("e:" in d for d in data)
+        assert any("v:" in d for d in data)
 
 
 class TestStorePendingArchive:
@@ -250,36 +288,6 @@ class TestCallbackHandler:
         await handler(update, context)
 
         update.callback_query.edit_message_text.assert_called_with("Cancelled.")
-
-    @pytest.mark.asyncio
-    @patch("remy.bot.handlers.callbacks.is_allowed", return_value=True)
-    async def test_forward_to_cowork_calls_relay(self, mock_is_allowed):
-        mock_relay = AsyncMock(return_value=True)
-        handler = make_callback_handler(relay_post_message=mock_relay)
-        actions = [
-            {
-                "label": "Send to cowork",
-                "callback_id": "forward_to_cowork",
-                "payload": {"text": "Gmail audit complete."},
-            }
-        ]
-        kb = make_suggested_actions_keyboard(actions, 777)
-        cb_data = kb.inline_keyboard[0][0].callback_data
-
-        update = MagicMock()
-        update.callback_query = MagicMock()
-        update.callback_query.data = cb_data
-        update.callback_query.answer = AsyncMock()
-        update.callback_query.edit_message_text = AsyncMock()
-        update.effective_user = MagicMock()
-        update.effective_user.id = 777
-
-        context = MagicMock()
-
-        await handler(update, context)
-
-        mock_relay.assert_called_once_with(content="Gmail audit complete.")
-        update.callback_query.edit_message_text.assert_called_with("✅ Sent to cowork.")
 
     @pytest.mark.asyncio
     @patch("remy.bot.handlers.callbacks.is_allowed", return_value=True)

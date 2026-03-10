@@ -80,3 +80,18 @@ async def test_stream_to_telegram_cancel_appends_cancelled():
 
     result = await stream_to_telegram(chunks(), msg, sm, user_id=1)
     assert "[Cancelled]" in result
+
+
+@pytest.mark.asyncio
+async def test_overflow_split_creates_extra_message():
+    """US-streaming-overflow-safety: when text exceeds limit, overflow path runs (splits and send_message)."""
+    from remy.bot.streaming import StreamingReply, _TELEGRAM_MAX_LEN
+
+    msg = make_mock_message()
+    sm = SessionManager()
+    long_chunk = "a " * (_TELEGRAM_MAX_LEN // 2 + 100)  # over _TELEGRAM_MAX_LEN
+    streamer = StreamingReply(msg, sm, user_id=1)
+    await streamer.feed(long_chunk)
+    await streamer.finalize()  # must not raise (assert len(part) <= 4096 in implementation)
+
+    assert msg.chat.send_message.called, "Overflow should create a new message"

@@ -7,7 +7,6 @@ Contains handlers for basic commands: start, help, cancel, status, setmychat, br
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING
 
 from telegram import Update
@@ -30,6 +29,7 @@ def make_core_handlers(
     tool_registry: "ToolRegistry | None" = None,
     proactive_scheduler: "ProactiveScheduler | None" = None,
     scheduler_ref: dict | None = None,
+    automation_store=None,
 ):
     """
     Factory that returns core command handlers.
@@ -42,6 +42,61 @@ def make_core_handlers(
             return
         if await reject_unauthorized(update):
             return
+
+        text = (update.message.text or "").strip()
+        if text.startswith("/start "):
+            payload = text[len("/start "):].strip()
+            if payload.startswith("reminder_"):
+                try:
+                    automation_id = int(payload[len("reminder_"):])
+                except ValueError:
+                    pass
+                else:
+                    user_id = update.effective_user.id
+                    chat_id = update.effective_chat.id if update.effective_chat else 0
+                    if automation_store is not None:
+                        automation = await automation_store.get_for_user(
+                            user_id, automation_id
+                        )
+                        if automation is not None:
+                            from .callbacks import (
+                                make_reminder_keyboard,
+                                store_reminder_payload,
+                            )
+                            label = automation.get("label") or "Reminder"
+                            fire_at = automation.get("fire_at")
+                            one_time = bool(fire_at)
+                            if fire_at:
+                                next_line = f"One-time: {fire_at}"
+                            else:
+                                next_line = "Recurring"
+                            token = store_reminder_payload(
+                                user_id=user_id,
+                                chat_id=chat_id,
+                                label=label,
+                                automation_id=automation_id,
+                                one_time=one_time,
+                            )
+                            keyboard = make_reminder_keyboard(token)
+                            msg = f"🔔 *{label}*\n\nNext: {next_line}\n\nTap below to snooze or mark done."
+                            try:
+                                await update.message.reply_text(
+                                    msg,
+                                    reply_markup=keyboard,
+                                    parse_mode="Markdown",
+                                )
+                            except Exception as e:
+                                logger.debug("Reminder deep link reply failed: %s", e)
+                                await update.message.reply_text(
+                                    f"🔔 {label}\n\nNext: {next_line}",
+                                    reply_markup=keyboard,
+                                )
+                            return
+                    await update.message.reply_text(
+                        "Reminder not found or no longer available."
+                    )
+                    return
+
         await update.message.reply_text(
             "Remy online. I'm your conversational AI assistant.\n\n"
             "*Commands:*\n"
@@ -98,12 +153,11 @@ def make_core_handlers(
             return
         if update.effective_chat is None:
             return
-        chat_id = str(update.effective_chat.id)
-        path = settings.primary_chat_file
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        from ...config import save_primary_chat_id
+
+        chat_id = update.effective_chat.id
         try:
-            with open(path, "w") as f:
-                f.write(chat_id)
+            save_primary_chat_id(chat_id)
             await update.message.reply_text(
                 f"This chat is now set for proactive messages. (ID: {chat_id})"
             )

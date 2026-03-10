@@ -1,6 +1,8 @@
 """Tests for remy/config.py — construct Settings directly, bypassing module singleton."""
 
-from remy.config import Settings
+from unittest.mock import MagicMock, patch
+
+from remy.config import Settings, save_primary_chat_id
 
 
 def make_settings(monkeypatch, **overrides):
@@ -89,3 +91,12 @@ def test_gdrive_mount_paths_missing_path(monkeypatch):
         GDRIVE_MOUNT_PATHS="/nonexistent/drive/mount/path",
     )
     assert s.gdrive_mount_paths == []
+
+
+def test_save_primary_chat_id_writes_file(tmp_path):
+    """Refactor primary chat helper: save_primary_chat_id writes chat_id to primary_chat_file."""
+    mock_settings = MagicMock()
+    mock_settings.primary_chat_file = str(tmp_path / "primary_chat_id.txt")
+    with patch("remy.config.get_settings", return_value=mock_settings):
+        save_primary_chat_id(999888)
+    assert (tmp_path / "primary_chat_id.txt").read_text().strip() == "999888"

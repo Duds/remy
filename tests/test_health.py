@@ -622,3 +622,224 @@ async def test_ship_it_returns_503_when_workspace_root_unset():
             assert resp.status == 503
             data = await resp.json()
             assert data.get("error") == "WORKSPACE_ROOT not set — cannot run SHIP-IT"
+
+
+# --------------------------------------------------------------------------- #
+# POST /incoming (third-party webhooks) and dashboard                          #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_incoming_returns_404_when_webhook_not_configured():
+    """POST /incoming returns 404 when REMY_WEBHOOK_SECRET is not set."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_incoming_webhook
+
+    app = web.Application()
+    app.router.add_post("/incoming", _handle_incoming_webhook)
+
+    mock_settings = MagicMock()
+    mock_settings.remy_webhook_secret = ""
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(
+                "/incoming",
+                json={"action": "notify", "message": "hi"},
+                headers={"X-Webhook-Secret": "any"},
+            )
+            assert resp.status == 404
+            data = await resp.json()
+            assert "not configured" in data.get("error", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_incoming_returns_401_when_secret_wrong():
+    """POST /incoming returns 401 when X-Webhook-Secret does not match."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_incoming_webhook
+
+    app = web.Application()
+    app.router.add_post("/incoming", _handle_incoming_webhook)
+
+    mock_settings = MagicMock()
+    mock_settings.remy_webhook_secret = "correct-secret"
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(
+                "/incoming",
+                json={"action": "notify", "message": "hi"},
+                headers={"X-Webhook-Secret": "wrong-secret"},
+            )
+            assert resp.status == 401
+            data = await resp.json()
+            assert "unauthorized" in data.get("error", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_incoming_returns_400_for_invalid_action():
+    """POST /incoming returns 400 when action is missing or invalid."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_incoming_webhook
+
+    app = web.Application()
+    app.router.add_post("/incoming", _handle_incoming_webhook)
+
+    mock_settings = MagicMock()
+    mock_settings.remy_webhook_secret = "secret"
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(
+                "/incoming",
+                json={},
+                headers={"X-Webhook-Secret": "secret"},
+            )
+            assert resp.status == 400
+            resp2 = await client.post(
+                "/incoming",
+                json={"action": "unknown"},
+                headers={"X-Webhook-Secret": "secret"},
+            )
+            assert resp2.status == 400
+
+
+@pytest.mark.asyncio
+async def test_incoming_note_returns_ok_not_implemented():
+    """POST /incoming action=note returns 200 with message that it is not yet implemented."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_incoming_webhook
+
+    app = web.Application()
+    app.router.add_post("/incoming", _handle_incoming_webhook)
+
+    mock_settings = MagicMock()
+    mock_settings.remy_webhook_secret = "secret"
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(
+                "/incoming",
+                json={"action": "note", "message": "something"},
+                headers={"X-Webhook-Secret": "secret"},
+            )
+            assert resp.status == 200
+            data = await resp.json()
+            assert data.get("status") == "ok"
+            assert "not yet implemented" in data.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_returns_404_when_bot_username_unset():
+    """GET /dashboard returns 404 when TELEGRAM_BOT_USERNAME is not set."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_dashboard
+
+    app = web.Application()
+    app.router.add_get("/dashboard", _handle_dashboard)
+
+    mock_settings = MagicMock()
+    mock_settings.telegram_bot_username = ""
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/dashboard")
+            assert resp.status == 404
+            data = await resp.json()
+            assert "not configured" in data.get("error", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_dashboard_returns_html_when_configured():
+    """GET /dashboard returns 200 HTML with Telegram widget when bot username set."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_dashboard
+
+    app = web.Application()
+    app.router.add_get("/dashboard", _handle_dashboard)
+
+    mock_settings = MagicMock()
+    mock_settings.telegram_bot_username = "RemyBot"
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/dashboard")
+            assert resp.status == 200
+            assert "text/html" in resp.content_type
+            text = await resp.text()
+            assert "Remy Dashboard" in text
+            assert "telegram-widget" in text or "data-telegram-login" in text
+            assert "RemyBot" in text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_auth_returns_401_when_hash_invalid():
+    """GET /dashboard/auth returns 401 when Telegram widget hash is invalid."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_dashboard_auth
+
+    app = web.Application()
+    app.router.add_get("/dashboard/auth", _handle_dashboard_auth)
+
+    mock_settings = MagicMock()
+    mock_settings.telegram_bot_token = "test-token"
+    mock_settings.telegram_allowed_users = [12345]
+    mock_settings.health_api_token = None
+    mock_settings.remy_webhook_secret = None
+    with patch("remy.health.get_settings", return_value=mock_settings):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/dashboard/auth?id=12345&hash=invalid&auth_date=0")
+            assert resp.status == 401
+            data = await resp.json()
+            assert "invalid" in data.get("error", "").lower() or "expired" in data.get("error", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_dashboard_stats_redirects_without_cookie():
+    """GET /dashboard/stats returns 302 to /dashboard when no session cookie."""
+    try:
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+    except ImportError:
+        pytest.skip("aiohttp not installed")
+
+    from remy.health import _handle_dashboard_stats
+
+    app = web.Application()
+    app.router.add_get("/dashboard/stats", _handle_dashboard_stats)
+
+    with patch("remy.health.get_settings", return_value=MagicMock()):
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/dashboard/stats")
+            assert resp.status == 302
+            assert resp.headers.get("Location") == "/dashboard"

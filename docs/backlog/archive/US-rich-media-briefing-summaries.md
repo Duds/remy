@@ -1,6 +1,6 @@
 # User Story: Rich Media Summaries for Briefings
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ## Summary
 As a user, I want a week-at-a-glance image plus a short caption for my briefings so that I can quickly scan the week without reading a long message.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -41,13 +40,10 @@ async def exec_set_proactive_chat(
             "Please use the /setmychat command directly to set this chat for briefings."
         )
 
-    from ...config import settings
+    from ...config import save_primary_chat_id
 
-    path = settings.primary_chat_file
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     try:
-        with open(path, "w") as f:
-            f.write(str(chat_id))
+        save_primary_chat_id(chat_id)
         return f"✅ This chat is now set for proactive messages (ID: {chat_id})"
     except OSError as e:
         return f"❌ Could not save chat setting: {e}"

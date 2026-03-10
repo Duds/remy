@@ -14,7 +14,7 @@ in 3+ days). This story implements the **full** context-aware behaviour: dedup b
 conversation, configurable staleness, calendar context, and snooze — so the single
 evening check-in remains the primary channel but is smarter and less repetitive.
 
-**Status:** Ready to implement in full.
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ---
 

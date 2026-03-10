@@ -1,6 +1,6 @@
 # User Story: Webhooks for Third-Party (CI, Zapier)
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ## Summary
 As a developer or power user, I want to send notifications and trigger actions in Remy from CI, Zapier, or other tools via webhooks so that build results, alerts, or automations can surface in Remy and be acted on.

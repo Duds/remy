@@ -88,6 +88,7 @@ def make_handlers(
             tool_registry=tool_registry,
             proactive_scheduler=sched.proactive_scheduler,
             scheduler_ref=sched.scheduler_ref,  # type: ignore[arg-type]
+            automation_store=sched.automation_store,
         )
     )
 
@@ -147,7 +148,26 @@ def make_handlers(
         )
     )
 
-    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done, run_auto, run_again)
+    # Chat handlers (message, voice, photo, document) — created before callback so we can pass run_attachment_vision
+    chat_handlers_result = make_chat_handlers(
+        session_manager=session_manager,
+        conv_store=mem.conv_store,  # type: ignore[arg-type]
+        claude_client=claude_client,
+        knowledge_extractor=mem.knowledge_extractor,
+        knowledge_store=mem.knowledge_store,
+        memory_injector=mem.memory_injector,
+        voice_transcriber=core.voice_transcriber,  # type: ignore[arg-type]
+        db=db,
+        tool_registry=tool_registry,
+        google_gmail=g.gmail,
+        diagnostics_runner=core.diagnostics_runner,  # type: ignore[arg-type]
+        scheduler_ref=sched.scheduler_ref,  # type: ignore[arg-type]
+        proactive_scheduler=sched.proactive_scheduler,
+    )
+    run_attachment_vision = chat_handlers_result.pop("_run_attachment_vision", None)
+    handlers.update(chat_handlers_result)
+
+    # Callback handler (inline Confirm/Cancel, suggested actions, snooze/done, run_auto, run_again, attach_act)
     handlers["callback"] = make_callback_handler(
         google_gmail=g.gmail,
         google_calendar=g.calendar,
@@ -162,6 +182,7 @@ def make_handlers(
         job_store=sched.job_store,
         memory_injector=mem.memory_injector,
         run_research_flow=handlers.get("run_research_flow"),
+        run_attachment_vision=run_attachment_vision,
     )
 
     # Admin and analytics
@@ -193,25 +214,6 @@ def make_handlers(
             conv_store=mem.conv_store,  # type: ignore[arg-type]
             memory_injector=mem.memory_injector,
             session_manager=session_manager,
-        )
-    )
-
-    # Chat handlers (message, voice, photo, document)
-    handlers.update(
-        make_chat_handlers(
-            session_manager=session_manager,
-            conv_store=mem.conv_store,  # type: ignore[arg-type]
-            claude_client=claude_client,
-            knowledge_extractor=mem.knowledge_extractor,
-            knowledge_store=mem.knowledge_store,
-            memory_injector=mem.memory_injector,
-            voice_transcriber=core.voice_transcriber,  # type: ignore[arg-type]
-            db=db,
-            tool_registry=tool_registry,
-            google_gmail=g.gmail,
-            diagnostics_runner=core.diagnostics_runner,  # type: ignore[arg-type]
-            scheduler_ref=sched.scheduler_ref,  # type: ignore[arg-type]
-            proactive_scheduler=sched.proactive_scheduler,
         )
     )
 

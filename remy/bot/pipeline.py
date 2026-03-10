@@ -84,8 +84,7 @@ _PROACTIVE_SCENARIOS: dict[str, tuple[str, str]] = {
         "- Prioritise what matters most; don't list everything verbatim\n"
         "- Be concise and natural — you're Remy, not a bulletin\n"
         "- Include calendar highlights, top goals, and any urgent items\n"
-        "- Optionally mention downloads cleanup or stale plans if relevant\n"
-        "- If relay_unread or relay_pending are non-zero, add one line: e.g. '📬 N unread message(s) from cowork.' and/or '📋 N pending task(s) from cowork.'\n\n"
+        "- Optionally mention downloads cleanup or stale plans if relevant\n\n"
         "Structured context:\n"
         "```json\n{context_json}\n```",
     ),
@@ -95,6 +94,8 @@ _PROACTIVE_SCENARIOS: dict[str, tuple[str, str]] = {
         "Compose a short, warm nudge — not a list. You're Remy checking in, not a task reminder.\n\n"
         "- Reference the goals naturally; one or two sentences is enough\n"
         "- If there's calendar context (today's events), you can tie it in (e.g. 'You had X today — still on for Y?')\n"
+        "- The 'counters' array in structured context (when present) is the live value at send time. "
+        "Acknowledge sobriety_streak when present (e.g. Day 7, Day 30) in a warm, brief way.\n"
         "- Invite a quick reply; don't overwhelm\n\n"
         "Structured context:\n"
         "```json\n{context_json}\n```",

@@ -8,6 +8,8 @@ Dispatches by prefix: confirm_archive_*, cancel_archive_*, add_to_calendar_*, et
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import secrets
 import time
@@ -19,7 +21,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from ...config import settings
-from ...relay import post_message_to_cowork
 from ..session import SessionManager
 from .base import is_allowed
 
@@ -43,6 +44,53 @@ _pending_reminders: dict[str, dict] = {}
 
 # Run again / New topic (tool-heavy flows): token -> {user_id, flow, params, created_at}
 _pending_run_again: dict[str, dict] = {}
+
+# Attachment action buttons (photo/document): token -> {file_id, is_photo, caption, user_id, mime_type, filename, created_at}
+_ATTACH_TTL = 300  # 5 min
+_pending_attachments: dict[str, dict] = {}
+
+
+def _clean_stale_attachments() -> None:
+    now = time.time()
+    stale = [t for t, v in _pending_attachments.items() if now - v["created_at"] > _ATTACH_TTL]
+    for t in stale:
+        del _pending_attachments[t]
+
+
+def store_pending_attachment(
+    file_id: str,
+    is_photo: bool,
+    caption: str,
+    user_id: int,
+    mime_type: str = "image/jpeg",
+    filename: str = "",
+) -> str:
+    """Store pending attachment for action buttons. Returns token for callback_data."""
+    _clean_stale_attachments()
+    token = secrets.token_hex(6)  # 12 chars
+    _pending_attachments[token] = {
+        "file_id": file_id,
+        "is_photo": is_photo,
+        "caption": caption,
+        "user_id": user_id,
+        "mime_type": mime_type,
+        "filename": filename,
+        "created_at": time.time(),
+    }
+    return token
+
+
+def make_attachment_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Build [Summarise] [Extract tasks] [Save] inline keyboard for photo/document."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Summarise", callback_data=f"attach_act:s:{token}"),
+                InlineKeyboardButton("Extract tasks", callback_data=f"attach_act:e:{token}"),
+                InlineKeyboardButton("Save", callback_data=f"attach_act:v:{token}"),
+            ],
+        ]
+    )
 
 
 def _clean_stale() -> None:
@@ -260,7 +308,6 @@ def make_suggested_actions_keyboard(
             continue
         if callback_id not in (
             "add_to_calendar",
-            "forward_to_cowork",
             "break_down",
             "dismiss",
         ):
@@ -345,7 +392,6 @@ def make_callback_handler(
     *,
     google_gmail: "GmailClient | None" = None,
     google_calendar: "CalendarClient | None" = None,
-    relay_post_message=None,
     automation_store=None,
     scheduler_ref: dict | None = None,
     claude_client=None,
@@ -357,12 +403,13 @@ def make_callback_handler(
     job_store=None,
     memory_injector=None,
     run_research_flow=None,
+    run_attachment_vision=None,
 ):
     """
     Factory that returns the callback query handler.
 
     Routes by callback_data prefix: confirm_archive_*, cancel_archive_*,
-    add_to_calendar_*, forward_to_cowork_*, break_down_*, dismiss,
+    add_to_calendar_*, break_down_*, dismiss,
     snooze_5_*, snooze_15_*, done_*, run_again_*, new_topic_*, run_auto_*.
     """
 
@@ -406,6 +453,76 @@ def make_callback_handler(
             except Exception as e:
                 logger.debug("Step limit stop edit failed: %s", e)
                 await query.answer()
+            return
+
+        if data.startswith("attach_act:"):
+            await query.answer()
+            parts = data.split(":", 2)
+            if len(parts) != 3 or parts[0] != "attach_act" or run_attachment_vision is None:
+                if len(parts) == 3 and parts[0] == "attach_act":
+                    try:
+                        await query.edit_message_text("Attachment action not available.")
+                    except Exception:
+                        pass
+                return
+            act, token = parts[1], parts[2]
+            _clean_stale_attachments()
+            pending = _pending_attachments.pop(token, None)
+            if pending is None or pending["user_id"] != user_id:
+                try:
+                    await query.edit_message_text(
+                        "Expired. Send the image again and choose an action."
+                    )
+                except Exception:
+                    pass
+                return
+            file_id = pending["file_id"]
+            mime_type = pending.get("mime_type") or "image/jpeg"
+            caption = pending.get("caption") or ""
+            prompt_map = {
+                "s": "Summarise this image briefly.",
+                "e": "Extract actionable tasks or to-dos from this image. Return a concise list.",
+                "v": "Describe this image in one sentence for a saved note.",
+            }
+            prompt = prompt_map.get(act, "Summarise this image briefly.")
+            try:
+                bot = context.bot
+                if bot is None:
+                    return
+                f = await bot.get_file(file_id)
+                bio = io.BytesIO()
+                await f.download_to_memory(bio)
+                image_b64 = base64.b64encode(bio.getvalue()).decode("utf-8")
+            except Exception as e:
+                logger.exception("Attachment download failed: %s", e)
+                try:
+                    await query.edit_message_text(f"❌ Could not load image: {e}")
+                except Exception:
+                    pass
+                return
+            msg = query.message
+            chat_id = msg.chat_id if msg else None
+            thread_id = getattr(msg, "message_thread_id", None) if msg else None
+            if chat_id is None:
+                return
+            try:
+                await run_attachment_vision(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    thread_id=thread_id,
+                    image_b64=image_b64,
+                    media_type=mime_type,
+                    prompt=prompt,
+                    caption=caption,
+                    message_to_edit=msg,
+                    bot=bot,
+                )
+            except Exception as e:
+                logger.exception("Attachment vision failed: %s", e)
+                try:
+                    await query.edit_message_text(f"❌ Failed: {e}")
+                except Exception:
+                    pass
             return
 
         await query.answer()
@@ -551,64 +668,6 @@ def make_callback_handler(
                     await query.edit_message_text("❌ Calendar not configured.")
                 except Exception:
                     pass
-
-        elif data.startswith("forward_to_cowork_"):
-            token = data[len("forward_to_cowork_") :]
-            _clean_stale_suggested()
-            pending = _pending_suggested.pop(token, None)
-            if pending is None or pending["user_id"] != user_id:
-                await query.answer("Expired.", show_alert=True)
-                return
-            # Content: payload text, or message the button is attached to
-            text = (pending.get("payload") or {}).get("text") if pending else ""
-            if not text or not str(text).strip():
-                msg = query.message
-                text = (
-                    getattr(msg, "text", None) or getattr(msg, "caption", None) or ""
-                ).strip()
-            text = (str(text)[:8000] or "Forwarded note.").strip()
-            try:
-                if relay_post_message is not None:
-                    ok = await relay_post_message(content=text)
-                else:
-                    ok = await post_message_to_cowork(
-                        content=text,
-                        db_path=settings.relay_db_path_resolved,
-                    )
-                if ok is not None and ok:
-                    if isinstance(ok, dict):
-                        logger.info(
-                            "Forward to cowork: relay message_id=%s",
-                            ok.get("message_id"),
-                        )
-                    try:
-                        await query.edit_message_text("✅ Sent to cowork.")
-                    except Exception as e:
-                        logger.warning(
-                            "Forward to cowork: could not edit message to success state: %s",
-                            e,
-                        )
-                else:
-                    try:
-                        await query.edit_message_text(
-                            "❌ Could not send to cowork. Try again later."
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "Forward to cowork: could not edit message to error state: %s",
-                            e,
-                        )
-            except Exception as e:
-                logger.warning("Forward to cowork failed: %s", e)
-                try:
-                    await query.edit_message_text(
-                        "❌ Could not send to cowork. Try again later."
-                    )
-                except Exception as edit_e:
-                    logger.warning(
-                        "Forward to cowork: could not edit message to error state: %s",
-                        edit_e,
-                    )
 
         elif data.startswith("break_down_"):
             token = data[len("break_down_") :]

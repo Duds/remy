@@ -1,7 +1,6 @@
 .PHONY: run test test-cov lint build docker-run docker-stop setup db db-init \
         deploy deploy-update deploy-logs deploy-delete health \
-        remy-up relay-up relay-run relay-stop relay-check relay-setup-check relay-verify \
-        install-launchd uninstall-launchd \
+        remy-up install-launchd uninstall-launchd \
         tunnel-up tunnel-stop tunnel-logs telemetry logs ship-it-remote \
         qmd-search qmd-query
 
@@ -43,43 +42,12 @@ db-init:
 db: db-init
 	python3 -m datasette serve data/remy.db --metadata config/datasette.yml --open
 
-# ── Remy stack & Relay MCP (Claude Desktop / Claude Code, US-relay-shared-backend) ─
-# Start full stack (remy bot + relay + ollama) via Docker. One relay process, one DB (data/relay.db).
+# ── Remy stack ─────────────────────────────────────────────────────────────────
+# Start full stack (remy bot + ollama) via Docker.
 remy-up:
-	docker compose up -d remy relay ollama
-
-# Alias: relay-up kept for backward compatibility
-relay-up: remy-up
-
-# Run relay server locally (no Docker) — single process, single DB at data/relay.db
-# Prefer venv Python so mcp is available (pip install -r requirements.txt first)
-PYTHON ?= $(if $(wildcard .venv/bin/python3),.venv/bin/python3,python3)
-relay-run:
-	@mkdir -p data
-	$(PYTHON) relay_mcp/server.py --db data/relay.db
-
-# Check if relay is reachable on port 8765
-# Stop any process listening on relay port (e.g. previous relay-run or relay-up)
-relay-stop:
-	@lsof -ti:8765 | xargs kill -9 2>/dev/null || true
-	@echo "relay port 8765 cleared"
-
-relay-check:
-	@python3 -c "import socket; s = socket.create_connection(('127.0.0.1', 8765), timeout=3); s.close(); print('relay OK')" || \
-		echo "relay not reachable — run 'make remy-up' or 'make relay-run'"
-
-# Verify Claude Desktop relay setup (relay + uv)
-relay-setup-check: relay-check
-	@command -v uvx >/dev/null 2>&1 || (echo "uv not found — install with: brew install uv"; exit 1)
-	@echo "relay setup OK — relay running, uv available"
-
-# Run relay tests (shared-DB E2E: remy↔cowork delivery on one DB). Use 'make relay-verify' or 'make relay'.
-relay-verify:
-	$(PYTHON) -m pytest tests/test_tools/test_relay.py -v
-relay: relay-verify
+	docker compose up -d remy ollama
 
 # ── LaunchAgent (start at login) ───────────────────────────────────────────────
-# Install LaunchAgent so remy + relay + ollama start when you log in
 LAUNCH_AGENTS := $(HOME)/Library/LaunchAgents
 REMY_PLIST := com.dalerogers.remy.plist
 
@@ -116,7 +84,7 @@ health:
 # ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
 # Requires CLOUDFLARE_TUNNEL_TOKEN in .env (see .env.example for setup steps)
 
-# Start remy + relay + ollama + cloudflared tunnel
+# Start remy + ollama + cloudflared tunnel
 tunnel-up:
 	docker compose --profile tunnel up -d
 

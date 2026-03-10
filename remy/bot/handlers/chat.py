@@ -37,9 +37,11 @@ from .base import (
     apply_completion_reaction,
 )
 from .callbacks import (
+    make_attachment_keyboard,
     make_run_again_keyboard,
     make_step_limit_keyboard,
     make_suggested_actions_keyboard,
+    store_pending_attachment,
 )
 from ..session import SessionManager
 from ...ai.claude_client import (
@@ -65,7 +67,10 @@ from ...memory.compaction import get_compaction_service
 from ...memory.knowledge import extract_and_store_knowledge
 from ...models import ConversationTurn
 from ...utils.concurrency import get_extraction_runner
-from ...utils.telegram_formatting import format_telegram_message
+from ...utils.telegram_formatting import (
+    format_telegram_message,
+    is_entity_parse_error,
+)
 
 if TYPE_CHECKING:
     from ...ai.tools import ToolRegistry
@@ -192,6 +197,7 @@ def make_chat_handlers(
         bot=None,
         timing: RequestTiming | None = None,
         working_message=None,
+        attachment_token: str | None = None,
     ) -> None:
         """Tool-aware streaming path using native Anthropic function calling.
 
@@ -242,9 +248,11 @@ def make_chat_handlers(
                 kwargs = {}
                 if final and reply_markup is not None:
                     kwargs["reply_markup"] = reply_markup
+                formatted = format_telegram_message(truncated)
+                logger.debug("Telegram send (MarkdownV2) raw: %r", formatted)
                 try:
                     await sent.edit_text(
-                        format_telegram_message(truncated),
+                        formatted,
                         parse_mode="MarkdownV2",
                         **kwargs,
                     )
@@ -252,7 +260,12 @@ def make_chat_handlers(
                 except BadRequest as e:
                     if "message is not modified" in str(e).lower():
                         return  # already up to date — don't overwrite with plain text
-                    # Real MarkdownV2 parse error — fall back to plain text
+                    # Entity parse error or other BadRequest — fall back to plain (unformatted)
+                    if is_entity_parse_error(e):
+                        logger.debug(
+                            "MarkdownV2 entity parse error, falling back to plain text: %s",
+                            e,
+                        )
                     try:
                         await sent.edit_text(truncated, **kwargs)
                         last_edit_len = len(full)
@@ -518,12 +531,14 @@ def make_chat_handlers(
                 break
 
         # Hand-off to Board: no step-limit keyboard; we trigger run_board after send
-        # Then approval gate; then suggested_actions; then Run again for tool-heavy flows
+        # Then approval gate; then suggested_actions; then attachment buttons; then Run again
         reply_markup: InlineKeyboardMarkup | None
         if step_limit_reached and not hand_off_requested:
             reply_markup = make_step_limit_keyboard()
         elif approval_keyboard is not None:
             reply_markup = approval_keyboard
+        elif attachment_token:
+            reply_markup = make_attachment_keyboard(attachment_token)
         elif suggested_actions:
             reply_markup = make_suggested_actions_keyboard(suggested_actions, user_id)
         else:
@@ -1033,6 +1048,9 @@ def make_chat_handlers(
         photo = update.message.photo[-1]
         caption = update.message.caption or ""
         user_text = caption if caption else "What is this image?"
+        attachment_token = store_pending_attachment(
+            photo.file_id, True, caption, user_id, "image/jpeg", ""
+        )
 
         try:
             photo_file = await photo.get_file()
@@ -1114,6 +1132,7 @@ def make_chat_handlers(
                 message_id=update.message.message_id if update.message else None,
                 thread_id=thread_id,
                 bot=context.bot,
+                attachment_token=attachment_token,
             )
             _task_start_times.pop(user_id, None)
 
@@ -1171,6 +1190,9 @@ def make_chat_handlers(
         caption = update.message.caption or ""
         user_text = caption if caption else "What is this image?"
         filename = doc.file_name or "image"
+        attachment_token = store_pending_attachment(
+            doc.file_id, False, caption, user_id, doc.mime_type or "image/jpeg", filename
+        )
 
         try:
             doc_file = await doc.get_file()
@@ -1256,12 +1278,89 @@ def make_chat_handlers(
                 message_id=update.message.message_id if update.message else None,
                 thread_id=thread_id,
                 bot=context.bot,
+                attachment_token=attachment_token,
             )
             _task_start_times.pop(user_id, None)
 
-    return {
+    async def run_attachment_vision(
+        *,
+        user_id: int,
+        chat_id: int,
+        thread_id: int | None,
+        image_b64: str,
+        media_type: str,
+        prompt: str,
+        caption: str,
+        message_to_edit,
+        bot,
+    ) -> None:
+        """Run vision pipeline for an attachment action (Summarise / Extract tasks / Save)."""
+        session_key = SessionManager.get_session_key(user_id, thread_id)
+        recent = await conv_store.get_recent_turns(
+            user_id, session_key, limit=settings.compaction_keep_recent_messages
+        )
+        messages = [_build_message_from_turn(t) for t in recent]
+        while messages:
+            first = messages[0]
+            if first["role"] == "user" and isinstance(first["content"], str):
+                break
+            messages.pop(0)
+        messages = _trim_messages_to_budget(messages)
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_b64,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        )
+        system_prompt = settings.soul_md
+        if memory_injector is not None:
+            try:
+                system_prompt = await memory_injector.build_system_prompt(
+                    user_id, prompt, settings.soul_md
+                )
+                system_prompt = sanitize_memory_injection(system_prompt)
+            except Exception as e:
+                logger.error("Memory injection failed, using base prompt: %s", e)
+        try:
+            await message_to_edit.edit_text("…")
+        except Exception:
+            pass
+        if tool_registry is None or claude_client is None:
+            try:
+                await message_to_edit.edit_text(
+                    "❌ Agent not configured — tool_registry or claude_client missing."
+                )
+            except Exception:
+                pass
+            return
+        await _stream_with_tools_path(
+            user_id=user_id,
+            text=prompt,
+            messages=messages,
+            system_prompt=system_prompt,
+            session_key=session_key,
+            sent=message_to_edit,
+            chat_id=chat_id,
+            message_id=message_to_edit.message_id if message_to_edit else None,
+            thread_id=thread_id,
+            bot=bot,
+        )
+
+    result = {
         "message": handle_message,
         "voice": handle_voice,
         "photo": handle_photo,
         "document": handle_document,
     }
+    result["_run_attachment_vision"] = run_attachment_vision
+    return result

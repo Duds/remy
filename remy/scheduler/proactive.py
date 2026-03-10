@@ -33,16 +33,25 @@ from apscheduler.triggers.interval import IntervalTrigger
 from ..config import settings
 from ..memory.facts import FactStore
 from ..memory.goals import GoalStore
-from ..utils.telegram_formatting import format_telegram_message
+from ..utils.telegram_formatting import (
+    format_telegram_message,
+    is_entity_parse_error,
+)
 from .briefings import (
     MorningBriefingGenerator,
     AfternoonFocusGenerator,
     EveningCheckinGenerator,
     MonthlyRetrospectiveGenerator,
 )
+from .briefings.week_at_a_glance import generate_week_image
 
 if TYPE_CHECKING:
     from telegram import Bot
+
+try:
+    from telegram.error import BadRequest
+except ImportError:
+    BadRequest = Exception  # noqa: A001
 
     from ..memory.knowledge import KnowledgeStore
     from ..bot.heartbeat_handler import HeartbeatHandler
@@ -285,6 +294,20 @@ class ProactiveScheduler:
                 misfire_grace_time=3600,
                 coalesce=True,
             )
+            # Rich media: week-at-a-glance image Monday 07:15 (US-rich-media-briefing-summaries)
+            self._scheduler.add_job(
+                self._week_at_a_glance_briefing,
+                trigger=CronTrigger(
+                    minute=15,
+                    hour=7,
+                    day_of_week="mon",
+                    timezone=settings.scheduler_timezone,
+                ),
+                id="week_at_a_glance",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+            )
             logger.info(
                 "Proactive scheduler: legacy briefing/check-in crons (heartbeat not active)"
             )
@@ -380,16 +403,6 @@ class ProactiveScheduler:
                 "Counter daily auto-increment scheduled at 00:01 (%s)",
                 settings.scheduler_timezone,
             )
-
-        # Relay inbox poller — check for messages/tasks from cowork every 60s
-        self._scheduler.add_job(
-            self._poll_relay_inbox,
-            trigger=IntervalTrigger(seconds=60),
-            id="relay_inbox_poll",
-            replace_existing=True,
-            misfire_grace_time=30,
-            coalesce=True,
-        )
 
         # Bug 11: log at ERROR when a job is missed by >60s (event-loop congestion signal)
         def _on_job_missed(event: JobExecutionEvent) -> None:
@@ -841,7 +854,12 @@ class ProactiveScheduler:
                 chat_id,
                 len(text),
             )
-        except Exception:
+        except BadRequest as e:
+            if is_entity_parse_error(e):
+                logger.debug(
+                    "MarkdownV2 entity parse error on reminder, falling back to plain: %s",
+                    e,
+                )
             try:
                 await self._bot.send_message(
                     chat_id=chat_id,
@@ -851,51 +869,24 @@ class ProactiveScheduler:
                 logger.info(
                     "Proactive reminder sent (plain text fallback, chat %d)", chat_id
                 )
-            except Exception as e:
+            except Exception as e2:
                 logger.warning(
-                    "Proactive reminder send failed (chat %d): %s", chat_id, e
-                )
-
-    async def _poll_relay_inbox(self) -> None:
-        """Every-60s job — deliver unread relay messages and pending tasks to Dale via Telegram."""
-        chat_id = _read_primary_chat_id()
-        if chat_id is None:
-            return
-
-        try:
-            from ..relay import get_messages_for_remy, get_tasks_for_remy
-        except ImportError:
-            return
-
-        try:
-            messages, _ = await get_messages_for_remy(
-                db_path=settings.relay_db_path_resolved,
-            )
-            for msg in messages:
-                from_agent = msg.get("from_agent") or "cowork"
-                content = (msg.get("content") or "").strip()
-                if content:
-                    await self._send(
-                        chat_id, f"📨 *Message from {from_agent}:*\n\n{content}"
-                    )
-        except Exception as e:
-            logger.warning("Relay inbox poll (messages) failed: %s", e)
-
-        try:
-            tasks, _ = await get_tasks_for_remy(
-                db_path=settings.relay_db_path_resolved,
-            )
-            for task in tasks:
-                task_id = task.get("id") or "?"
-                task_type = task.get("task_type") or "general"
-                from_agent = task.get("from_agent") or "cowork"
-                description = (task.get("description") or "").strip()
-                await self._send(
-                    chat_id,
-                    f"📋 *New task from {from_agent}* (`{task_id}`):\n*Type:* `{task_type}`\n\n{description}",
+                    "Proactive reminder send failed (chat %d): %s", chat_id, e2
                 )
         except Exception as e:
-            logger.warning("Relay inbox poll (tasks) failed: %s", e)
+            try:
+                await self._bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=keyboard,
+                )
+                logger.info(
+                    "Proactive reminder sent (plain text fallback, chat %d)", chat_id
+                )
+            except Exception as e2:
+                logger.warning(
+                    "Proactive reminder send failed (chat %d): %s", chat_id, e2
+                )
 
     async def _morning_briefing(self) -> None:
         """07:00 job — send a summary of active goals, calendar, birthdays, downloads.
@@ -963,6 +954,43 @@ class ProactiveScheduler:
         content = await generator.generate()
         await self._send(chat_id, content)
         _record_delivery("morning_briefing")
+
+    async def _week_at_a_glance_briefing(self) -> None:
+        """Monday 07:15 — send week-at-a-glance image with caption (US-rich-media-briefing-summaries)."""
+        chat_id = _read_primary_chat_id()
+        if chat_id is None:
+            logger.debug("Week-at-a-glance skipped — no primary chat ID set")
+            return
+        user_ids = settings.telegram_allowed_users
+        if not user_ids:
+            logger.debug("Week-at-a-glance skipped — no allowed users configured")
+            return
+        user_id = user_ids[0]
+        goals_text = ""
+        if self._goal_store:
+            goals = await self._goal_store.get_active(user_id, limit=10)
+            goals_text = ", ".join((g.get("title") or "") for g in goals)
+        tz_name = getattr(settings, "scheduler_timezone", "Australia/Sydney")
+        png_bytes, caption = generate_week_image(
+            goals_text=goals_text,
+            tz_name=tz_name,
+        )
+        if png_bytes and caption:
+            try:
+                await self._bot.send_photo(
+                    chat_id=chat_id,
+                    photo=png_bytes,
+                    caption=caption,
+                )
+                _record_delivery("week_at_a_glance")
+                logger.info("Week-at-a-glance sent to chat %d", chat_id)
+            except Exception as e:
+                logger.warning("Week-at-a-glance send_photo failed: %s", e)
+                await self._send(chat_id, caption or "Week ahead.")
+                _record_delivery("week_at_a_glance")
+        else:
+            await self._send(chat_id, caption or "Week ahead.")
+            _record_delivery("week_at_a_glance")
 
     async def _afternoon_focus(self) -> None:
         """
@@ -1053,6 +1081,18 @@ class ProactiveScheduler:
             try:
                 payload = await generator.generate_structured()
                 if payload is not None:
+                    # Bug 12: inject live counters (e.g. sobriety_streak) at fire time
+                    if self._counter_store is not None:
+                        try:
+                            counters = await self._counter_store.get_all_for_inject(
+                                user_id
+                            )
+                            if counters:
+                                payload["counters"] = counters
+                        except Exception as e:
+                            logger.debug(
+                                "Evening check-in: could not load counters: %s", e
+                            )
                     from ..bot.pipeline import compose_proactive_message
 
                     await compose_proactive_message(

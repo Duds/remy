@@ -1,45 +1,18 @@
-# Agent Tooling Setup — Cursor, Claude Desktop, Relay (A2A)
+# Agent Tooling Setup — Cursor, Claude Desktop
 
-This document describes how Remy's agent tooling is configured across Cursor, Claude Desktop, and the relay MCP for inter-agent communication (A2A-style).
+This document describes how Remy's agent tooling is configured across Cursor and Claude Desktop.
 
 ---
 
 ## Overview
 
-| Tool | Config location | Relay MCP | Hooks |
-|------|-----------------|-----------|-------|
-| **Cursor** | `~/.cursor/mcp.json` (global) + `.cursor/mcp.json` (project) | Project-level via `.cursor/mcp.json` | `~/.cursor/hooks.json` (global) + `.cursor/hooks.json` (project) |
-| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` | In mcpServers | — |
-| **Remy (Telegram bot)** | Docker + relay client | Direct SQLite to `data/relay.db` | — |
+| Tool | Config location | Hooks |
+|------|-----------------|-------|
+| **Cursor** | `~/.cursor/mcp.json` (global) + `.cursor/mcp.json` (project) | `~/.cursor/hooks.json` (global) + `.cursor/hooks.json` (project) |
+| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` | — |
+| **Remy (Telegram bot)** | Docker | — |
 
-Cursor merges global and project MCP configs. When you open Remy in Cursor, you get both global tools (GitHub, filesystem, etc.) and the relay for cowork communication.
-
----
-
-## MCP Configuration
-
-### Relay MCP (inter-agent / A2A)
-
-The relay lets **remy** and **cowork** exchange messages, tasks, and notes across sessions. It runs as HTTP on `127.0.0.1:8765`.
-
-**Start the relay:**
-```bash
-make remy-up       # Docker (remy + relay + ollama)
-# or
-make relay-run     # Local Python (relay only)
-```
-
-**Cursor (project-level):** `.cursor/mcp.json` adds the relay. Uses `uvx mcp-proxy` to bridge stdio ↔ HTTP.
-
-**Claude Desktop:** Add to `claude_desktop_config.json` under `mcpServers`:
-```json
-"relay": {
-  "command": "uvx",
-  "args": ["mcp-proxy", "--transport", "streamablehttp", "http://127.0.0.1:8765/mcp"]
-}
-```
-
-**Requirements:** `uv` (for uvx) and relay running. Verify: `make relay-check`.
+Cursor merges global and project MCP configs. When you open Remy in Cursor, you get global tools (GitHub, filesystem, etc.) and any project-level MCP servers defined in `.cursor/mcp.json`.
 
 ---
 

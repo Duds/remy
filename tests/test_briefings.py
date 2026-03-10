@@ -415,6 +415,36 @@ class TestEveningCheckinGenerator:
         assert content == ""
 
 
+class TestEveningCheckinPromptWithCounters:
+    """Bug 12: evening check-in prompt mentions counters and milestones."""
+
+    def test_evening_checkin_prompt_includes_counter_guidance(self):
+        from remy.bot.pipeline import build_proactive_system_prompt
+
+        context = {
+            "evening_checkin": True,
+            "stale_goals": [{"id": 1, "title": "Goal"}],
+            "counters": [
+                {"name": "sobriety_streak", "value": 7, "unit": "days"},
+            ],
+        }
+        prompt = build_proactive_system_prompt("evening_checkin", context)
+        assert "counter" in prompt.lower() or "streak" in prompt.lower()
+        assert "Day 7" in prompt or "Day 30" in prompt or "milestone" in prompt.lower()
+
+    def test_evening_checkin_context_json_includes_counters(self):
+        from remy.bot.pipeline import build_proactive_system_prompt
+
+        context = {
+            "evening_checkin": True,
+            "stale_goals": [],
+            "counters": [{"name": "sobriety_streak", "value": 7, "unit": "days"}],
+        }
+        prompt = build_proactive_system_prompt("evening_checkin", context)
+        assert "sobriety_streak" in prompt
+        assert "7" in prompt
+
+
 class TestMonthlyRetrospectiveGenerator:
     """Tests for MonthlyRetrospectiveGenerator."""
 
@@ -483,3 +513,28 @@ class TestMonthlyRetrospectiveGenerator:
         content = await gen.generate()
 
         assert content == ""
+
+
+class TestWeekAtAGlance:
+    """Tests for week-at-a-glance image generator (US-rich-media-briefing-summaries)."""
+
+    def test_generate_week_image_returns_tuple(self):
+        """Returns (bytes | None, str); caption within Telegram limit."""
+        from remy.scheduler.briefings.week_at_a_glance import generate_week_image
+
+        png_bytes, caption = generate_week_image(goals_text="Goal A, Goal B")
+        # May be None if PIL fails (e.g. no font) or bytes if successful
+        if png_bytes is not None:
+            assert isinstance(png_bytes, bytes)
+            assert png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+        assert isinstance(caption, str)
+        assert len(caption) <= 1024
+
+    def test_generate_week_image_empty_goals(self):
+        """Works with empty goals_text."""
+        from remy.scheduler.briefings.week_at_a_glance import generate_week_image
+
+        png_bytes, caption = generate_week_image(goals_text="")
+        if png_bytes is not None:
+            assert isinstance(png_bytes, bytes)
+        assert isinstance(caption, str)

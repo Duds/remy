@@ -21,8 +21,15 @@ from typing import TYPE_CHECKING
 
 import aiosqlite
 
+from remy.utils.telegram_formatting import is_entity_parse_error
+
 if TYPE_CHECKING:
     from telegram import Bot
+
+try:
+    from telegram.error import BadRequest
+except ImportError:
+    BadRequest = Exception  # noqa: A001
 
 logger = logging.getLogger(__name__)
 
@@ -257,12 +264,27 @@ class OutboundQueue:
 
             try:
                 if msg.message_type == "text":
-                    await self.bot.send_message(
-                        chat_id=int(msg.chat_id),
-                        text=msg.message_text,
-                        reply_to_message_id=msg.reply_to_message_id,
-                        parse_mode=msg.parse_mode,
-                    )
+                    try:
+                        await self.bot.send_message(
+                            chat_id=int(msg.chat_id),
+                            text=msg.message_text,
+                            reply_to_message_id=msg.reply_to_message_id,
+                            parse_mode=msg.parse_mode,
+                        )
+                    except BadRequest as e:
+                        if is_entity_parse_error(e) and msg.parse_mode:
+                            logger.debug(
+                                "Queue: MarkdownV2 entity parse error, retrying with plain text: %s",
+                                e,
+                            )
+                            await self.bot.send_message(
+                                chat_id=int(msg.chat_id),
+                                text=msg.message_text,
+                                reply_to_message_id=msg.reply_to_message_id,
+                                parse_mode=None,
+                            )
+                        else:
+                            raise
                 else:
                     logger.warning(
                         "Unsupported message type %s for queue %d",

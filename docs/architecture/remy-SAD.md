@@ -1,8 +1,10 @@
 # Remy — Software Architecture Document (SAD)
 
-**Version:** 1.1  
-**Date:** 04/03/2026  
+**Version:** 1.2  
+**Date:** 10/03/2026  
 **Status:** Internal Engineering Document  
+
+Design decisions (evaluative heartbeat, relay MCP reassessment, sub-agents, skills) are in [remy-sad-v10.md](remy-sad-v10.md). High-level summary: [HLD.md](HLD.md).  
 
 ---
 

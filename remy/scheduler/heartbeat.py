@@ -167,52 +167,6 @@ async def check_budget(db, enqueue_message=None) -> dict:
     }
 
 
-async def requeue_stuck_relay_tasks(db) -> int:
-    """Revert relay tasks that have been in_progress for >30 minutes back to pending.
-
-    Returns the number of tasks requeued.
-    """
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime(
-        "%Y-%m-%dT%H:%M:%S"
-    )
-    try:
-        async with db.get_connection() as conn:
-            cursor = await conn.execute(
-                """
-                SELECT id FROM tasks
-                WHERE to_agent = 'remy'
-                  AND status = 'in_progress'
-                  AND updated_at < ?
-                """,
-                (cutoff,),
-            )
-            stuck = [row[0] for row in await cursor.fetchall()]
-
-        if not stuck:
-            return 0
-
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-        async with db.get_connection() as conn:
-            for task_id in stuck:
-                await conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'pending',
-                        notes = COALESCE(notes || ' | ', '') || 'Auto-requeued: timed out after 30 minutes (' || ? || ')',
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (now, now, task_id),
-                )
-            await conn.commit()
-
-        logger.info("Auto-requeued %d stuck relay task(s)", len(stuck))
-        return len(stuck)
-    except Exception as e:
-        logger.warning("requeue_stuck_relay_tasks failed (non-fatal): %s", e)
-        return 0
-
-
 def _in_quiet_hours() -> bool:
     """True if current time is in heartbeat quiet hours (no evaluation)."""
     tz: ZoneInfo | timezone
@@ -253,9 +207,6 @@ async def run_heartbeat_job(
 
     # Budget enforcement (paperclip §5): check spend and surface warnings
     await check_budget(db, enqueue_message=enqueue_message)
-
-    # Auto-requeue stuck relay tasks (paperclip §7)
-    await requeue_stuck_relay_tasks(db)
 
     await hook_manager.emit(
         HookEvents.HEARTBEAT_START, {"chat_id": chat_id, "user_id": user_id}

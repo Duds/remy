@@ -1,6 +1,6 @@
 # User Story: Bookmarks with Tag Buttons
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ## Summary
 As a user, I want to assign a tag when saving a bookmark (e.g. [Preferences] [Work] [Personal]) via quick buttons so that I can organise and filter bookmarks without typing.

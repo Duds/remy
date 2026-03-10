@@ -293,28 +293,6 @@ class ToolRegistry:
 
                     return await exec_git_status(self, tool_input)
 
-                # Relay (Claude Desktop ↔ cowork)
-                case "relay_get_messages":
-                    from .relay import exec_relay_get_messages
-
-                    return await exec_relay_get_messages(self, tool_input, user_id)
-                case "relay_post_message":
-                    from .relay import exec_relay_post_message
-
-                    return await exec_relay_post_message(self, tool_input, user_id)
-                case "relay_get_tasks":
-                    from .relay import exec_relay_get_tasks
-
-                    return await exec_relay_get_tasks(self, tool_input, user_id)
-                case "relay_update_task":
-                    from .relay import exec_relay_update_task
-
-                    return await exec_relay_update_task(self, tool_input, user_id)
-                case "relay_post_note":
-                    from .relay import exec_relay_post_note
-
-                    return await exec_relay_post_note(self, tool_input, user_id)
-
                 # Web
                 case "web_search":
                     from .web import exec_web_search

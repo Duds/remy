@@ -63,6 +63,13 @@ class AutomationStore:
             row = await cursor.fetchone()
             return dict(row) if row else None
 
+    async def get_for_user(self, user_id: int, automation_id: int) -> dict[str, Any] | None:
+        """Return automation by ID only if it belongs to the user. Used for deep links."""
+        row = await self.get_by_id(automation_id)
+        if row is None or row.get("user_id") != user_id:
+            return None
+        return row
+
     async def get_all(self, user_id: int) -> list[dict[str, Any]]:
         """Return all automations for a user, ordered by creation time."""
         async with self._db.get_connection() as conn:

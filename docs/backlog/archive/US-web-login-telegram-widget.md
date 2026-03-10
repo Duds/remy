@@ -1,6 +1,6 @@
 # User Story: Web Login for Dashboards (Telegram Login Widget)
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ## Summary
 As a user, I want to sign in on the web with my Telegram account (Telegram Login Widget) so that I can view stats and costs in the browser without going through the bot.

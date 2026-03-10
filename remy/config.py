@@ -44,6 +44,8 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str
+    # Bot username (e.g. RemyBot) for Telegram Login Widget on /dashboard. Empty = widget disabled.
+    telegram_bot_username: str = ""
     # Stored as a raw comma-string; exposed as a list via property
     telegram_allowed_users_raw: str = ""
 
@@ -149,6 +151,8 @@ class Settings(BaseSettings):
     # ── Health API ──────────────────────────────────────────────────────────────
     # If set, /logs and /telemetry require Authorization: Bearer <token> or ?token=
     health_api_token: str = ""
+    # Incoming webhook secret (X-Webhook-Secret). Empty = /incoming webhook disabled.
+    remy_webhook_secret: str = ""
 
     # ── File download links (US-mac-file-links-secure-download) ───────────────────
     # Public base URL for GET /files links (e.g. https://remy.dalerogers.com.au). Empty = disabled.
@@ -160,6 +164,7 @@ class Settings(BaseSettings):
 
     # ── Intervals (seconds) ─────────────────────────────────────────────────────
     health_check_interval: int = 300
+    # Goal staleness for evening check-in and goal-status ⚠️ (set via STALE_GOAL_DAYS)
     stale_goal_days: int = 3
 
     # ── Claude Desktop (Claude Code CLI) routing ────────────────────────────────
@@ -228,15 +233,6 @@ class Settings(BaseSettings):
     subagent_synth_model: str = "claude-sonnet-4-20250514"  # Tier 2 — synthesis
     task_md_path: str = "config/TASK.md"  # Orchestrator behaviour config
 
-    # ── Relay (US-claude-desktop-relay, US-relay-shared-backend) ───────────────
-    # If set, Remy uses HTTP to talk to relay_mcp. Empty = use shared SQLite.
-    relay_mcp_url: str = ""
-    relay_mcp_secret: str = ""
-    # Optional path to relay SQLite DB; empty = data_dir/relay.db (same as shared server).
-    relay_db_path: str = ""
-    # Allow Remy to create new relay tasks (not just update existing ones). Default off.
-    relay_can_create_tasks: bool = False
-
     # ── Monthly budget enforcement (paperclip-ideas §5) ─────────────────────
     # Set to 0 to disable. Costs computed from api_calls table (Anthropic only).
     monthly_budget_aud: float = Field(
@@ -245,15 +241,6 @@ class Settings(BaseSettings):
     budget_warning_pct: float = Field(
         default=0.80, description="Warn once per day at this fraction of monthly budget"
     )
-
-    @property
-    def relay_db_path_resolved(self) -> str:
-        """Path to relay.db; same as shared relay server when run from repo (data/relay.db)."""
-        return (
-            self.relay_db_path.strip()
-            if self.relay_db_path
-            else os.path.join(self.data_dir, "relay.db")
-        )
 
     @property
     def google_token_file(self) -> str:
@@ -390,6 +377,15 @@ def get_settings() -> "Settings":
     if _settings is None:
         _settings = Settings()  # type: ignore[call-arg]
     return _settings
+
+
+def save_primary_chat_id(chat_id: int) -> None:
+    """Save the primary chat ID for proactive messages (used by /setmychat and set_proactive_chat)."""
+    settings = get_settings()
+    path = settings.primary_chat_file
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        f.write(str(chat_id))
 
 
 _settings: Settings | None = None

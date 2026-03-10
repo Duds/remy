@@ -28,6 +28,7 @@ from .health import (
     set_db,
     set_diagnostics_runner,
     set_hook_manager,
+    set_incoming_webhook_deps,
     set_outbound_queue,
     set_ready,
 )
@@ -440,6 +441,24 @@ def main() -> None:
             asyncio.create_task(_initial_index())
 
         asyncio.create_task(health_monitor(claude_client, app.bot))
+
+        # Incoming webhook (POST /incoming) for CI, Zapier, etc.
+        def _get_primary_chat_id():
+            try:
+                with open(settings.primary_chat_file) as f:
+                    return int(f.read().strip())
+            except Exception:
+                return None
+
+        webhook_user_id = None
+        if getattr(settings, "telegram_allowed_users", None):
+            webhook_user_id = settings.telegram_allowed_users[0]
+        set_incoming_webhook_deps(
+            bot=app.bot,
+            get_primary_chat_id=_get_primary_chat_id,
+            automation_store=automation_store,
+            webhook_user_id=webhook_user_id,
+        )
 
         # Pre-warm embedding model to avoid cold-start timeout in diagnostics.
         # Model load can take 15-30s; doing it here ensures /diagnostics won't time out.

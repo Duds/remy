@@ -7,15 +7,13 @@ Subscriptions are stored in SQLite (webhook_subscriptions table).
 Each subscription has an event name and a target URL.
 
 Supported events:
-  - relay_task_done          fired when a relay task transitions to 'done'
-  - relay_task_needs_clarification  fired when a relay task transitions to 'needs_clarification'
   - plan_step_complete       fired when a plan step status becomes 'done'
 
 Usage:
     from remy.webhooks import WebhookManager
     wm = WebhookManager(db)
-    await wm.subscribe("relay_task_done", "https://example.com/hook")
-    await wm.fire("relay_task_done", {"task_id": "abc", "result": "..."})
+    await wm.subscribe("plan_step_complete", "https://example.com/hook")
+    await wm.fire("plan_step_complete", {"step_id": 1, "result": "..."})
 """
 
 from __future__ import annotations

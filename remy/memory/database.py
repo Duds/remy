@@ -249,43 +249,6 @@ CREATE TABLE IF NOT EXISTS heartbeat_log (
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeat_log_fired ON heartbeat_log(fired_at);
 
--- Relay (US-claude-desktop-relay): schema matches relay_mcp for shared DB
-CREATE TABLE IF NOT EXISTS messages (
-    id          TEXT PRIMARY KEY,
-    from_agent  TEXT NOT NULL,
-    to_agent    TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    thread_id   TEXT,
-    read        INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_agent, read);
-
-CREATE TABLE IF NOT EXISTS tasks (
-    id          TEXT PRIMARY KEY,
-    from_agent  TEXT NOT NULL,
-    to_agent    TEXT NOT NULL,
-    task_type   TEXT NOT NULL,
-    description TEXT NOT NULL,
-    params      TEXT NOT NULL DEFAULT '{}',
-    status      TEXT NOT NULL DEFAULT 'pending',
-    result      TEXT,
-    notes       TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tasks_to ON tasks(to_agent, status);
-CREATE INDEX IF NOT EXISTS idx_tasks_from ON tasks(from_agent);
-
-CREATE TABLE IF NOT EXISTS shared_notes (
-    id          TEXT PRIMARY KEY,
-    from_agent  TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    tags        TEXT NOT NULL DEFAULT '[]',
-    created_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_notes_tags ON shared_notes(tags);
-
 -- Counters (e.g. sobriety streak) — named integer values per user
 CREATE TABLE IF NOT EXISTS counters (
     user_id    INTEGER NOT NULL REFERENCES users(user_id),

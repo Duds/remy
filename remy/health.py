@@ -23,8 +23,10 @@ Endpoints:
                      Path must be base64url-encoded; token from get_file_download_link.
   POST /commands/ship-it → Run SHIP-IT pipeline (fetch, diff, tests). Auth required.
                            Optional JSON body: {"dry_run": true} to skip running tests.
+  POST /incoming         → Third-party webhooks (CI, Zapier). X-Webhook-Secret required.
+                           Body: {"action": "notify"|"remind"|"note", "message": "...", ...}
   POST /webhooks/subscribe → Register a webhook URL for an event. Auth required.
-                             Body: {"event": "relay_task_done", "url": "https://..."}
+                             Body: {"event": "plan_step_complete", "url": "https://..."}
   GET  /webhooks           → List registered webhook subscriptions. Auth required.
                              Query param: event= to filter by event name.
 """
@@ -37,6 +39,8 @@ if TYPE_CHECKING:
     import aiohttp
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import os
 import time
@@ -58,6 +62,30 @@ _DATA_DIR = "./data"  # path to data directory — set via set_data_dir()
 
 # Late-bound WebhookManager — set via set_webhook_manager()
 _WEBHOOK_MANAGER = None
+
+# Incoming webhook (CI/Zapier): bot, get_primary_chat_id, automation_store, webhook_user_id
+_INCOMING_WEBHOOK_BOT = None
+_INCOMING_WEBHOOK_GET_CHAT_ID = None
+_INCOMING_WEBHOOK_AUTOMATION_STORE = None
+_INCOMING_WEBHOOK_USER_ID = None
+_INCOMING_WEBHOOK_RATE: dict[str, list[float]] = {}
+_INCOMING_WEBHOOK_RATE_LIMIT = 60  # requests per minute per IP
+
+
+def set_incoming_webhook_deps(
+    *,
+    bot=None,
+    get_primary_chat_id=None,
+    automation_store=None,
+    webhook_user_id: int | None = None,
+) -> None:
+    """Set dependencies for POST /incoming (third-party webhooks)."""
+    global _INCOMING_WEBHOOK_BOT, _INCOMING_WEBHOOK_GET_CHAT_ID
+    global _INCOMING_WEBHOOK_AUTOMATION_STORE, _INCOMING_WEBHOOK_USER_ID
+    _INCOMING_WEBHOOK_BOT = bot
+    _INCOMING_WEBHOOK_GET_CHAT_ID = get_primary_chat_id
+    _INCOMING_WEBHOOK_AUTOMATION_STORE = automation_store
+    _INCOMING_WEBHOOK_USER_ID = webhook_user_id
 
 
 def set_webhook_manager(manager) -> None:
@@ -604,10 +632,236 @@ async def _handle_ship_it(request: "aiohttp.web.Request") -> "aiohttp.web.Respon
     return web.json_response(result)
 
 
+async def _handle_incoming_webhook(request) -> "aiohttp.web.Response":
+    """POST /incoming — third-party webhooks (CI, Zapier). Actions: notify, remind, note.
+
+    Requires X-Webhook-Secret header matching REMY_WEBHOOK_SECRET.
+    Body (JSON): {"action": "notify"|"remind"|"note", "message": "...", "source": "...",
+                  "label": "...", "fire_at": "ISO8601"} (fields depend on action).
+    """
+    from aiohttp import web  # type: ignore[import]
+
+    from ..config import get_settings
+
+    settings = get_settings()
+    if not (settings.remy_webhook_secret or "").strip():
+        return web.json_response({"error": "Incoming webhooks not configured"}, status=404)
+
+    secret = (request.headers.get("X-Webhook-Secret") or "").strip()
+    if secret != settings.remy_webhook_secret.strip():
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    # Rate limit per IP
+    peername = request.remote or "unknown"
+    now = time.time()
+    if peername not in _INCOMING_WEBHOOK_RATE:
+        _INCOMING_WEBHOOK_RATE[peername] = []
+    times = _INCOMING_WEBHOOK_RATE[peername]
+    times.append(now)
+    times[:] = [t for t in times if now - t < 60]
+    if len(times) > _INCOMING_WEBHOOK_RATE_LIMIT:
+        return web.json_response(
+            {"error": "Rate limit exceeded — try again later"}, status=429
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    action = (body.get("action") or "").strip().lower()
+    if action not in ("notify", "remind", "note"):
+        return web.json_response(
+            {"error": "Missing or invalid 'action'. Use: notify, remind, note"}, status=400
+        )
+
+    if action == "notify":
+        message = (body.get("message") or "").strip()
+        if not message:
+            return web.json_response({"error": "Missing 'message' for notify"}, status=400)
+        source = (body.get("source") or "").strip()
+        if source:
+            message = f"[{source}] {message}"
+        chat_id = _INCOMING_WEBHOOK_GET_CHAT_ID() if _INCOMING_WEBHOOK_GET_CHAT_ID else None
+        if _INCOMING_WEBHOOK_BOT is None or chat_id is None:
+            return web.json_response(
+                {"error": "Bot or primary chat not available"}, status=503
+            )
+        try:
+            await _INCOMING_WEBHOOK_BOT.send_message(chat_id=chat_id, text=message)
+        except Exception as e:
+            logger.warning("Incoming webhook notify failed: %s", e)
+            return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"status": "ok"})
+
+    if action == "remind":
+        label = (body.get("label") or "").strip() or "Webhook reminder"
+        fire_at = (body.get("fire_at") or "").strip()
+        if not fire_at:
+            return web.json_response({"error": "Missing 'fire_at' for remind"}, status=400)
+        user_id = _INCOMING_WEBHOOK_USER_ID
+        store = _INCOMING_WEBHOOK_AUTOMATION_STORE
+        if user_id is None or store is None:
+            return web.json_response(
+                {"error": "Webhook user or automation store not available"}, status=503
+            )
+        try:
+            await store.add(
+                user_id=user_id,
+                label=label,
+                cron="",
+                fire_at=fire_at,
+                mediated=False,
+            )
+        except Exception as e:
+            logger.warning("Incoming webhook remind failed: %s", e)
+            return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"status": "ok"})
+
+    if action == "note":
+        return web.json_response(
+            {"status": "ok", "message": "Note action not yet implemented"}
+        )
+
+    return web.json_response({"error": "Unknown action"}, status=400)
+
+
+def _verify_telegram_login_widget(payload: dict, bot_token: str) -> bool:
+    """Verify Telegram Login Widget hash. Returns True if valid."""
+    received_hash = payload.get("hash")
+    if not received_hash or not bot_token:
+        return False
+    data_check_string = "\n".join(
+        f"{k}={v}" for k, v in sorted(payload.items()) if k != "hash"
+    )
+    secret_key = hashlib.sha256(bot_token.encode()).digest()
+    computed = hmac.new(
+        secret_key, data_check_string.encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(computed, received_hash):
+        return False
+    try:
+        auth_date = int(payload.get("auth_date", 0))
+        if abs(time.time() - auth_date) > 300:  # 5 min
+            return False
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+async def _handle_dashboard(request) -> "aiohttp.web.Response":
+    """GET /dashboard — login page with Telegram Login Widget."""
+    from aiohttp import web  # type: ignore[import]
+
+    from ..config import get_settings
+
+    settings = get_settings()
+    bot_username = (settings.telegram_bot_username or "").strip()
+    if not bot_username:
+        return web.json_response(
+            {"error": "Dashboard not configured (set TELEGRAM_BOT_USERNAME)"},
+            status=404,
+        )
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Remy Dashboard</title></head>
+<body>
+  <h1>Remy Dashboard</h1>
+  <p>Sign in with Telegram to view stats.</p>
+  <script async src="https://telegram.org/js/telegram-widget.js?22"
+    data-telegram-login="{bot_username}"
+    data-size="large"
+    data-auth-url="/dashboard/auth"
+    data-request-access="write"></script>
+</body></html>"""
+    return web.Response(text=html, content_type="text/html")
+
+
+async def _handle_dashboard_auth(request) -> "aiohttp.web.Response":
+    """GET /dashboard/auth — verify Telegram widget (query params) and set session cookie."""
+    from aiohttp import web  # type: ignore[import]
+
+    from ..config import get_settings
+
+    settings = get_settings()
+    payload = dict(request.rel_url.query)
+    if not _verify_telegram_login_widget(payload, settings.telegram_bot_token):
+        return web.json_response({"error": "Invalid or expired login"}, status=401)
+    user_id = payload.get("id")
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "Invalid user id"}, status=400)
+    allowed = getattr(settings, "telegram_allowed_users", None) or []
+    if user_id not in allowed:
+        return web.json_response({"error": "Access denied"}, status=403)
+    # Simple session: sign user_id + expiry (1h)
+    expiry = int(time.time()) + 3600
+    secret = (settings.health_api_token or settings.remy_webhook_secret or "remy-dashboard").encode()
+    msg = f"{user_id}:{expiry}"
+    sig = hmac.new(secret, msg.encode(), hashlib.sha256).hexdigest()[:16]
+    cookie_val = f"{msg}:{sig}"
+    response = web.Response(status=302, headers={"Location": "/dashboard/stats"})
+    response.set_cookie(
+        "remy_dash",
+        cookie_val,
+        max_age=3600,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
+
+
+async def _handle_dashboard_stats(request) -> "aiohttp.web.Response":
+    """GET /dashboard/stats — require session, show stats."""
+    from aiohttp import web  # type: ignore[import]
+
+    from ..config import get_settings
+
+    settings = get_settings()
+    cookie_val = request.cookies.get("remy_dash")
+    if not cookie_val or ":" not in cookie_val:
+        return web.Response(status=302, headers={"Location": "/dashboard"})
+    parts = cookie_val.rsplit(":", 1)
+    if len(parts) != 2:
+        return web.Response(status=302, headers={"Location": "/dashboard"})
+    msg, sig = parts[0], parts[1]
+    secret = (settings.health_api_token or settings.remy_webhook_secret or "remy-dashboard").encode()
+    expected = hmac.new(secret, msg.encode(), hashlib.sha256).hexdigest()[:16]
+    if not hmac.compare_digest(sig, expected):
+        return web.Response(status=302, headers={"Location": "/dashboard"})
+    try:
+        user_id_s, expiry_s = msg.split(":", 1)
+        if int(expiry_s) < time.time():
+            return web.Response(status=302, headers={"Location": "/dashboard"})
+    except (ValueError, TypeError):
+        return web.Response(status=302, headers={"Location": "/dashboard"})
+    if _DB is None:
+        return web.Response(text="Stats not available (DB not wired).", status=503)
+    try:
+        async with _DB.get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM api_calls WHERE user_id = ?",
+                (int(user_id_s),),
+            )
+            row = await cursor.fetchone()
+        count = row[0] if row else 0
+    except Exception as e:
+        logger.warning("Dashboard stats query failed: %s", e)
+        count = 0
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Remy Stats</title></head>
+<body>
+  <h1>Remy Dashboard</h1>
+  <p>API calls (you): {count}</p>
+  <p><a href="/dashboard">Back to login</a></p>
+</body></html>"""
+    return web.Response(text=html, content_type="text/html")
+
+
 async def _handle_webhook_subscribe(request) -> "aiohttp.web.Response":
     """POST /webhooks/subscribe — register a webhook URL for an event.
 
-    Body (JSON): {"event": "relay_task_done", "url": "https://example.com/hook"}
+    Body (JSON): {"event": "plan_step_complete", "url": "https://example.com/hook"}
     Returns 200 with the created subscription or 400 on error.
     Requires HEALTH_API_TOKEN auth if configured.
     """
@@ -696,6 +950,10 @@ async def run_health_server(port: int | None = None) -> None:
     app.router.add_get("/telemetry", _handle_telemetry)
     app.router.add_get("/files", _handle_files)
     app.router.add_post("/commands/ship-it", _handle_ship_it)
+    app.router.add_post("/incoming", _handle_incoming_webhook)
+    app.router.add_get("/dashboard", _handle_dashboard)
+    app.router.add_get("/dashboard/auth", _handle_dashboard_auth)
+    app.router.add_get("/dashboard/stats", _handle_dashboard_stats)
     app.router.add_post("/webhooks/subscribe", _handle_webhook_subscribe)
     app.router.add_get("/webhooks", _handle_webhook_list)
 

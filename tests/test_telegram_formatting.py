@@ -3,6 +3,7 @@
 from remy.utils.telegram_formatting import (
     format_telegram_message,
     escape_markdown_v2,
+    is_entity_parse_error,
     _convert_headers,
     _convert_tables_to_lists,
 )
@@ -200,6 +201,20 @@ Final notes here."""
         # *bold* and _italic_ are valid MarkdownV2 formatting - preserve them
         assert "*bold*" in result
         assert "_italic_" in result
+
+    def test_bold_followed_by_period_escaped(self):
+        """Bug 10: *bold*. can break Telegram entity parsing; period must be escaped."""
+        text = "*bold*."
+        result = format_telegram_message(text)
+        assert "*bold*" in result
+        assert r"\." in result
+
+    def test_italic_followed_by_comma_safe(self):
+        """Bug 10: _italic_, — formatter preserves italic; comma is not in MarkdownV2 escape set."""
+        text = "_italic_,"
+        result = format_telegram_message(text)
+        assert "_italic_" in result
+        assert len(result) >= 8
 
 
 class TestCodeFormatting:
@@ -427,3 +442,54 @@ block two
         assert "`another`" in result
         assert "block one" in result
         assert "block two" in result
+
+
+class TestEntityParseErrorHelper:
+    """Test is_entity_parse_error (Bug 10)."""
+
+    def test_cant_parse_entities(self):
+        e = Exception("Bad Request: can't parse entities: ...")
+        assert is_entity_parse_error(e) is True
+
+    def test_parse_entity_singular(self):
+        e = Exception("parse entity error")
+        assert is_entity_parse_error(e) is True
+
+    def test_other_error(self):
+        e = Exception("message is not modified")
+        assert is_entity_parse_error(e) is False
+
+    def test_bad_request_entity_style(self):
+        e = Exception("400 Bad Request: can't parse entities")
+        assert is_entity_parse_error(e) is True
+
+
+class TestEntityBoundaryEscaping:
+    """Test MarkdownV2 entity boundaries (Bug 10): no unescaped special after * or _."""
+
+    def test_bold_adjacent_to_period(self):
+        text = "*bold*."
+        result = format_telegram_message(text)
+        # Period after closing * must be escaped (Bug 10: entity boundary)
+        assert "*bold*" in result or "bold" in result
+        assert "\\." in result
+
+    def test_italic_adjacent_to_comma(self):
+        text = "_italic_,"
+        result = format_telegram_message(text)
+        assert "_italic_" in result or "italic" in result
+        # Comma is not in Telegram's MarkdownV2 escape set; output should be valid
+        assert "_" in result
+
+    def test_bold_and_italic_with_punctuation(self):
+        text = "See *bold*. and _italic_, here."
+        result = format_telegram_message(text)
+        # Period after * must be escaped (Bug 10)
+        assert "\\." in result
+
+    def test_code_and_bold_next_to_special(self):
+        text = "Use `code` and *bold*. Together."
+        result = format_telegram_message(text)
+        assert "`code`" in result or "code" in result
+        assert "*bold" in result
+        assert "\\." in result

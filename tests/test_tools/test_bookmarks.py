@@ -94,6 +94,37 @@ class TestExecSaveBookmark:
         assert "Memory not available" in result
         store.add.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_save_with_valid_tag_stores_metadata(self):
+        """US-bookmarks-tag-buttons: optional tag preferences/work/personal is stored."""
+        store = AsyncMock()
+        store.add_item = AsyncMock(return_value=1)
+        registry = make_registry(knowledge_store=store)
+        registry._fact_store = None
+        result = await exec_save_bookmark(
+            registry,
+            {"url": "https://example.com", "note": "my note", "tag": "work"},
+            USER_ID,
+        )
+        assert "🔖 Bookmark saved" in result
+        assert "tag: work" in result
+        call_kw = store.add_item.call_args[1]
+        assert call_kw.get("metadata", {}).get("tag") == "work"
+
+    @pytest.mark.asyncio
+    async def test_save_with_invalid_tag_returns_error(self):
+        """Invalid tag returns clear error and lists allowed tags."""
+        store = AsyncMock()
+        registry = make_registry(knowledge_store=store)
+        result = await exec_save_bookmark(
+            registry,
+            {"url": "https://example.com", "note": "", "tag": "invalid"},
+            USER_ID,
+        )
+        assert "Invalid tag" in result
+        assert "preferences" in result or "work" in result or "personal" in result
+        store.add_item.assert_not_called()
+
 
 class TestExecListBookmarks:
     """Tests for exec_list_bookmarks."""
@@ -168,3 +199,31 @@ class TestExecListBookmarks:
         assert "2 item(s)" in result
         assert "https://x.com" in result
         assert "https://y.com" in result
+
+    @pytest.mark.asyncio
+    async def test_list_filters_by_tag_when_tag_in_allowed_set(self):
+        """US-bookmarks-tag-buttons: list_bookmarks with tag=work returns only work bookmarks."""
+        from remy.models import KnowledgeItem
+
+        items = [
+            KnowledgeItem(
+                entity_type="fact",
+                content="https://work.com — work link",
+                metadata={"category": "bookmark", "tag": "work"},
+            ),
+            KnowledgeItem(
+                entity_type="fact",
+                content="https://personal.com",
+                metadata={"category": "bookmark", "tag": "personal"},
+            ),
+        ]
+        store = AsyncMock()
+        store.get_by_type = AsyncMock(return_value=items)
+        registry = make_registry(knowledge_store=store)
+        registry._fact_store = None
+        result = await exec_list_bookmarks(
+            registry, {"tag": "work"}, USER_ID
+        )
+        assert "1 item(s)" in result or "work" in result
+        assert "https://work.com" in result
+        assert "tag: work" in result or "(tag: work)" in result

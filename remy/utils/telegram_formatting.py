@@ -16,6 +16,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Telegram requires: no unescaped special character immediately after * or _
+# (entity boundaries break otherwise, causing "can't parse entities").
+
+
+def is_entity_parse_error(exc: Exception) -> bool:
+    """True if the exception is Telegram's 'can't parse entities' (or similar) BadRequest."""
+    msg = str(exc).lower()
+    return "can't parse" in msg or "parse entities" in msg or "parse entity" in msg
+
+
 # Characters that must be escaped in MarkdownV2 (outside code blocks)
 _ESCAPE_CHARS = r'_*[]()~`>#+-=|{}.!'
 
@@ -329,20 +339,52 @@ def _restore_code_blocks(text: str, placeholders: dict[str, str]) -> str:
     return text
 
 
+def _ensure_entity_boundary_escapes(text: str) -> str:
+    """
+    Ensure no unescaped special character immediately follows * or _.
+    Telegram can fail with "can't parse entities" when a closing marker
+    is directly adjacent to punctuation (e.g. *bold*. or _italic_,).
+    """
+    result = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        result.append(c)
+        # If this is * or _ (not already escaped) and next char is special, escape it
+        if c in "*_" and i + 1 < len(text):
+            prev_escapes = 0
+            j = i - 1
+            while j >= 0 and text[j] == "\\":
+                prev_escapes += 1
+                j -= 1
+            if prev_escapes % 2 == 0:  # this * or _ is not escaped
+                next_char = text[i + 1]
+                if next_char in _ESCAPE_CHARS and next_char not in "*_":
+                    result.append("\\")
+                    result.append(next_char)
+                    i += 1
+        i += 1
+    return "".join(result)
+
+
 def _fix_markdown_formatting(text: str) -> str:
     """
     Fix common Markdown issues that break MarkdownV2.
-    
+
     - Unbalanced asterisks/underscores
     - Nested formatting that Telegram doesn't support
+    - No unescaped special char immediately after * or _ (entity boundary)
     """
     # Fix unmatched bold markers at end of text
     if text.rstrip().endswith('*') and text.count('*') % 2 == 1:
         text = text.rstrip()[:-1] + '\\*'
-    
+
     if text.rstrip().endswith('_') and text.count('_') % 2 == 1:
         text = text.rstrip()[:-1] + '\\_'
-    
+
+    # Ensure * or _ never immediately followed by unescaped special (Bug 10)
+    text = _ensure_entity_boundary_escapes(text)
+
     return text
 
 

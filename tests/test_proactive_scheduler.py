@@ -282,6 +282,63 @@ async def test_evening_checkin_sends_for_stale_goals(db, goal_store):
     assert "Old goal" in text
 
 
+@pytest.mark.asyncio
+async def test_evening_checkin_injects_live_counters_into_context(db, goal_store):
+    """Bug 12: when counter_store is set, evening check-in context includes live counters."""
+    await goal_store.upsert(1, [Goal(title="Old goal")])
+    stale_ts = (
+        datetime.now(timezone.utc) - timedelta(days=settings.stale_goal_days + 1)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    async with db.get_connection() as conn:
+        await conn.execute(
+            "UPDATE goals SET created_at=?, updated_at=? WHERE title='Old goal'",
+            (stale_ts, stale_ts),
+        )
+        await conn.commit()
+
+    mock_counter_store = AsyncMock()
+    mock_counter_store.get_all_for_inject = AsyncMock(
+        return_value=[{"name": "sobriety_streak", "value": 7, "unit": "days"}]
+    )
+
+    mock_conv_store = AsyncMock()
+    mock_conv_store.get_goal_titles_mentioned_today = AsyncMock(return_value=set())
+
+    captured_context = {}
+
+    async def capture_compose(*, context=None, **kwargs):
+        if context is not None:
+            captured_context["context"] = context
+
+    bot = make_bot()
+    sched = ProactiveScheduler(
+        bot,
+        goal_store,
+        counter_store=mock_counter_store,
+        claude_client=MagicMock(),
+        tool_registry=MagicMock(),
+        session_manager=MagicMock(),
+        conv_store=mock_conv_store,
+    )
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive._record_delivery"),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+        patch(
+            "remy.bot.pipeline.compose_proactive_message",
+            side_effect=capture_compose,
+        ),
+    ):
+        mock_settings.telegram_allowed_users = [1]
+        mock_settings.stale_goal_days = 3
+        await sched._evening_checkin()
+
+    assert "context" in captured_context
+    ctx = captured_context["context"]
+    assert "counters" in ctx
+    assert ctx["counters"] == [{"name": "sobriety_streak", "value": 7, "unit": "days"}]
+
+
 # --------------------------------------------------------------------------- #
 # Scheduler start / stop                                                       #
 # --------------------------------------------------------------------------- #
@@ -419,3 +476,55 @@ async def test_run_automation_does_not_log_fact_for_recurring(
     # Verify no fact was stored
     facts = await fact_store.get_for_user(1)
     assert len(facts) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Week-at-a-glance briefing (US-rich-media-briefing-summaries)                #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_week_at_a_glance_skipped_when_no_chat_id(db, goal_store):
+    """Week-at-a-glance is skipped when primary chat ID is not set."""
+    bot = make_bot()
+    sched = ProactiveScheduler(bot, goal_store)
+    with patch("remy.scheduler.proactive._read_primary_chat_id", return_value=None):
+        await sched._week_at_a_glance_briefing()
+    bot.send_photo.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_week_at_a_glance_skipped_when_no_allowed_users(db, goal_store):
+    """Week-at-a-glance is skipped when telegram_allowed_users is empty."""
+    bot = make_bot()
+    sched = ProactiveScheduler(bot, goal_store)
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+    ):
+        mock_settings.telegram_allowed_users = []
+        mock_settings.scheduler_timezone = "Australia/Sydney"
+        await sched._week_at_a_glance_briefing()
+    bot.send_photo.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_week_at_a_glance_sends_photo_when_image_generated(db, goal_store):
+    """When generate_week_image returns (bytes, caption), send_photo is called."""
+    bot = make_bot()
+    bot.send_photo = AsyncMock()
+    sched = ProactiveScheduler(bot, goal_store)
+    with (
+        patch("remy.scheduler.proactive._read_primary_chat_id", return_value=12345),
+        patch("remy.scheduler.proactive.settings") as mock_settings,
+        patch("remy.scheduler.proactive.generate_week_image") as mock_gen,
+    ):
+        mock_settings.telegram_allowed_users = [1]
+        mock_settings.scheduler_timezone = "Australia/Sydney"
+        mock_gen.return_value = (b"\x89PNG\r\n\x1a\n", "Week of 10 Mar.")
+        await sched._week_at_a_glance_briefing()
+    bot.send_photo.assert_called_once()
+    call = bot.send_photo.call_args
+    assert call.kwargs.get("chat_id") == 12345
+    assert call.kwargs.get("photo") == b"\x89PNG\r\n\x1a\n"
+    assert call.kwargs.get("caption") == "Week of 10 Mar."

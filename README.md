@@ -4,6 +4,8 @@ A personal AI assistant running as a Telegram bot on a Mac Mini. Remy handles ta
 
 Built with Claude (Anthropic), Python, Docker, and Google Workspace APIs.
 
+**Features:** Chat and tools (goals, calendar, Gmail, bookmarks, web search, counters, automations); proactive briefings (morning, afternoon, evening) and evaluative heartbeat; **week-at-a-glance** image (Monday 07:15); **reminder deep links** (`t.me/YourBot?start=reminder_<id>`); **document/photo action buttons** (Summarise, Extract tasks, Save); **bookmarks with tags** (preferences, work, personal); **incoming webhooks** (POST `/incoming` for notify/remind/note); **dashboard** (GET `/dashboard` — Telegram Login Widget, stats); primary chat helper (`/setmychat`, `set_proactive_chat`); streaming overflow safety (splits at 4096 chars).
+
 ---
 
 ## Requirements
@@ -66,6 +68,8 @@ All configuration is via `.env`. Copy `.env.example` to get started.
 | `GDRIVE_MOUNT_PATHS` | — | Comma-separated paths to Google Drive mount to index (e.g. `~/Library/CloudStorage/GoogleDrive-<email>`) |
 | `RAG_PDF_OCR_ENABLED` | — | Set to `false` to disable OCR for image-only PDFs (default: `true`) |
 | `RAG_OCR_LANG` | — | Tesseract language(s), e.g. `eng` or `eng+fra` (default: `eng`) |
+| `REMY_WEBHOOK_SECRET` | — | Secret for incoming webhooks (POST `/incoming`). When set, third-party callers must send `X-Webhook-Secret` header. |
+| `TELEGRAM_BOT_USERNAME` | — | Bot username (e.g. `RemyBot`) for dashboard Telegram Login Widget. When set, GET `/dashboard` serves the login page. |
 
 **Heartbeat & SOUL:** The repo ships `config/HEARTBEAT.example.md` as the template. Copy it to `config/HEARTBEAT.md` (gitignored) for your private config — that file is never committed, so forks get only the template. When using the evaluative heartbeat (`HEARTBEAT_ENABLED=true`), put your thresholds and wellbeing check-in intent in HEARTBEAT.md. In SOUL, add a **Proactive check-ins** section so the model knows what the morning, afternoon, and evening check-ins are for. See [docs/SERVER-SETUP.md](docs/SERVER-SETUP.md) for the full server checklist.
 
@@ -100,6 +104,8 @@ This stores tokens in `data/google_token.json`. The Docker container picks them 
 | `relay` | 8765 (localhost only) | Relay MCP — inter-agent communication (Claude Code) |
 | `ollama` | 11434 | Local LLM fallback |
 | `cloudflared` | — | Cloudflare Tunnel (optional — `--profile tunnel`) |
+
+**Health server (port 8080):** `GET /`, `GET /health`, `GET /ready`, `GET /metrics`, `GET /diagnostics`, `GET /logs`, `GET /telemetry`, `GET /files`, `POST /commands/ship-it`, `POST /incoming` (third-party webhooks; requires `REMY_WEBHOOK_SECRET`), `GET /dashboard` (Telegram Login Widget; requires `TELEGRAM_BOT_USERNAME`), `GET /dashboard/auth`, `GET /dashboard/stats`, `POST /webhooks/subscribe`, `GET /webhooks`.
 
 The `remy` image includes Node.js and the **Claude Code CLI** (`@anthropic-ai/claude-code`) so the `run_claude_code` sub-agent tool works in Docker without extra setup.
 
@@ -203,6 +209,14 @@ make tunnel-up      # Start remy + relay + ollama + cloudflared
 make tunnel-stop    # Stop all including tunnel
 make tunnel-logs    # Follow cloudflared logs
 ```
+
+---
+
+## Documentation
+
+- **[docs/README.md](docs/README.md)** — Documentation index (architecture, setup, backlog).
+- **Current-state:** [Concept Design](docs/architecture/concept-design.md), [HLD](docs/architecture/HLD.md), [SAD](docs/architecture/remy-SAD.md), [SAD design decisions](docs/architecture/remy-sad-v10.md).
+- **Setup:** [Server setup](docs/SERVER-SETUP.md), [Relay setup](docs/relay-setup.md), [Agent tooling](docs/agent-tooling-setup.md).
 
 ---
 

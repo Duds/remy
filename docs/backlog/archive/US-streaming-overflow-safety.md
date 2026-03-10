@@ -1,6 +1,6 @@
 # User Story: Streaming Reply Overflow Split Safety
 
-**Status:** ⬜ Backlog
+**Status:** ✅ Done (Completed: 2026-03-10)
 
 ## Summary
 
