@@ -821,7 +821,10 @@ async def test_dashboard_auth_returns_401_when_hash_invalid():
             resp = await client.get("/dashboard/auth?id=12345&hash=invalid&auth_date=0")
             assert resp.status == 401
             data = await resp.json()
-            assert "invalid" in data.get("error", "").lower() or "expired" in data.get("error", "").lower()
+            assert (
+                "invalid" in data.get("error", "").lower()
+                or "expired" in data.get("error", "").lower()
+            )
 
 
 @pytest.mark.asyncio
@@ -840,6 +843,6 @@ async def test_dashboard_stats_redirects_without_cookie():
 
     with patch("remy.health.get_settings", return_value=MagicMock()):
         async with TestClient(TestServer(app)) as client:
-            resp = await client.get("/dashboard/stats")
+            resp = await client.get("/dashboard/stats", allow_redirects=False)
             assert resp.status == 302
             assert resp.headers.get("Location") == "/dashboard"

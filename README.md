@@ -37,6 +37,18 @@ curl http://localhost:8080/health
 
 Remy will start polling Telegram within 20–30 seconds.
 
+### Terminal UI
+
+You can chat with Remy from the terminal without Telegram:
+
+```bash
+make tui
+# or
+python -m remy.tui
+```
+
+The TUI uses the same `.env` and data directory as the main app. Conversation is persisted in the same session store but with a dedicated TUI session (separate from Telegram). **Ctrl+Q** quits; **Ctrl+C** cancels an in-flight request.
+
 ---
 
 ## Configuration
@@ -100,6 +112,14 @@ This stores tokens in `data/google_token.json`. The Docker container picks them 
 
 ## Docker Services
 
+**Credentials for Docker build and run:**
+
+| Where | Purpose |
+|-------|--------|
+| **`.env`** | **Required.** Loaded by `docker compose` for both build and run. Must include `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY`, and (for build) `HF_TOKEN` so the image can download the embedding model. Copy from `.env.example` and fill in. |
+
+So: **build** and **run** both use `.env`; set `HF_TOKEN` there (get a read token at https://huggingface.co/settings/tokens) or leave it empty (build may hit rate limits).
+
 | Service | Port | Description |
 |---|---|---|
 | `remy` | 8080 | Main bot + health server |
@@ -110,6 +130,8 @@ This stores tokens in `data/google_token.json`. The Docker container picks them 
 **Health server (port 8080):** `GET /`, `GET /health`, `GET /ready`, `GET /metrics`, `GET /diagnostics`, `GET /logs`, `GET /telemetry`, `GET /files`, `POST /commands/ship-it`, `POST /incoming` (third-party webhooks; requires `REMY_WEBHOOK_SECRET`), `GET /dashboard` (Telegram Login Widget; requires `TELEGRAM_BOT_USERNAME`), `GET /dashboard/auth`, `GET /dashboard/stats`, `POST /webhooks/subscribe`, `GET /webhooks`.
 
 The `remy` image includes Node.js and the **Claude Code CLI** (`@anthropic-ai/claude-code`) so the `run_claude_code` sub-agent tool works in Docker without extra setup.
+
+**Indexing Google Drive in Docker (RAG, including PDF/DOCX and OCR):** Mount your Drive into the container and point Remy at it. In `.env`: set `GDRIVE_MOUNT_PATH` to your **host** path (e.g. `$HOME/Library/CloudStorage/GoogleDrive-<your-email>/My Drive`) and `GDRIVE_MOUNT_PATHS=/home/remy/GoogleDrive` so Remy inside the container indexes the mounted files. The image includes Tesseract for PDF OCR; PDF and DOCX parsing use the same RAG pipeline as local files.
 
 ---
 

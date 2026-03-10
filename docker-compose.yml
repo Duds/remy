@@ -5,9 +5,12 @@ services:
       secrets:
         - HF_TOKEN
     env_file: .env
+    # HF_TOKEN for build is taken from .env via the secret below (no .hf_token file needed)
     environment:
       AZURE_ENVIRONMENT: "false"
       DATA_DIR: /app/data
+      # Bug 42: local time for logs (e.g. Australia/Canberra = AEDT)
+      TZ: ${TZ:-Australia/Canberra}
       OLLAMA_BASE_URL: http://ollama:11434
       HEALTH_PORT: "8080"
       # Git tools (Bug 41): point at remy repo so git_log/git_diff/etc. work. Override in .env if your repo path differs.
@@ -71,5 +74,6 @@ services:
       - tunnel
 
 secrets:
+  # HF_TOKEN from .env (loaded by compose) — no separate .hf_token file needed
   HF_TOKEN:
-    file: .hf_token
+    environment: HF_TOKEN

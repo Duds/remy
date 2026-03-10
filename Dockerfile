@@ -38,8 +38,10 @@ FROM python:3.12-slim AS runtime
 
 # ffmpeg required by faster-whisper; curl for healthcheck; git for git_log/git_diff/git_status (US-git-commits-and-diffs)
 # nodejs + npm for run_claude_code (Claude Code CLI sub-agent)
+# tesseract-ocr for RAG PDF OCR (US-rag-pdf-docx) when indexing Drive/local files
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg curl git nodejs npm \
+    tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI so run_claude_code tool works in container (npx fallback if not on PATH)
@@ -72,9 +74,11 @@ EXPOSE 8080
 # Runtime environment defaults
 # ORT_DISABLE_ALL_GRAPH_OPTIMIZATION prevents ONNX runtime "Artifact already registered" errors
 # OMP_NUM_THREADS=1 forces single-threaded ONNX execution to avoid race conditions
+# TZ: override in docker-compose for local log timestamps (Bug 42)
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     AZURE_ENVIRONMENT=true \
+    TZ=UTC \
     DATA_DIR=/data \
     HEALTH_PORT=8080 \
     HF_HOME=/home/remy/.cache/huggingface \

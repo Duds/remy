@@ -1,5 +1,6 @@
 # Secrets & credentials
 .env
+.env.azure
 config/SOUL.md
 config/HEARTBEAT.md
 config/TASK.md

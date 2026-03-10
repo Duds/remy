@@ -1,4 +1,4 @@
-.PHONY: run test test-cov lint build docker-run docker-stop setup db db-init \
+.PHONY: run test test-cov lint build docker-run docker-stop setup db db-init tui \
         deploy deploy-update deploy-logs deploy-delete health \
         remy-up install-launchd uninstall-launchd \
         tunnel-up tunnel-stop tunnel-logs telemetry logs ship-it-remote \
@@ -7,6 +7,10 @@
 # ── Local development ─────────────────────────────────────────────────────────
 run:
 	python3 -m remy.main
+
+# Terminal UI — chat with Remy without Telegram (US-terminal-ui)
+tui:
+	python3 -m remy.tui
 
 setup:
 	rm -rf .venv
@@ -126,17 +130,23 @@ ship-it-remote:
 		echo "SHIP-IT request failed — is the tunnel running and TOKEN set?"
 
 # ── Azure deployment ──────────────────────────────────────────────────────────
+# Optional: create .env.azure with ACR_NAME=myacr, RESOURCE_GROUP=..., etc.
+-include .env.azure
 # Required env vars (set in shell or .env.azure):
 #   ACR_NAME          — Azure Container Registry name (e.g. myacr)
 #   RESOURCE_GROUP    — Azure resource group
 #   STORAGE_ACCOUNT   — Azure Storage Account name (for SQLite persistence)
 #   STORAGE_KEY       — Azure Storage Account key
 #   STORAGE_SHARE     — Azure File Share name (e.g. remy-data)
-#   TELEGRAM_BOT_TOKEN
-#   ANTHROPIC_API_KEY
+#   TELEGRAM_BOT_TOKEN  — from .env.azure or environment (passed to container as secure env)
+#   ANTHROPIC_API_KEY   — from .env.azure or environment (passed to container as secure env)
+
+_azure_guard:
+	@test -n "$(ACR_NAME)" || (echo "Error: ACR_NAME is not set. Set it in the environment or in .env.azure (e.g. ACR_NAME=myacr)."; exit 1)
+	@test -n "$(RESOURCE_GROUP)" || (echo "Error: RESOURCE_GROUP is not set. Set it in the environment or in .env.azure."; exit 1)
 
 # Push image to ACR then create/replace the container instance
-deploy: build
+deploy: _azure_guard build
 	@echo "── Pushing image to ACR: $(ACR_NAME) ──"
 	az acr login --name $(ACR_NAME)
 	docker tag remy:latest $(ACR_NAME).azurecr.io/remy:latest
@@ -169,7 +179,7 @@ deploy: build
 	@$(MAKE) deploy-status
 
 # Update the image on an existing container (faster than full re-create)
-deploy-update: build
+deploy-update: _azure_guard build
 	@echo "── Pushing updated image to ACR ──"
 	az acr login --name $(ACR_NAME)
 	docker tag remy:latest $(ACR_NAME).azurecr.io/remy:latest
@@ -179,11 +189,11 @@ deploy-update: build
 	@echo "── Done. Use 'make deploy-logs' to watch startup ──"
 
 # Stream live container logs
-deploy-logs:
+deploy-logs: _azure_guard
 	az container logs --resource-group $(RESOURCE_GROUP) --name remy --follow
 
 # Show container status and IP
-deploy-status:
+deploy-status: _azure_guard
 	@az container show \
 		--resource-group $(RESOURCE_GROUP) \
 		--name remy \
@@ -191,5 +201,5 @@ deploy-status:
 		--output table
 
 # Delete the container (preserves storage — data safe)
-deploy-delete:
+deploy-delete: _azure_guard
 	az container delete --resource-group $(RESOURCE_GROUP) --name remy --yes

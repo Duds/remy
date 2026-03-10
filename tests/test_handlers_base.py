@@ -1,6 +1,5 @@
 """Tests for remy.bot.handlers.base (Bug 8: space preservation when flattening content)."""
 
-
 from remy.bot.handlers.base import _sanitize_messages_for_claude
 
 
@@ -68,3 +67,19 @@ def test_sanitize_messages_skips_whitespace_only_after_join():
     ]
     out = _sanitize_messages_for_claude(msgs)
     assert len(out) == 0
+
+
+def test_sanitize_messages_inserts_space_between_adjacent_words():
+    """Adjacent text blocks without internal space get a space between them (Bug 43)."""
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "text", "text": "world"},
+            ],
+        },
+    ]
+    out = _sanitize_messages_for_claude(msgs)
+    assert len(out) == 1
+    assert out[0]["content"] == "hello world"

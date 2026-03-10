@@ -80,6 +80,28 @@ def _get_history_token_budget() -> int:
     return int(settings.max_input_tokens_per_request * 0.7)
 
 
+def _join_content_parts(parts: list[str]) -> str:
+    """Join content block parts, inserting a space between adjacent non-empty
+    segments when neither has trailing/leading space (Bug 43).
+    Preserves empty and space-only segments (Bug 8).
+    """
+    if not parts:
+        return ""
+    result: list[str] = []
+    for i, p in enumerate(parts):
+        result.append(p)
+        if i < len(parts) - 1:
+            curr, nxt = p, parts[i + 1]
+            if curr and nxt:
+                need_space = not (
+                    curr.endswith((" ", "\t", "\n"))
+                    or nxt.startswith((" ", "\t", "\n"))
+                )
+                if need_space:
+                    result.append(" ")
+    return "".join(result)
+
+
 def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
     """Strip tool turns from message history before sending to Claude.
 
@@ -100,8 +122,9 @@ def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
             )
             if has_tool:
                 continue
-            # No tool blocks — collapse to plain text (Bug 8: preserve all segments
-            # including empty or space-only so spacing between words/segments is not pruned)
+            # No tool blocks — collapse to plain text (Bug 8: preserve segments;
+            # Bug 43: insert space between adjacent non-empty parts when neither has
+            # leading/trailing space so words are not concatenated)
             parts: list[str] = []
             for b in content:
                 if not isinstance(b, dict):
@@ -110,7 +133,7 @@ def _sanitize_messages_for_claude(msgs: list[dict]) -> list[dict]:
                     parts.append(b.get("text") or b.get("content") or "")
                 else:
                     parts.append(str(b.get("content") or b.get("text") or ""))
-            joined = "".join(parts)
+            joined = _join_content_parts(parts)
             if not joined.strip():
                 continue
             filtered.append({"role": m.get("role"), "content": joined})

@@ -709,6 +709,13 @@ class DiagnosticsRunner:
             if not self._settings.telegram_allowed_users:
                 warnings.append("No allowed users configured")
 
+            # Optional: Google Cloud project ID (for reference; not required for Gmail/Calendar/Docs)
+            if (
+                self._settings.google_client_id
+                and not self._settings.google_cloud_project
+            ):
+                warnings.append("Google Cloud Project ID not set (optional)")
+
             # Check data directory
             if not os.path.exists(self._settings.data_dir):
                 warnings.append(f"Data dir missing: {self._settings.data_dir}")

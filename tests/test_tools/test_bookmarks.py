@@ -108,8 +108,10 @@ class TestExecSaveBookmark:
         )
         assert "🔖 Bookmark saved" in result
         assert "tag: work" in result
-        call_kw = store.add_item.call_args[1]
-        assert call_kw.get("metadata", {}).get("tag") == "work"
+        # add_item(user_id, entity_type, content, metadata) is called with positional args
+        call_args = store.add_item.call_args[0]
+        metadata = call_args[3] if len(call_args) > 3 else {}
+        assert metadata.get("tag") == "work"
 
     @pytest.mark.asyncio
     async def test_save_with_invalid_tag_returns_error(self):
@@ -221,9 +223,7 @@ class TestExecListBookmarks:
         store.get_by_type = AsyncMock(return_value=items)
         registry = make_registry(knowledge_store=store)
         registry._fact_store = None
-        result = await exec_list_bookmarks(
-            registry, {"tag": "work"}, USER_ID
-        )
+        result = await exec_list_bookmarks(registry, {"tag": "work"}, USER_ID)
         assert "1 item(s)" in result or "work" in result
         assert "https://work.com" in result
         assert "tag: work" in result or "(tag: work)" in result

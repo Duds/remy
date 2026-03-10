@@ -215,12 +215,31 @@ async def run_proactive_trigger(
     session_key = SessionManager.get_session_key(user_id)
 
     async with session_manager.get_lock(user_id):
+        # Determine scenario from context first (needed to decide whether to load history)
+        if context is not None:
+            if context.get("evening_checkin"):
+                scenario = "evening_checkin"
+            elif context.get("afternoon_checkin"):
+                scenario = "afternoon_checkin"
+            elif context.get("afternoon_check"):
+                scenario = "afternoon_check"
+            else:
+                scenario = "briefing"
+        else:
+            scenario = "reminder"
+
         # ------------------------------------------------------------------ #
         # 1. Build message history                                             #
         # ------------------------------------------------------------------ #
-        recent = await conv_store.get_recent_turns(
-            user_id, session_key, limit=settings.compaction_keep_recent_messages
-        )
+        # Morning briefing: use empty history so the message is based only on
+        # structured context. Avoids stale emotional/sobriety phrasing from
+        # prior conversation leaking in (Bug 45).
+        if scenario == "briefing":
+            recent = []
+        else:
+            recent = await conv_store.get_recent_turns(
+                user_id, session_key, limit=settings.compaction_keep_recent_messages
+            )
         messages: list[dict] = [_build_message_from_turn(t) for t in recent]
 
         # Drop any orphaned tool turns at the end of history (can't end on a
@@ -241,18 +260,10 @@ async def run_proactive_trigger(
         trigger_text = _trigger_text_for_proactive(label, context)
         messages.append({"role": "user", "content": trigger_text})
 
-        if context is not None:
-            if context.get("evening_checkin"):
-                scenario = "evening_checkin"
-            elif context.get("afternoon_checkin"):
-                scenario = "afternoon_checkin"
-            elif context.get("afternoon_check"):
-                scenario = "afternoon_check"
-            else:
-                scenario = "briefing"
-            system_prompt = build_proactive_system_prompt(scenario, context)
-        else:
+        if scenario == "reminder":
             system_prompt = build_proactive_system_prompt("reminder", label=label)
+        else:
+            system_prompt = build_proactive_system_prompt(scenario, context)
 
         # ------------------------------------------------------------------ #
         # 3. Send placeholder to Telegram                                      #

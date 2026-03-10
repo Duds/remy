@@ -62,7 +62,9 @@ class Settings(BaseSettings):
 
     # Moonshot AI (pre-paid credits; balance check via GET /v1/users/me/balance)
     moonshot_api_key: str = ""
-    moonshot_balance_warn_usd: float = 5.0  # Warn in /status and heartbeat when balance below this
+    moonshot_balance_warn_usd: float = (
+        5.0  # Warn in /status and heartbeat when balance below this
+    )
     moonshot_model_v1: str = "moonshot-v1-8k"
     moonshot_model_v1_128k: str = "moonshot-v1-128k"
     moonshot_model_k2_thinking: str = "moonshot-k2-thinking"
@@ -132,6 +134,10 @@ class Settings(BaseSettings):
     # Run scripts/setup_google_auth.py once to generate data/google_token.json.
     google_client_id: str = ""
     google_client_secret: str = ""
+    # Optional: Google Cloud project ID (for diagnostics/reference; not required for Gmail/Calendar/Docs).
+    google_cloud_project: str = Field(
+        default="", validation_alias="GOOGLE_CLOUD_PROJECT"
+    )
 
     # ── Timeouts (seconds) ──────────────────────────────────────────────────────
     telegram_timeout: float = 30.0
@@ -266,7 +272,8 @@ class Settings(BaseSettings):
         Parse and validate Google Drive mount paths from GDRIVE_MOUNT_PATHS.
 
         Only paths that exist, are directories, and are readable are returned.
-        Missing or invalid paths are logged at warning level and skipped (graceful degradation).
+        Missing or invalid paths are logged at info level and skipped (graceful degradation).
+        Leave GDRIVE_MOUNT_PATHS empty to disable Drive indexing and avoid any log.
         """
         log = logging.getLogger(__name__)
         raw = self.gdrive_mount_paths_raw
@@ -279,27 +286,28 @@ class Settings(BaseSettings):
                 continue
             path = Path(s).expanduser().resolve()
             if not path.exists():
-                log.warning(
-                    "GDRIVE_MOUNT_PATHS: path does not exist or Drive not mounted — %s",
+                log.info(
+                    "Google Drive mount path not found (Drive not mounted or path shifted). "
+                    "Leave GDRIVE_MOUNT_PATHS empty to disable. Path: %s",
                     path,
                 )
                 continue
             if not path.is_dir():
-                log.warning(
-                    "GDRIVE_MOUNT_PATHS: not a directory — %s",
+                log.info(
+                    "GDRIVE_MOUNT_PATHS: not a directory — %s (leave empty to disable)",
                     path,
                 )
                 continue
             try:
                 if not os.access(path, os.R_OK):
-                    log.warning(
-                        "GDRIVE_MOUNT_PATHS: path not readable — %s",
+                    log.info(
+                        "GDRIVE_MOUNT_PATHS: path not readable — %s (leave empty to disable)",
                         path,
                     )
                     continue
             except OSError:
-                log.warning(
-                    "GDRIVE_MOUNT_PATHS: cannot access — %s",
+                log.info(
+                    "GDRIVE_MOUNT_PATHS: cannot access — %s (leave empty to disable)",
                     path,
                 )
                 continue

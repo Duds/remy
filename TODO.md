@@ -522,4 +522,4 @@ See [BUGS.md](./BUGS.md) for full details. Key fixes:
 
 ## Bug Reports
 
-- [ ] [2026-03-05] Morning briefing: "marked own is in the clear" — incorrect/stale emotional context leaking into briefing message. Telegram message mentioned sobriety milestone as "in the clear" when it shouldn't have. Investigate emotional_context injection in briefing template.
+- [x] [2026-03-05] Morning briefing: "marked own is in the clear" — incorrect/stale emotional context leaking into briefing message. Fixed as Bug 45: morning briefing now uses empty conversation history so only structured context is used (see BUGS.md).

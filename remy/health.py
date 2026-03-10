@@ -48,6 +48,9 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
+# Import at module level so tests can patch remy.health.get_settings
+from remy.config import get_settings
+
 _START_TIME = time.monotonic()
 _READY = False  # flipped to True after DB init completes
 
@@ -641,11 +644,11 @@ async def _handle_incoming_webhook(request) -> "aiohttp.web.Response":
     """
     from aiohttp import web  # type: ignore[import]
 
-    from ..config import get_settings
-
     settings = get_settings()
     if not (settings.remy_webhook_secret or "").strip():
-        return web.json_response({"error": "Incoming webhooks not configured"}, status=404)
+        return web.json_response(
+            {"error": "Incoming webhooks not configured"}, status=404
+        )
 
     secret = (request.headers.get("X-Webhook-Secret") or "").strip()
     if secret != settings.remy_webhook_secret.strip():
@@ -672,17 +675,22 @@ async def _handle_incoming_webhook(request) -> "aiohttp.web.Response":
     action = (body.get("action") or "").strip().lower()
     if action not in ("notify", "remind", "note"):
         return web.json_response(
-            {"error": "Missing or invalid 'action'. Use: notify, remind, note"}, status=400
+            {"error": "Missing or invalid 'action'. Use: notify, remind, note"},
+            status=400,
         )
 
     if action == "notify":
         message = (body.get("message") or "").strip()
         if not message:
-            return web.json_response({"error": "Missing 'message' for notify"}, status=400)
+            return web.json_response(
+                {"error": "Missing 'message' for notify"}, status=400
+            )
         source = (body.get("source") or "").strip()
         if source:
             message = f"[{source}] {message}"
-        chat_id = _INCOMING_WEBHOOK_GET_CHAT_ID() if _INCOMING_WEBHOOK_GET_CHAT_ID else None
+        chat_id = (
+            _INCOMING_WEBHOOK_GET_CHAT_ID() if _INCOMING_WEBHOOK_GET_CHAT_ID else None
+        )
         if _INCOMING_WEBHOOK_BOT is None or chat_id is None:
             return web.json_response(
                 {"error": "Bot or primary chat not available"}, status=503
@@ -698,7 +706,9 @@ async def _handle_incoming_webhook(request) -> "aiohttp.web.Response":
         label = (body.get("label") or "").strip() or "Webhook reminder"
         fire_at = (body.get("fire_at") or "").strip()
         if not fire_at:
-            return web.json_response({"error": "Missing 'fire_at' for remind"}, status=400)
+            return web.json_response(
+                {"error": "Missing 'fire_at' for remind"}, status=400
+            )
         user_id = _INCOMING_WEBHOOK_USER_ID
         store = _INCOMING_WEBHOOK_AUTOMATION_STORE
         if user_id is None or store is None:
@@ -753,8 +763,6 @@ async def _handle_dashboard(request) -> "aiohttp.web.Response":
     """GET /dashboard — login page with Telegram Login Widget."""
     from aiohttp import web  # type: ignore[import]
 
-    from ..config import get_settings
-
     settings = get_settings()
     bot_username = (settings.telegram_bot_username or "").strip()
     if not bot_username:
@@ -780,8 +788,6 @@ async def _handle_dashboard_auth(request) -> "aiohttp.web.Response":
     """GET /dashboard/auth — verify Telegram widget (query params) and set session cookie."""
     from aiohttp import web  # type: ignore[import]
 
-    from ..config import get_settings
-
     settings = get_settings()
     payload = dict(request.rel_url.query)
     if not _verify_telegram_login_widget(payload, settings.telegram_bot_token):
@@ -796,7 +802,9 @@ async def _handle_dashboard_auth(request) -> "aiohttp.web.Response":
         return web.json_response({"error": "Access denied"}, status=403)
     # Simple session: sign user_id + expiry (1h)
     expiry = int(time.time()) + 3600
-    secret = (settings.health_api_token or settings.remy_webhook_secret or "remy-dashboard").encode()
+    secret = (
+        settings.health_api_token or settings.remy_webhook_secret or "remy-dashboard"
+    ).encode()
     msg = f"{user_id}:{expiry}"
     sig = hmac.new(secret, msg.encode(), hashlib.sha256).hexdigest()[:16]
     cookie_val = f"{msg}:{sig}"
@@ -815,8 +823,6 @@ async def _handle_dashboard_stats(request) -> "aiohttp.web.Response":
     """GET /dashboard/stats — require session, show stats."""
     from aiohttp import web  # type: ignore[import]
 
-    from ..config import get_settings
-
     settings = get_settings()
     cookie_val = request.cookies.get("remy_dash")
     if not cookie_val or ":" not in cookie_val:
@@ -825,7 +831,9 @@ async def _handle_dashboard_stats(request) -> "aiohttp.web.Response":
     if len(parts) != 2:
         return web.Response(status=302, headers={"Location": "/dashboard"})
     msg, sig = parts[0], parts[1]
-    secret = (settings.health_api_token or settings.remy_webhook_secret or "remy-dashboard").encode()
+    secret = (
+        settings.health_api_token or settings.remy_webhook_secret or "remy-dashboard"
+    ).encode()
     expected = hmac.new(secret, msg.encode(), hashlib.sha256).hexdigest()[:16]
     if not hmac.compare_digest(sig, expected):
         return web.Response(status=302, headers={"Location": "/dashboard"})

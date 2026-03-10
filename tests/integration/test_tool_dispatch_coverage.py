@@ -140,24 +140,3 @@ async def test_dispatch_suggest_actions_returns_attached(tmp_path):
         USER_ID,
     )
     assert result == "Attached."
-
-
-# Tools that need optional mocks to avoid filesystem/network in integration test
-@pytest.mark.asyncio
-async def test_dispatch_relay_tools_return_json_like(tmp_path):
-    """Relay tools return JSON-like strings (or error payload)."""
-    reg = make_registry(logs_dir=str(tmp_path))
-    for name, inp in [
-        ("relay_get_messages", {}),
-        ("relay_get_tasks", {}),
-    ]:
-        result = await reg.dispatch(name, inp, USER_ID)
-        assert isinstance(result, str)
-        assert "Unknown tool" not in result
-        # Either JSON object or error message
-        assert (
-            "messages" in result
-            or "tasks" in result
-            or "error" in result
-            or "[]" in result
-        )

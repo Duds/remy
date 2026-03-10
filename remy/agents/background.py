@@ -34,7 +34,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from ..utils.telegram_formatting import format_telegram_message
+from telegram.error import BadRequest
+
+from ..utils.telegram_formatting import format_telegram_message, is_entity_parse_error
 
 if TYPE_CHECKING:
     from ..bot.working_message import WorkingMessage
@@ -133,12 +135,32 @@ class BackgroundTaskRunner:
                 if is_last and self._run_again_markup is not None:
                     send_kwargs["reply_markup"] = self._run_again_markup
                 try:
+                    formatted = format_telegram_message(chunk)
                     await self._bot.send_message(
                         self._chat_id,
-                        format_telegram_message(chunk),
+                        formatted,
                         parse_mode="MarkdownV2",
                         **send_kwargs,
                     )
+                except BadRequest as e:
+                    if is_entity_parse_error(e):
+                        logger.debug(
+                            "MarkdownV2 entity parse error (board/report), falling back to Markdown: %s",
+                            e,
+                        )
+                        try:
+                            await self._bot.send_message(
+                                self._chat_id,
+                                chunk,
+                                parse_mode="Markdown",
+                                **send_kwargs,
+                            )
+                        except Exception:
+                            await self._bot.send_message(
+                                self._chat_id, chunk, **send_kwargs
+                            )
+                    else:
+                        raise
                 except Exception:
                     await self._bot.send_message(self._chat_id, chunk, **send_kwargs)
                 if is_last and self._run_again_markup is not None:
