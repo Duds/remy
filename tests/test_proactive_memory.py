@@ -48,7 +48,6 @@ def make_registry(**kwargs) -> ToolRegistry:
         logs_dir="/tmp/test_logs",
         goal_store=None,
         fact_store=None,
-        board_orchestrator=None,
         claude_client=None,
         ollama_base_url="http://localhost:11434",
         model_complex="claude-sonnet-4-6",

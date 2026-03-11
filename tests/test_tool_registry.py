@@ -38,7 +38,6 @@ def make_registry(**kwargs) -> ToolRegistry:
         logs_dir="/tmp/test_logs",
         goal_store=None,
         fact_store=None,
-        board_orchestrator=None,
         claude_client=None,
         ollama_base_url="http://localhost:11434",
         model_complex="claude-sonnet-4-6",
@@ -359,7 +358,7 @@ async def test_dispatch_manage_memory_delete():
 
 @pytest.mark.asyncio
 async def test_dispatch_run_board_no_orchestrator():
-    reg = make_registry(board_orchestrator=None)
+    reg = make_registry()
     result = await reg.dispatch("run_board", {"topic": "test"}, USER_ID)
     assert "not available" in result.lower()
 
@@ -367,7 +366,7 @@ async def test_dispatch_run_board_no_orchestrator():
 @pytest.mark.asyncio
 async def test_dispatch_run_board_calls_sdk():
     """run_board is SDK-only; when SDK is available run_board_analyst is used."""
-    reg = make_registry(board_orchestrator=None)
+    reg = make_registry()
     with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
         "remy.agents.sdk_subagents.run_board_analyst",
         new_callable=AsyncMock,
@@ -383,7 +382,7 @@ async def test_dispatch_run_board_calls_sdk():
 
 @pytest.mark.asyncio
 async def test_dispatch_run_board_empty_topic():
-    reg = make_registry(board_orchestrator=None)
+    reg = make_registry()
     result = await reg.dispatch("run_board", {"topic": ""}, USER_ID)
     assert "no topic" in result.lower()
 
