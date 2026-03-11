@@ -51,6 +51,8 @@ class Settings(BaseSettings):
 
     # Anthropic
     anthropic_api_key: str
+    # Optional Admin API key (sk-ant-admin...) for /costs authoritative data; org accounts only
+    anthropic_admin_api_key: str = ""
     model_simple: str = "claude-haiku-4-5-20251001"
     model_complex: str = "claude-sonnet-4-6"
     anthropic_max_tokens: int = 4096

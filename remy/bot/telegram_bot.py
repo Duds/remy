@@ -39,6 +39,7 @@ PHASE3_BOT_COMMANDS = [
     BotCommand("logs", "Diagnostics summary"),
     BotCommand("stats", "Usage stats"),
     BotCommand("costs", "API cost summary"),
+    BotCommand("routing", "Routing breakdown"),
     BotCommand("diagnostics", "Full self-check"),
 ]
 
@@ -144,6 +145,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("logs", handlers["logs"]))
         app.add_handler(CommandHandler("stats", handlers["stats"]))
         app.add_handler(CommandHandler("costs", handlers["costs"]))
+        app.add_handler(CommandHandler("routing", handlers["routing"]))
         app.add_handler(CommandHandler("diagnostics", handlers["diagnostics"]))
         app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, handlers["message"])

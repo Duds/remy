@@ -1,8 +1,9 @@
-"""Run temporary Python scripts in a sandboxed subprocess (Phase A — MVP)."""
+"""Run temporary Python scripts in a sandboxed subprocess (Phase A) or Docker (Phase B)."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 10
 MAX_OUTPUT_BYTES = 4096
@@ -95,10 +98,21 @@ async def exec_run_python(
     """
     Tool executor: run user-provided Python code in a sandbox and return output.
 
-    Runs the blocking run_python() in a thread pool so the event loop is not blocked.
+    Phase B: if Docker and remy-python-sandbox image are available, runs in a
+    container (no network, read-only root, limits). Otherwise falls back to
+    Phase A subprocess sandbox with a warning.
     """
     code = (tool_input.get("code") or "").strip()
     if not code:
         return "No code provided. Please supply Python source to execute."
+
+    from .docker_python import is_docker_available, run_python_docker
+
+    if is_docker_available():
+        return await run_python_docker(code)
+    logger.warning(
+        "Docker or remy-python-sandbox image not available — "
+        "running Python in subprocess sandbox (Phase A fallback)"
+    )
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, run_python, code)

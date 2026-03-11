@@ -1,6 +1,6 @@
 # User Story: Remy Writes and Runs Temporary Python Scripts
 
-**Status:** Phase A ✅ Implemented | Phase B/C ⬜ Backlog
+**Status:** Phase A ✅ Implemented | Phase B ✅ Implemented (Docker fallback) | Phase C ⬜ Backlog
 
 ## Summary
 

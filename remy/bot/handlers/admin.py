@@ -36,6 +36,7 @@ def make_admin_handlers(
     job_store: "BackgroundJobStore | None" = None,
     diagnostics_runner: "DiagnosticsRunner | None" = None,
     scheduler_ref: dict | None = None,
+    admin_client=None,
 ):
     """
     Factory that returns admin and analytics handlers.
@@ -150,12 +151,49 @@ def make_admin_handlers(
         sent = await update.message.reply_text("Calculating costs…")
         try:
             cost_analyzer = CostAnalyzer(db)
-            summary = await cost_analyzer.get_cost_summary(user_id, period)
+            summary = await cost_analyzer.get_cost_summary(
+                user_id, period, admin_client=admin_client
+            )
             msg = cost_analyzer.format_cost_message(summary)
             await sent.edit_text(msg, parse_mode="Markdown")
         except Exception as exc:
             logger.error("Costs command failed for user %d: %s", user_id, exc)
             await sent.edit_text(f"❌ Could not calculate costs: {exc}")
+
+    async def routing_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/routing [period] — routing breakdown by category, classifier overhead, fallback rate."""
+        if update.message is None or update.effective_user is None:
+            return
+        if await reject_unauthorized(update):
+            return
+        if db is None:
+            await update.message.reply_text("Analytics not available.")
+            return
+
+        from ...analytics.routing import RoutingAnalyzer
+
+        args = context.args or []
+        period = args[0].lower() if args else "30d"
+        valid_periods = {"7d", "30d", "90d", "all", "month"}
+        if period not in valid_periods and not (
+            period.endswith("d") and period[:-1].isdigit()
+        ):
+            await update.message.reply_text(
+                "Usage: /routing [period]\nValid periods: 7d, 30d (default), 90d, all"
+            )
+            return
+
+        user_id = update.effective_user.id
+        await update.message.chat.send_action(ChatAction.TYPING)
+        sent = await update.message.reply_text("Calculating routing…")
+        try:
+            routing_analyzer = RoutingAnalyzer(db)
+            report = await routing_analyzer.get_routing_report(user_id, period)
+            msg = routing_analyzer.format_routing_message(report)
+            await sent.edit_text(msg, parse_mode="Markdown")
+        except Exception as exc:
+            logger.error("Routing command failed for user %d: %s", user_id, exc)
+            await sent.edit_text(f"❌ Could not calculate routing: {exc}")
 
     async def goal_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/goal-status — goal tracking dashboard with age and staleness info."""
@@ -318,6 +356,7 @@ def make_admin_handlers(
         "logs": logs_command,
         "stats": stats_command,
         "costs": costs_command,
+        "routing": routing_command,
         "goal-status": goal_status_command,
         "retrospective": retrospective_command,
         "jobs": jobs_command,

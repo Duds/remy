@@ -2,16 +2,23 @@
 Cost analyzer for API usage.
 
 Queries the api_calls table and computes estimated costs using the price table.
+Optional Anthropic Admin API integration for authoritative spend (US-analytics-anthropic-admin-api).
 """
 
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from ..memory.database import DatabaseManager
 from .prices import PRICE_TABLE_DATE, PRICES, estimate_cache_savings, estimate_cost
 
+if TYPE_CHECKING:
+    from ..ai.anthropic_admin_client import AnthropicAdminClient
+
 logger = logging.getLogger(__name__)
+
+DISCREPANCY_PCT_THRESHOLD = 15.0
 
 
 @dataclass
@@ -90,6 +97,10 @@ class CostSummary:
     start_date: datetime
     end_date: datetime
     providers: list[ProviderUsage] = field(default_factory=list)
+    # Anthropic Admin API (optional)
+    anthropic_actual_usd: float | None = None
+    admin_unavailable_note: str | None = None
+    discrepancy_pct: float | None = None
 
     @property
     def total_calls(self) -> int:
@@ -154,13 +165,32 @@ class CostAnalyzer:
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
 
-    async def get_cost_summary(self, user_id: int, period: str = "30d") -> CostSummary:
+    async def get_cost_summary(
+        self,
+        user_id: int,
+        period: str = "30d",
+        admin_client: "AnthropicAdminClient | None" = None,
+    ) -> CostSummary:
         """
         Query api_calls and compute cost summary for the period.
 
-        Returns a CostSummary with per-provider and per-model breakdowns.
+        If admin_client is set, fetches Anthropic authoritative usage/cost and
+        attaches anthropic_actual_usd and discrepancy note to the summary.
         """
         start, end = _parse_period(period)
+        anthropic_actual_usd: float | None = None
+        admin_unavailable_note: str | None = None
+        discrepancy_pct: float | None = None
+
+        if admin_client:
+            try:
+                cost_items = await admin_client.get_cost_report(start, end)
+                from ..ai.anthropic_admin_client import sum_cost_report_usd
+
+                anthropic_actual_usd = sum_cost_report_usd(cost_items)
+            except Exception as e:
+                logger.warning("Admin API failed: %s", e)
+                admin_unavailable_note = "Admin API unavailable — showing estimates"
 
         async with self._db.get_connection() as conn:
             rows = await conn.execute_fetchall(
@@ -208,12 +238,23 @@ class CostAnalyzer:
             ),
         )
 
+        # Discrepancy: local Anthropic estimate vs Admin API actual
+        if anthropic_actual_usd is not None and anthropic_actual_usd >= 0:
+            local_anthropic = sum(
+                p.estimated_cost for p in providers if p.provider == "anthropic"
+            )
+            if anthropic_actual_usd > 0 and abs(local_anthropic - anthropic_actual_usd) / anthropic_actual_usd > DISCREPANCY_PCT_THRESHOLD / 100:
+                discrepancy_pct = abs(local_anthropic - anthropic_actual_usd) / anthropic_actual_usd * 100.0
+
         return CostSummary(
             user_id=user_id,
             period=period,
             start_date=start,
             end_date=end,
             providers=providers,
+            anthropic_actual_usd=anthropic_actual_usd,
+            admin_unavailable_note=admin_unavailable_note,
+            discrepancy_pct=discrepancy_pct,
         )
 
     def format_cost_message(self, summary: CostSummary) -> str:
@@ -290,6 +331,25 @@ class CostAnalyzer:
 
         if summary.total_savings > 0:
             lines.append(f"_Cache savings: {_format_cost(summary.total_savings)}_")
+
+        if summary.anthropic_actual_usd is not None and summary.anthropic_actual_usd >= 0:
+            local_anthropic = sum(
+                p.estimated_cost for p in summary.providers if p.provider == "anthropic"
+            )
+            lines.append("")
+            lines.append(
+                f"🟠 *Anthropic (actual):* {_format_cost(summary.anthropic_actual_usd)}"
+            )
+            lines.append(f"   _Local estimate (Anthropic): {_format_cost(local_anthropic)}_")
+        if summary.admin_unavailable_note:
+            lines.append("")
+            lines.append(f"_{summary.admin_unavailable_note}_")
+        if summary.discrepancy_pct is not None and summary.discrepancy_pct >= DISCREPANCY_PCT_THRESHOLD:
+            lines.append("")
+            lines.append(
+                f"⚠️ _Local estimate diverges from Anthropic API by {summary.discrepancy_pct:.0f}% — "
+                "consider updating the price table._"
+            )
 
         lines.append(f"\n_Prices as of {PRICE_TABLE_DATE}. Actual billing may differ._")
 

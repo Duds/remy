@@ -1,6 +1,6 @@
 # US: Multi-Agent Architecture (Leaf + Sub-Agent Pattern)
 
-**Status:** 🔄 In progress (Researcher sub-agent + hand_off_to_researcher; PBI-1,2,5 partial)
+**Status:** ✅ Done (2026-03-11 — leaf base + web/file/gmail leaves; Researcher/Coder/Ops/Analyst + Creator + subagent_runner; PBI-1–10)
 **Phase:** 7 (Step 3 — Claude Agent SDK Subagents)
 **Priority:** S (Should Have)
 

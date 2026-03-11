@@ -1,6 +1,6 @@
 # User Story: /routing — Routing Efficiency & Classifier Cost Breakdown
 
-⬜ Backlog
+**Status:** ✅ Done (2026-03-11)
 
 ## Summary
 

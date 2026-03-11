@@ -185,7 +185,15 @@ def make_handlers(
         run_attachment_vision=run_attachment_vision,
     )
 
-    # Admin and analytics
+    # Admin and analytics (optional Anthropic Admin API for /costs)
+    from ...config import settings
+    from ...ai.anthropic_admin_client import AnthropicAdminClient
+
+    admin_client = (
+        AnthropicAdminClient(settings.anthropic_admin_api_key)
+        if settings.anthropic_admin_api_key
+        else None
+    )
     handlers.update(
         make_admin_handlers(
             db=db,
@@ -194,6 +202,7 @@ def make_handlers(
             job_store=sched.job_store,
             diagnostics_runner=core.diagnostics_runner,  # type: ignore[arg-type]
             scheduler_ref=sched.scheduler_ref,  # type: ignore[arg-type]
+            admin_client=admin_client,
         )
     )
 

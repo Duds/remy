@@ -1,6 +1,6 @@
 # User Story: Anthropic Admin API — Authoritative Spend Data
 
-⬜ Backlog
+**Status:** ✅ Done (2026-03-11)
 
 ## Summary
 
