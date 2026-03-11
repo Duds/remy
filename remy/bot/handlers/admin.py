@@ -243,6 +243,13 @@ def make_admin_handlers(
         await wm.start()
 
         async def _run_retrospective() -> str:
+            from ...agents.sdk_subagents import is_sdk_available, run_retrospective_via_sdk
+            if is_sdk_available() and conversation_analyzer is not None:
+                result = await run_retrospective_via_sdk(
+                    user_id, "month", conversation_analyzer
+                )
+                if result:
+                    return result
             return await conversation_analyzer.generate_retrospective(
                 user_id, "month", claude_client
             )

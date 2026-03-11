@@ -100,3 +100,14 @@ def test_save_primary_chat_id_writes_file(tmp_path):
     with patch("remy.config.get_settings", return_value=mock_settings):
         save_primary_chat_id(999888)
     assert (tmp_path / "primary_chat_id.txt").read_text().strip() == "999888"
+
+
+def test_sdk_agent_config_defaults(monkeypatch):
+    """US-claude-agent-sdk-migration: model_board_analyst, model_deep_researcher, use_sdk_agent exist and default."""
+    s = make_settings(monkeypatch)
+    assert hasattr(s, "model_board_analyst")
+    assert hasattr(s, "model_deep_researcher")
+    assert hasattr(s, "use_sdk_agent")
+    assert s.model_board_analyst == ""
+    assert s.model_deep_researcher == ""
+    assert s.use_sdk_agent is True

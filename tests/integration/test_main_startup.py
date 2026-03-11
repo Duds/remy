@@ -119,7 +119,6 @@ class TestMainStartup:
             "remy.main.ConversationAnalyzer",
             "remy.main.FileIndexer",
             "remy.main.VoiceTranscriber",
-            "remy.main.BoardOrchestrator",
             "remy.main.ToolRegistry",
             "remy.main.DiagnosticsRunner",
             "remy.main.OutboundQueue",

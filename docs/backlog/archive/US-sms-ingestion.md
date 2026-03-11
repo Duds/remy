@@ -1,5 +1,7 @@
 # User Story: Android SMS Ingestion
 
+**Status:** ✅ Done (Implemented 2026-03-11 — POST /webhook/sms, SMSStore, get_sms_messages tool)
+
 ## Summary
 
 As a user, I want Remy to receive my incoming SMS messages so she can alert me to

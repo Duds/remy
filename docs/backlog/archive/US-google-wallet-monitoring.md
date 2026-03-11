@@ -1,5 +1,7 @@
 # User Story: Google Wallet Notification Monitoring
 
+**Status:** ✅ Done (Implemented 2026-03-11 — POST /webhook/notification, WalletStore, WalletHandler, get_wallet_transactions tool)
+
 ## Summary
 As a user, I want Remy to alert me via Telegram whenever Google Wallet processes a
 transaction, so I can catch unexpected charges immediately without checking my phone.

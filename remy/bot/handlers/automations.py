@@ -35,6 +35,7 @@ def make_automation_handlers(
     *,
     claude_client=None,
     board_orchestrator: "BoardOrchestrator | None" = None,
+    tool_registry=None,
     memory_injector: "MemoryInjector | None" = None,
     automation_store: "AutomationStore | None" = None,
     job_store: "BackgroundJobStore | None" = None,
@@ -354,20 +355,24 @@ def make_automation_handlers(
         )
 
     async def board_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/board <topic> — convene the Board of Directors on a topic.
-
-        Validates input, creates job, shows working state, invokes the subagent
-        runner, and returns. The runner delivers the result when the subagent
-        completes (see US-subagents-next-plan.md).
-        """
+        """/board <topic> — convene the Board of Directors via SDK board-analyst subagent."""
         if update.message is None or update.effective_user is None:
             return
         if await reject_unauthorized(update):
             return
 
-        if board_orchestrator is None:
+        from ...config import settings
+        from ...agents import sdk_subagents
+
+        use_sdk = (
+            getattr(settings, "use_sdk_agent", True)
+            and sdk_subagents.is_sdk_available()
+            and tool_registry is not None
+        )
+        if not use_sdk:
             await update.message.reply_text(
-                "Board of Directors not available — not configured."
+                "Board of Directors requires the Claude Agent SDK. "
+                "Install with: pip install claude-agent-sdk"
             )
             return
 
@@ -418,15 +423,14 @@ def make_automation_handlers(
         )
 
         async def _board_coro() -> str:
-            chunks = [f"🏛 *Board of Directors: {topic}*\n\n"]
-            async for chunk in board_orchestrator.run_board_streaming(
+            result = await sdk_subagents.run_board_analyst(
                 topic,
                 user_context,
-                user_id=user_id,
-                session_key=session_key,
-            ):
-                chunks.append(chunk)
-            return "".join(chunks)
+                user_id,
+                session_key,
+                tool_registry,
+            )
+            return result or "Board analysis did not return a result."
 
         # OpenClaw-style: claim agent_tasks slot (enforces max_workers / max_depth)
         coro_to_run = _board_coro()

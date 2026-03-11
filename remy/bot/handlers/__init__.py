@@ -116,8 +116,10 @@ def make_handlers(
     handlers.update(
         make_web_handlers(
             claude_client=claude_client,
+            tool_registry=tool_registry,
             fact_store=mem.fact_store,
             knowledge_store=mem.knowledge_store,
+            job_store=sched.job_store,
         )
     )
 
@@ -139,6 +141,7 @@ def make_handlers(
         make_automation_handlers(
             claude_client=claude_client,
             board_orchestrator=core.board_orchestrator,
+            tool_registry=tool_registry,
             memory_injector=mem.memory_injector,
             automation_store=sched.automation_store,
             job_store=sched.job_store,

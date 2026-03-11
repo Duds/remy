@@ -32,9 +32,17 @@ class MonthlyRetrospectiveGenerator(BriefingGenerator):
             return ""
 
         try:
-            retro = await self._conversation_analyzer.generate_retrospective(
-                self._user_id, "month", self._claude
-            )
+            from ...agents.sdk_subagents import is_sdk_available, run_retrospective_via_sdk
+            if is_sdk_available():
+                retro = await run_retrospective_via_sdk(
+                    self._user_id, "month", self._conversation_analyzer
+                )
+            else:
+                retro = ""
+            if not retro and self._claude is not None:
+                retro = await self._conversation_analyzer.generate_retrospective(
+                    self._user_id, "month", self._claude
+                )
             if len(retro) > 4000:
                 retro = retro[:4000] + "…"
             return retro

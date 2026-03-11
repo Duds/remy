@@ -38,13 +38,20 @@ async def exec_get_goal_status(registry: ToolRegistry, user_id: int) -> str:
 
 
 async def exec_generate_retrospective(registry: ToolRegistry, inp: dict, user_id: int) -> str:
-    """Generate a monthly retrospective."""
+    """Generate a monthly retrospective. Uses SDK when available."""
     if registry._conversation_analyzer is None:
         return "Conversation analytics not available."
-    if registry._claude_client is None:
-        return "Claude client not available for retrospective generation."
     period = inp.get("period", "30d")
     try:
+        from ...agents.sdk_subagents import is_sdk_available, run_retrospective_via_sdk
+        if is_sdk_available():
+            result = await run_retrospective_via_sdk(
+                user_id, period, registry._conversation_analyzer
+            )
+            if result:
+                return result
+        if registry._claude_client is None:
+            return "Claude client not available for retrospective generation."
         return await registry._conversation_analyzer.generate_retrospective(
             user_id, period, registry._claude_client
         )

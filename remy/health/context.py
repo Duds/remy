@@ -27,6 +27,11 @@ class HealthContext:
     # Rate limiting for incoming webhooks (ip -> list of timestamps)
     incoming_webhook_rate: dict[str, list[float]] = field(default_factory=dict)
     incoming_webhook_rate_limit: int = 60
+    # SMS / Wallet webhooks (US-sms-ingestion, US-google-wallet-monitoring)
+    sms_store: Any = None
+    sms_wallet_bot: Any = None
+    sms_wallet_chat_id: int | None = None
+    wallet_handler: Any = None
     # Ready flag (mutable)
     _ready: bool = False
 

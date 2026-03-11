@@ -10,7 +10,6 @@ import signal
 from pathlib import Path
 
 from .agents.agent_task_lifecycle import AgentTaskStore
-from .agents.orchestrator import BoardOrchestrator
 from .ai.claude_client import ClaudeClient
 from .ai.mistral_client import MistralClient
 from .ai.moonshot_client import MoonshotClient
@@ -104,8 +103,8 @@ def main() -> None:
     # Bot reference is set in post_init once PTB application is ready
     outbound_queue = OutboundQueue(db_path=db.db_path, bot=None)
 
-    # Board of Directors orchestrator (Phase 5); /board invokes via BackgroundTaskRunner
-    board_orchestrator = BoardOrchestrator(claude_client)
+    # Board of Directors: /board and run_board use SDK board-analyst only (US-claude-agent-sdk-migration).
+    board_orchestrator = None
 
     # Tool registry — enables native Anthropic tool use (function calling)
     # Wired after memory components are initialised below
@@ -136,6 +135,12 @@ def main() -> None:
     automation_store = AutomationStore(db)
     job_store = BackgroundJobStore(db)
     agent_task_store = AgentTaskStore(db)
+    sms_store = None
+    wallet_store = None
+    if getattr(settings, "sms_webhook_secret", "").strip():
+        from .integrations import SMSStore, WalletStore
+        sms_store = SMSStore(db)
+        wallet_store = WalletStore(db)
     plan_store = PlanStore(db)
     conv_analyzer = ConversationAnalyzer(conv_store, db)
 
@@ -232,6 +237,8 @@ def main() -> None:
         fact_store=fact_store,
         goal_store=goal_store,
         counter_store=counter_store,
+        sms_store=sms_store,
+        wallet_store=wallet_store,
     )
     tool_registry = ToolRegistry(tool_ctx)
 
@@ -447,6 +454,16 @@ def main() -> None:
         health_ctx.incoming_get_chat_id = _get_primary_chat_id
         health_ctx.incoming_automation_store = automation_store
         health_ctx.incoming_webhook_user_id = webhook_user_id
+
+        # SMS / Wallet webhooks (US-sms-ingestion, US-google-wallet-monitoring)
+        if sms_store is not None and wallet_store is not None:
+            primary_chat_id = _get_primary_chat_id()
+            if primary_chat_id is not None:
+                from .integrations import WalletHandler
+                health_ctx.sms_store = sms_store
+                health_ctx.sms_wallet_bot = app.bot
+                health_ctx.sms_wallet_chat_id = primary_chat_id
+                health_ctx.wallet_handler = WalletHandler(wallet_store, app.bot, primary_chat_id)
 
         # Pre-warm embedding model to avoid cold-start timeout in diagnostics.
         # Model load can take 15-30s; doing it here ensures /diagnostics won't time out.

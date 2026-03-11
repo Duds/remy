@@ -33,7 +33,7 @@ import os
 import warnings
 
 from .context import HealthContext
-from .routes import commands, dashboard, diagnostics, files, incoming, metrics, webhooks
+from .routes import commands, dashboard, diagnostics, files, incoming, metrics, sms_wallet, webhooks
 from .routes.core import handle_health, handle_ready, handle_root
 from .utils import get_start_time
 
@@ -107,6 +107,10 @@ async def run_health_server(
     app.router.add_get("/files", files.handle_files)
     app.router.add_post("/commands/ship-it", commands.handle_ship_it)
     app.router.add_post("/incoming", lambda r: incoming.handle_incoming_webhook(r, _ctx))
+    app.router.add_post("/webhook/sms", lambda r: sms_wallet.handle_sms_webhook(r, _ctx))
+    app.router.add_post(
+        "/webhook/notification", lambda r: sms_wallet.handle_notification_webhook(r, _ctx)
+    )
     app.router.add_get("/dashboard", dashboard.handle_dashboard)
     app.router.add_get("/dashboard/auth", dashboard.handle_dashboard_auth)
     app.router.add_get(

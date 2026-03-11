@@ -35,3 +35,5 @@ class ToolContext:
     fact_store: Any = None
     goal_store: Any = None
     counter_store: Any = None
+    sms_store: Any = None
+    wallet_store: Any = None

@@ -31,3 +31,5 @@ pymupdf>=1.24
 Pillow>=10.0
 # Terminal UI (US-terminal-ui)
 textual>=0.47
+# Claude Agent SDK (US-claude-agent-sdk-subagents) — optional; full stream_with_tools replacement deferred
+claude-agent-sdk>=0.1.48

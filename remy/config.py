@@ -169,6 +169,14 @@ class Settings(BaseSettings):
     # Incoming webhook secret (X-Webhook-Secret). Empty = /incoming webhook disabled.
     remy_webhook_secret: str = ""
 
+    # ── SMS / Wallet webhooks (US-sms-ingestion, US-google-wallet-monitoring) ─────
+    # Secret for X-Secret header on POST /webhook/sms and /webhook/notification. Empty = disabled.
+    sms_webhook_secret: str = ""
+    # Comma-separated E.164 numbers; empty = allow all senders (env: SMS_ALLOWED_SENDERS).
+    sms_allowed_senders_raw: str = Field(default="", validation_alias="SMS_ALLOWED_SENDERS")
+    # Comma-separated keywords; if set, only SMS containing any keyword trigger alert (env: SMS_KEYWORD_FILTER).
+    sms_keyword_filter_raw: str = Field(default="", validation_alias="SMS_KEYWORD_FILTER")
+
     # ── File download links (US-mac-file-links-secure-download) ───────────────────
     # Public base URL for GET /files links (e.g. https://remy.dalerogers.com.au). Empty = disabled.
     file_link_base_url: str = ""
@@ -202,6 +210,11 @@ class Settings(BaseSettings):
     anthropic_overload_fallback_model: str = ""  # e.g. claude-haiku-4-5-20251001; empty = disabled (US-anthropic-overload-fallback)
     anthropic_overload_max_retries: int = 2  # Retries before fallback or user message
     claude_min_cache_tokens: int = 1024
+    # SDK subagents (US-claude-agent-sdk-migration): model per subagent; empty = use model_complex
+    model_board_analyst: str = ""
+    model_deep_researcher: str = ""
+    # Use Claude Agent SDK for board/research when available (set REMY_USE_SDK_AGENT=0 to disable)
+    use_sdk_agent: bool = True
 
     # ── Compaction ──────────────────────────────────────────────────────────────
     compaction_token_threshold: int = 40_000  # Trigger compaction when session exceeds this (US-aggressive-session-compaction)
@@ -281,6 +294,22 @@ class Settings(BaseSettings):
         if not raw:
             return []
         return [int(x.strip()) for x in raw.split(",") if x.strip()]
+
+    @property
+    def sms_allowed_senders(self) -> list[str]:
+        """Parse comma-separated E.164 numbers for SMS filter. Empty = allow all."""
+        raw = self.sms_allowed_senders_raw
+        if not raw:
+            return []
+        return [x.strip() for x in raw.split(",") if x.strip()]
+
+    @property
+    def sms_keyword_filter(self) -> list[str]:
+        """Parse comma-separated keywords; only SMS containing any trigger alert. Empty = all."""
+        raw = self.sms_keyword_filter_raw
+        if not raw:
+            return []
+        return [x.strip() for x in raw.split(",") if x.strip()]
 
     @cached_property
     def gdrive_mount_paths(self) -> list[str]:

@@ -180,39 +180,34 @@ def _make_tool_stream(stop_reason="end_turn", text_chunks=None, tool_blocks=None
 
 @pytest.mark.asyncio
 async def test_claude_stream_with_tools_accumulates_usage():
-    """Two end_turn iterations: usage sums across both."""
-    from remy.ai.claude_client import ClaudeClient
+    """SDK path: run_quick_assistant_streaming sets usage_out; we assert it is populated."""
+    from remy.ai.claude_client import ClaudeClient, TextChunk
 
-    # Both iterations end with stop_reason=end_turn, 50+20 each time
-    stream1 = _make_tool_stream(stop_reason="end_turn")
-    stream2 = _make_tool_stream(stop_reason="end_turn")
-
-    call_count = 0
-
-    def make_stream(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return stream1 if call_count == 1 else stream2
+    async def mock_sdk_stream(*, usage_out=None, **kwargs):
+        if usage_out is not None:
+            usage_out.input_tokens = 50
+            usage_out.output_tokens = 20
+        yield TextChunk(text="done")
 
     mock_tool_registry = MagicMock()
     mock_tool_registry.schemas = []
-    mock_tool_registry.dispatch = AsyncMock(return_value="result")
 
     client = ClaudeClient()
     client._client = MagicMock()
-    client._client.messages.stream = MagicMock(side_effect=make_stream)
 
     usage = TokenUsage()
-    events = []
-    async for event in client.stream_with_tools(
-        [{"role": "user", "content": "Hi"}],
-        tool_registry=mock_tool_registry,
-        user_id=1,
-        usage_out=usage,
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_quick_assistant_streaming", side_effect=mock_sdk_stream
     ):
-        events.append(event)
+        events = []
+        async for event in client.stream_with_tools(
+            [{"role": "user", "content": "Hi"}],
+            tool_registry=mock_tool_registry,
+            user_id=1,
+            usage_out=usage,
+        ):
+            events.append(event)
 
-    # First iteration ends with end_turn → exits immediately, accumulating once
     assert usage.input_tokens == 50
     assert usage.output_tokens == 20
 

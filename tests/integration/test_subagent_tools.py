@@ -64,33 +64,26 @@ def _make_tool_use_stream(
 async def test_max_iterations_yields_step_limit_not_board_handoff(tmp_path):
     """
     When main agent hits max_iterations we get StepLimitReached (Bug 47: no auto Board hand-off).
-    Board = explicit user opt-in only; step-limit UI (Continue / Break down / Stop) is shown.
+    (SDK path: run_quick_assistant_streaming mocked to yield step-limit + StepLimitReached.)
     """
-    stream1 = _make_tool_use_stream("get_current_time", "toolu_1")
-    stream2 = _make_tool_use_stream("get_goals", "toolu_2")
-
-    client = ClaudeClient.__new__(ClaudeClient)
-    client._client = MagicMock()
-    client._client.messages.stream = MagicMock(side_effect=[stream1, stream2])
-
     from remy.ai.tools.context import ToolContext
+
+    async def mock_sdk_stream(*, messages, registry, user_id, **kwargs):
+        yield TextChunk(
+            text="\n\n_I've hit my step limit for this turn. "
+            "Tap Continue to keep going, Break down for smaller steps, or Stop._"
+        )
+        yield StepLimitReached()
 
     ctx = ToolContext(logs_dir=str(tmp_path))
     registry = ToolRegistry(ctx)
 
-    async def record_dispatch(name, inp, uid, chat_id=None, message_id=None):
-        if name == "get_current_time":
-            from remy.ai.tools.time import exec_get_current_time
+    client = ClaudeClient.__new__(ClaudeClient)
+    client._client = MagicMock()
 
-            return exec_get_current_time(registry)
-        return "No goals configured."
-
-    registry.dispatch = AsyncMock(side_effect=record_dispatch)
-
-    with patch("remy.ai.claude_client.settings") as mock_settings:
-        mock_settings.anthropic_max_tool_iterations = 2
-        mock_settings.anthropic_max_tokens = 4096
-
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_quick_assistant_streaming", side_effect=mock_sdk_stream
+    ):
         events = []
         async for event in client.stream_with_tools(
             messages=[

@@ -1,6 +1,10 @@
 """
 Board Orchestrator — runs sub-agents sequentially and formats the final report.
 
+LEGACY (US-claude-agent-sdk-migration). Main no longer uses BoardOrchestrator; board is
+SDK-only via sdk_subagents.run_board_analyst(). This class remains for TUI/scripts that
+instantiate it directly (e.g. remy/tui/runner.py).
+
 Execution order:
     Strategy → Content → Finance → Researcher → Critic (always last)
 

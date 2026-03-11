@@ -1,6 +1,6 @@
 # User Story: Claude Agent SDK Subagents
 
-⏸️ **Deferred** — 2026-03-04
+**Status:** ✅ Done (Partial 2026-03-11 — claude-agent-sdk dependency, sdk_runner.py; full stream_with_tools replacement deferred)
 
 ## Summary
 As a developer, I want to replace the hand-rolled agentic tool loop in `ClaudeClient` with

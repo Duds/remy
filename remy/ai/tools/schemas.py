@@ -1429,6 +1429,48 @@ TOOL_SCHEMAS: list[dict] = [
             "required": [],
         },
     },
+    # SMS / Wallet (US-sms-ingestion, US-google-wallet-monitoring)
+    {
+        "name": "get_sms_messages",
+        "description": (
+            "List recent SMS messages received via the Android SMS Gateway webhook. "
+            "Use when the user asks: 'what texts did I get today?', 'show my recent SMS', "
+            "'any messages from X?'. Only available if SMS webhook is configured."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Look back this many hours (default 24).",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_wallet_transactions",
+        "description": (
+            "List recent Google Wallet transactions from Android notifications. "
+            "Use when the user asks: 'what was my last Wallet transaction?', "
+            "'how much did I spend today?', 'show recent Wallet purchases'. "
+            "Only available if notification webhook is configured."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Look back this many hours (default 24).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of transactions to return (default 20).",
+                },
+            },
+            "required": [],
+        },
+    },
     # ------------------------------------------------------------------ #
     # Plan tracking                                                        #
     # ------------------------------------------------------------------ #

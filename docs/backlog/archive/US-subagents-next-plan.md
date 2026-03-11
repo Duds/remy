@@ -1,6 +1,6 @@
 # Subagents Next Plan
 
-**Status:** In progress (first milestone done: board via subagent runner)
+**Status:** ✅ Done (2026-03-11 — milestones 1–3: board, research, retrospective via subagent runner)
 
 Concrete evaluation and implementation plan so Remy becomes UI-only for heavy tasks and board, research, retrospective (and optionally reindex/consolidate) run as subagents. See [remy-ui-and-subagent-boundary.md](../architecture/remy-ui-and-subagent-boundary.md) for the boundary spec and [US-claude-agent-sdk-subagents.md](US-claude-agent-sdk-subagents.md) for the full subagent story.
 
@@ -36,9 +36,9 @@ Concrete evaluation and implementation plan so Remy becomes UI-only for heavy ta
 
 **Migration order suggestion:**
 
-1. Board
-2. Research
-3. Retrospective
+1. Board ✅ (via BackgroundTaskRunner + job_store)
+2. Research ✅ (via BackgroundTaskRunner + job_store; run_research_coro + start_research_background)
+3. Retrospective ✅ (already via BackgroundTaskRunner + job_store in admin handler)
 
 Reindex/consolidate can stay as in-process background tasks initially unless we want them as subagents later.
 

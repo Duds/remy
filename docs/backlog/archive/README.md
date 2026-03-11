@@ -13,3 +13,7 @@ Archived on 2026-03-10. **63** completed user stories (including context-aware r
 **Out of scope — relay removed (2026-03-11):** US-blocked-task-dedup, US-heartbeat-protocol, US-auto-requeue-tasks. These PBIs assume relay (cowork ↔ Remy); relay was explicitly removed from the solution.
 
 **Obsolete (non-starters):** US-idempotency-keys — legacy briefing/check-in crons deprecated in favour of evaluative heartbeat; idempotency for those jobs is no longer required.
+
+**Recently archived (2026-03-11):** US-sms-ingestion, US-google-wallet-monitoring (SMS/Wallet webhooks + tools implemented); US-claude-agent-sdk-subagents (partial — dependency + sdk_runner); US-subagents-next-plan (milestones 1–3 done).
+
+**Recently archived (2026-03-11):** US-claude-agent-sdk-migration — SDK single runtime; hand-rolled stream_with_tools removed; board/research/chat SDK-only; BoardOrchestrator no longer created in main.

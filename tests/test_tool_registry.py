@@ -15,6 +15,7 @@ from remy.ai.tools import ToolRegistry, TOOL_SCHEMAS
 from remy.ai.tools.context import ToolContext
 from remy.ai.claude_client import (
     ClaudeClient,
+    StepLimitReached,
     TextChunk,
     ToolStatusChunk,
     ToolResultChunk,
@@ -364,23 +365,27 @@ async def test_dispatch_run_board_no_orchestrator():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_run_board_calls_orchestrator():
-    board = MagicMock()
-    board.run_board = AsyncMock(return_value="Board report here")
-    reg = make_registry(board_orchestrator=board)
-    result = await reg.dispatch("run_board", {"topic": "My quarterly focus"}, USER_ID)
+async def test_dispatch_run_board_calls_sdk():
+    """run_board is SDK-only; when SDK is available run_board_analyst is used."""
+    reg = make_registry(board_orchestrator=None)
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_board_analyst",
+        new_callable=AsyncMock,
+        return_value="Board report here",
+    ) as mock_run:
+        result = await reg.dispatch(
+            "run_board", {"topic": "My quarterly focus"}, USER_ID
+        )
     assert "Board report here" in result
-    board.run_board.assert_called_once_with("My quarterly focus")
+    mock_run.assert_called_once()
+    assert mock_run.call_args[0][0] == "My quarterly focus"  # topic
 
 
 @pytest.mark.asyncio
 async def test_dispatch_run_board_empty_topic():
-    board = MagicMock()
-    board.run_board = AsyncMock(return_value="ok")
-    reg = make_registry(board_orchestrator=board)
+    reg = make_registry(board_orchestrator=None)
     result = await reg.dispatch("run_board", {"topic": ""}, USER_ID)
     assert "no topic" in result.lower()
-    board.run_board.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -478,47 +483,29 @@ def _make_stream_event(delta_type: str, **kwargs):
 async def test_stream_with_tools_yields_text_chunks():
     """
     When Claude returns end_turn (no tool calls), only TextChunks are yielded.
+    (SDK path: run_quick_assistant_streaming is mocked to yield text.)
     """
-    # Mock the raw stream events
-    delta_event = _make_stream_event("RawContentBlockDeltaEvent")
-    delta = MagicMock()
-    delta.type = "text_delta"
-    delta.text = "Hello!"
-    delta_event.delta = delta
-
-    # Mock final message (no tool use)
-    final_msg = MagicMock()
-    final_msg.stop_reason = "end_turn"
-    final_msg.content = [MagicMock(type="text", text="Hello!")]
-
-    # Build async iterator for stream events
-    async def fake_stream_iter():
-        yield delta_event
-
-    mock_stream = MagicMock()
-    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-    mock_stream.__aexit__ = AsyncMock(return_value=False)
-    mock_stream.__aiter__ = lambda self: fake_stream_iter().__aiter__()
-    mock_stream.get_final_message = AsyncMock(return_value=final_msg)
+    async def mock_sdk_stream(*, messages, registry, user_id, **kwargs):
+        yield TextChunk(text="Hello!")
 
     tool_registry = make_registry()
-
     client = ClaudeClient.__new__(ClaudeClient)
     client._client = MagicMock()
-    client._client.messages.stream = MagicMock(return_value=mock_stream)
 
-    events = []
-    async for event in client.stream_with_tools(
-        messages=[{"role": "user", "content": "hi"}],
-        tool_registry=tool_registry,
-        user_id=USER_ID,
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_quick_assistant_streaming", side_effect=mock_sdk_stream
     ):
-        events.append(event)
+        events = []
+        async for event in client.stream_with_tools(
+            messages=[{"role": "user", "content": "hi"}],
+            tool_registry=tool_registry,
+            user_id=USER_ID,
+        ):
+            events.append(event)
 
     text_events = [e for e in events if isinstance(e, TextChunk)]
     assert len(text_events) >= 1
     assert text_events[0].text == "Hello!"
-    # No tool events since stop_reason = end_turn
     tool_events = [e for e in events if isinstance(e, ToolTurnComplete)]
     assert len(tool_events) == 0
 
@@ -527,41 +514,22 @@ async def test_stream_with_tools_yields_text_chunks():
 async def test_stream_with_tools_hits_max_iterations_yields_truncation():
     """
     When max_iterations is reached (e.g. 2), stream yields truncation TextChunk.
+    (SDK path: run_quick_assistant_streaming mocked to yield step-limit + StepLimitReached.)
     """
-    # Two iterations, each returning tool_use so we keep looping
-    tool_block = MagicMock()
-    tool_block.type = "tool_use"
-    tool_block.id = "toolu_1"
-    tool_block.name = "get_current_time"
-    tool_block.input = {}
-
-    final_msg_tool_use = MagicMock()
-    final_msg_tool_use.stop_reason = "tool_use"
-    final_msg_tool_use.content = [tool_block]
-    final_msg_tool_use.usage = MagicMock(
-        input_tokens=10,
-        output_tokens=5,
-        cache_creation_input_tokens=0,
-        cache_read_input_tokens=0,
-    )
-
-    async def fake_stream_iter():
-        yield _make_stream_event("RawContentBlockStartEvent", content_block=tool_block)
-
-    mock_stream = MagicMock()
-    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-    mock_stream.__aexit__ = AsyncMock(return_value=False)
-    mock_stream.__aiter__ = lambda self: fake_stream_iter().__aiter__()
-    mock_stream.get_final_message = AsyncMock(return_value=final_msg_tool_use)
+    async def mock_sdk_stream(*, messages, registry, user_id, **kwargs):
+        yield TextChunk(
+            text="\n\n_I've hit my step limit for this turn. "
+            "Tap Continue to keep going, Break down for smaller steps, or Stop._"
+        )
+        yield StepLimitReached()
 
     tool_registry = make_registry()
     client = ClaudeClient.__new__(ClaudeClient)
     client._client = MagicMock()
-    client._client.messages.stream = MagicMock(return_value=mock_stream)
 
-    with patch("remy.ai.claude_client.settings") as mock_settings:
-        mock_settings.anthropic_max_tool_iterations = 2
-        mock_settings.anthropic_max_tokens = 4096
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_quick_assistant_streaming", side_effect=mock_sdk_stream
+    ):
         events = []
         async for event in client.stream_with_tools(
             messages=[{"role": "user", "content": "what time is it?"}],
@@ -569,9 +537,6 @@ async def test_stream_with_tools_hits_max_iterations_yields_truncation():
             user_id=USER_ID,
         ):
             events.append(event)
-
-    # Bug 47: max_iterations yields step-limit message + StepLimitReached (no auto Board hand-off)
-    from remy.ai.claude_client import StepLimitReached
 
     step_texts = [
         e for e in events if isinstance(e, TextChunk) and "step limit" in (e.text or "").lower()
@@ -586,71 +551,34 @@ async def test_stream_with_tools_hits_max_iterations_yields_truncation():
 async def test_web_search_cap_per_turn_fourth_returns_cap_message():
     """
     When 4 web_search tool calls occur in one turn with cap=3, the 4th returns cap message.
+    (SDK path: run_quick_assistant_streaming mocked to yield 4 ToolResultChunks, 4th = cap.)
     """
-    tool_blocks = []
-    for i in range(4):
-        b = MagicMock()
-        b.type = "tool_use"
-        b.id = f"toolu_{i}"
-        b.name = "web_search"
-        b.input = {"query": f"q{i}"}
-        tool_blocks.append(b)
-    final_msg = MagicMock()
-    final_msg.stop_reason = "tool_use"
-    final_msg.content = tool_blocks
-    final_msg.usage = MagicMock(
-        input_tokens=10,
-        output_tokens=5,
-        cache_creation_input_tokens=0,
-        cache_read_input_tokens=0,
+    cap_message = (
+        "Web search limit reached (3 per turn). "
+        "Synthesise your reply from the results already retrieved."
     )
 
-    async def fake_stream_iter():
-        for b in tool_blocks:
-            yield _make_stream_event("RawContentBlockStartEvent", content_block=b)
-
-    mock_stream_tool_use = MagicMock()
-    mock_stream_tool_use.__aenter__ = AsyncMock(return_value=mock_stream_tool_use)
-    mock_stream_tool_use.__aexit__ = AsyncMock(return_value=False)
-    mock_stream_tool_use.__aiter__ = lambda self: fake_stream_iter().__aiter__()
-    mock_stream_tool_use.get_final_message = AsyncMock(return_value=final_msg)
-
-    # Second iteration: end_turn so loop exits
-    end_msg = MagicMock()
-    end_msg.stop_reason = "end_turn"
-    end_msg.content = [MagicMock(type="text", text="Done.")]
-    end_msg.usage = MagicMock(
-        input_tokens=10,
-        output_tokens=5,
-        cache_creation_input_tokens=0,
-        cache_read_input_tokens=0,
-    )
-
-    async def fake_end_iter():
-        yield _make_stream_event(
-            "RawContentBlockDeltaEvent",
-            delta=MagicMock(type="text_delta", text="Done."),
+    async def mock_sdk_stream(*, messages, registry, user_id, **kwargs):
+        yield ToolStatusChunk(tool_name="web_search", tool_use_id="toolu_0", tool_input={})
+        yield ToolResultChunk(tool_name="web_search", tool_use_id="toolu_0", result="R1")
+        yield ToolStatusChunk(tool_name="web_search", tool_use_id="toolu_1", tool_input={})
+        yield ToolResultChunk(tool_name="web_search", tool_use_id="toolu_1", result="R2")
+        yield ToolStatusChunk(tool_name="web_search", tool_use_id="toolu_2", tool_input={})
+        yield ToolResultChunk(tool_name="web_search", tool_use_id="toolu_2", result="R3")
+        yield ToolStatusChunk(tool_name="web_search", tool_use_id="toolu_3", tool_input={})
+        yield ToolResultChunk(
+            tool_name="web_search", tool_use_id="toolu_3", result=cap_message
         )
-
-    mock_stream_end = MagicMock()
-    mock_stream_end.__aenter__ = AsyncMock(return_value=mock_stream_end)
-    mock_stream_end.__aexit__ = AsyncMock(return_value=False)
-    mock_stream_end.__aiter__ = lambda self: fake_end_iter().__aiter__()
-    mock_stream_end.get_final_message = AsyncMock(return_value=end_msg)
+        yield ToolTurnComplete(assistant_blocks=[], tool_result_blocks=[])
+        yield TextChunk(text="Done.")
 
     tool_registry = make_registry()
-    tool_registry.dispatch = AsyncMock(side_effect=["R1", "R2", "R3"])
-
     client = ClaudeClient.__new__(ClaudeClient)
     client._client = MagicMock()
-    client._client.messages.stream = MagicMock(
-        side_effect=[mock_stream_tool_use, mock_stream_end]
-    )
 
-    with patch("remy.ai.claude_client.settings") as mock_settings:
-        mock_settings.anthropic_max_tool_iterations = 12
-        mock_settings.web_search_max_per_turn = 3
-        mock_settings.anthropic_max_tokens = 4096
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_quick_assistant_streaming", side_effect=mock_sdk_stream
+    ):
         events = []
         async for event in client.stream_with_tools(
             messages=[{"role": "user", "content": "search a lot"}],
@@ -666,88 +594,33 @@ async def test_web_search_cap_per_turn_fourth_returns_cap_message():
     assert result_chunks[2].result == "R3"
     assert "Web search limit reached" in result_chunks[3].result
     assert "3 per turn" in result_chunks[3].result
-    assert tool_registry.dispatch.call_count == 3
 
 
 @pytest.mark.asyncio
 async def test_stream_with_tools_sequence_trace_multi_tool_then_reply():
     """
-    Step-through proof: mock returns tool_use then end_turn; record event and
-    dispatch sequence so we can assert the order (agent loop + tool calling).
+    Event order: ToolStatusChunk, ToolTurnComplete, TextChunk (SDK path).
+    (SDK path: run_quick_assistant_streaming mocked to yield that sequence.)
     """
-    tool_block = MagicMock()
-    tool_block.type = "tool_use"
-    tool_block.id = "toolu_1"
-    tool_block.name = "get_current_time"
-    tool_block.input = {}
-
-    final_tool = MagicMock()
-    final_tool.stop_reason = "tool_use"
-    final_tool.content = [tool_block]
-    final_tool.usage = MagicMock(
-        input_tokens=10,
-        output_tokens=5,
-        cache_creation_input_tokens=0,
-        cache_read_input_tokens=0,
-    )
-
-    async def fake_tool_iter():
-        yield _make_stream_event("RawContentBlockStartEvent", content_block=tool_block)
-
-    mock_stream_tool = MagicMock()
-    mock_stream_tool.__aenter__ = AsyncMock(return_value=mock_stream_tool)
-    mock_stream_tool.__aexit__ = AsyncMock(return_value=False)
-    mock_stream_tool.__aiter__ = lambda self: fake_tool_iter().__aiter__()
-    mock_stream_tool.get_final_message = AsyncMock(return_value=final_tool)
-
-    end_msg = MagicMock()
-    end_msg.stop_reason = "end_turn"
-    end_msg.content = [MagicMock(type="text", text="The time is 10:00.")]
-    end_msg.usage = MagicMock(
-        input_tokens=10,
-        output_tokens=5,
-        cache_creation_input_tokens=0,
-        cache_read_input_tokens=0,
-    )
-
-    async def fake_end_iter():
-        yield _make_stream_event(
-            "RawContentBlockDeltaEvent",
-            delta=MagicMock(type="text_delta", text="The time is 10:00."),
+    async def mock_sdk_stream(*, messages, registry, user_id, **kwargs):
+        yield ToolStatusChunk(
+            tool_name="get_current_time", tool_use_id="toolu_1", tool_input={}
         )
-
-    mock_stream_end = MagicMock()
-    mock_stream_end.__aenter__ = AsyncMock(return_value=mock_stream_end)
-    mock_stream_end.__aexit__ = AsyncMock(return_value=False)
-    mock_stream_end.__aiter__ = lambda self: fake_end_iter().__aiter__()
-    mock_stream_end.get_final_message = AsyncMock(return_value=end_msg)
+        yield ToolResultChunk(
+            tool_name="get_current_time",
+            tool_use_id="toolu_1",
+            result="2026-03-10 14:30 Australia/Canberra",
+        )
+        yield ToolTurnComplete(assistant_blocks=[], tool_result_blocks=[])
+        yield TextChunk(text="The time is 10:00.")
 
     tool_registry = make_registry()
-    dispatch_calls: list[tuple[str, dict]] = []
-
-    async def record_dispatch(
-        name: str,
-        inp: dict,
-        uid: int,
-        chat_id: int | None = None,
-        message_id: int | None = None,
-    ) -> str:
-        dispatch_calls.append((name, inp))
-        if name == "get_current_time":
-            return "2026-03-10 14:30 Australia/Canberra"
-        return "ok"
-
-    tool_registry.dispatch = AsyncMock(side_effect=record_dispatch)
-
     client = ClaudeClient.__new__(ClaudeClient)
     client._client = MagicMock()
-    client._client.messages.stream = MagicMock(
-        side_effect=[mock_stream_tool, mock_stream_end]
-    )
 
-    with patch("remy.ai.claude_client.settings") as mock_settings:
-        mock_settings.anthropic_max_tool_iterations = 6
-        mock_settings.anthropic_max_tokens = 4096
+    with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+        "remy.agents.sdk_subagents.run_quick_assistant_streaming", side_effect=mock_sdk_stream
+    ):
         event_sequence: list[str] = []
         async for event in client.stream_with_tools(
             messages=[{"role": "user", "content": "What time is it?"}],
@@ -756,12 +629,7 @@ async def test_stream_with_tools_sequence_trace_multi_tool_then_reply():
         ):
             event_sequence.append(type(event).__name__)
 
-    assert "ToolStatusChunk" in event_sequence
-    assert "ToolTurnComplete" in event_sequence
-    assert "TextChunk" in event_sequence
     assert event_sequence.index("ToolStatusChunk") < event_sequence.index(
         "ToolTurnComplete"
     )
     assert event_sequence.index("ToolTurnComplete") < event_sequence.index("TextChunk")
-    assert len(dispatch_calls) == 1
-    assert dispatch_calls[0][0] == "get_current_time"

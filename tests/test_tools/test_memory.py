@@ -257,15 +257,19 @@ class TestExecRunBoard:
         assert "no topic" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_calls_orchestrator_with_topic(self):
-        """Should call orchestrator with the provided topic."""
-        orchestrator = AsyncMock()
-        orchestrator.run_board = AsyncMock(return_value="Board report here")
-        registry = make_registry(board_orchestrator=orchestrator)
-
-        result = await exec_run_board(registry, {"topic": "Career change"}, USER_ID)
-
-        orchestrator.run_board.assert_called_once_with("Career change")
+    async def test_calls_sdk_with_topic(self):
+        """exec_run_board is SDK-only; when SDK available run_board_analyst is called."""
+        registry = make_registry(board_orchestrator=None)
+        with patch("remy.agents.sdk_subagents.is_sdk_available", return_value=True), patch(
+            "remy.agents.sdk_subagents.run_board_analyst",
+            new_callable=AsyncMock,
+            return_value="Board report here",
+        ) as mock_run:
+            result = await exec_run_board(
+                registry, {"topic": "Career change"}, USER_ID
+            )
+        mock_run.assert_called_once()
+        assert mock_run.call_args[0][0] == "Career change"  # topic
         assert "Board report here" in result
 
 

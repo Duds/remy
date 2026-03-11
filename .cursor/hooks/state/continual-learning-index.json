@@ -1,93 +1,113 @@
 {
   "version": 1,
   "transcripts": {
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/023b7ea0-da6b-40c8-9c47-dfaec3d17391/023b7ea0-da6b-40c8-9c47-dfaec3d17391.jsonl": {
-      "mtimeMs": 1772767311000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/e483d37b-0564-4597-9f6b-5846e1bb6be6/e483d37b-0564-4597-9f6b-5846e1bb6be6.jsonl": {
+      "mtimeMs": 1773197458521,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/0631f559-7477-4844-aa99-1a6f6fa5d723/0631f559-7477-4844-aa99-1a6f6fa5d723.jsonl": {
-      "mtimeMs": 1773124323000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/06f28bf2-cb6d-46cd-8c91-bc54df63985b/06f28bf2-cb6d-46cd-8c91-bc54df63985b.jsonl": {
-      "mtimeMs": 1773117143000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/19303680-889d-4fbe-8e23-289dca145be9/19303680-889d-4fbe-8e23-289dca145be9.jsonl": {
-      "mtimeMs": 1773104129000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/1af90f43-c5f5-47db-9a1a-d2652519071d/1af90f43-c5f5-47db-9a1a-d2652519071d.jsonl": {
-      "mtimeMs": 1773186978000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/244d74c8-a9a4-4e90-9e15-e60fa6ed518a/244d74c8-a9a4-4e90-9e15-e60fa6ed518a.jsonl": {
-      "mtimeMs": 1773120305000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/40cbb17b-38ce-411e-a6f1-6e1a1bfbea04/40cbb17b-38ce-411e-a6f1-6e1a1bfbea04.jsonl": {
-      "mtimeMs": 1773116844000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/67674722-bea1-4627-a35d-ee2975f34551/67674722-bea1-4627-a35d-ee2975f34551.jsonl": {
-      "mtimeMs": 1773191149000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/45dd2b99-e201-44ec-a428-3ab6267d3cb4/45dd2b99-e201-44ec-a428-3ab6267d3cb4.jsonl": {
+      "mtimeMs": 1773200552687,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/71eb73ed-b0a8-4b75-adde-a95f05d041f4/71eb73ed-b0a8-4b75-adde-a95f05d041f4.jsonl": {
-      "mtimeMs": 1772769990000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1772769990574,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/7e4237d7-7b8b-4f96-acf6-c54ff8fcb49b/7e4237d7-7b8b-4f96-acf6-c54ff8fcb49b.jsonl": {
-      "mtimeMs": 1772765930000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/91a44ced-b846-4a2d-8ebf-bb2c2a0a82db/91a44ced-b846-4a2d-8ebf-bb2c2a0a82db.jsonl": {
-      "mtimeMs": 1773187811000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/a8dc7ff5-4b09-4a4a-94cb-12be523bb859/a8dc7ff5-4b09-4a4a-94cb-12be523bb859.jsonl": {
+      "mtimeMs": 1773202584480,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/a2b4b5f3-b816-43bb-924b-f376f9aeb5a2/a2b4b5f3-b816-43bb-924b-f376f9aeb5a2.jsonl": {
-      "mtimeMs": 1773117218000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/a889bc7d-8bee-462e-8b2d-0a9e5e6c93f6/a889bc7d-8bee-462e-8b2d-0a9e5e6c93f6.jsonl": {
-      "mtimeMs": 1773188657000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1773117218799,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/b5009b4e-40ea-4d39-8620-b9919e0d1cc5/b5009b4e-40ea-4d39-8620-b9919e0d1cc5.jsonl": {
-      "mtimeMs": 1773189270000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1773189270521,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/06f28bf2-cb6d-46cd-8c91-bc54df63985b/06f28bf2-cb6d-46cd-8c91-bc54df63985b.jsonl": {
+      "mtimeMs": 1773117143985,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/40cbb17b-38ce-411e-a6f1-6e1a1bfbea04/40cbb17b-38ce-411e-a6f1-6e1a1bfbea04.jsonl": {
+      "mtimeMs": 1773116844921,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/da85ea41-c2af-489a-8484-6d1b96d563fb/da85ea41-c2af-489a-8484-6d1b96d563fb.jsonl": {
+      "mtimeMs": 1773199869949,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/bad7a823-d754-4ed3-b747-dd98ff1698cc/bad7a823-d754-4ed3-b747-dd98ff1698cc.jsonl": {
-      "mtimeMs": 1773188365000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1773188365601,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/c1114d8f-48f8-4187-b769-bd7112c72fe7/c1114d8f-48f8-4187-b769-bd7112c72fe7.jsonl": {
-      "mtimeMs": 1773189024000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/1af90f43-c5f5-47db-9a1a-d2652519071d/1af90f43-c5f5-47db-9a1a-d2652519071d.jsonl": {
+      "mtimeMs": 1773186978836,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/cf9f40ca-094d-4a3c-b4e7-6a2498ff3574/cf9f40ca-094d-4a3c-b4e7-6a2498ff3574.jsonl": {
-      "mtimeMs": 1773189349000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
-    },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/e5aa18cb-c72d-4cc6-8a84-0459243cd6d8/e5aa18cb-c72d-4cc6-8a84-0459243cd6d8.jsonl": {
-      "mtimeMs": 1773194915000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/244d74c8-a9a4-4e90-9e15-e60fa6ed518a/244d74c8-a9a4-4e90-9e15-e60fa6ed518a.jsonl": {
+      "mtimeMs": 1773120305420,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/e6ab202f-d686-473c-88f5-f16a5a7289f8/e6ab202f-d686-473c-88f5-f16a5a7289f8.jsonl": {
-      "mtimeMs": 1773188149000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1773188149564,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/91a44ced-b846-4a2d-8ebf-bb2c2a0a82db/91a44ced-b846-4a2d-8ebf-bb2c2a0a82db.jsonl": {
+      "mtimeMs": 1773187811093,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/e9866ab5-5c15-47f1-99da-26465a3367b1/e9866ab5-5c15-47f1-99da-26465a3367b1.jsonl": {
-      "mtimeMs": 1773107910000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1773107910204,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
-    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/ea8fea8a-0579-4c95-bc02-28d72a754aff/ea8fea8a-0579-4c95-bc02-28d72a754aff.jsonl": {
-      "mtimeMs": 1773192455000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/0631f559-7477-4844-aa99-1a6f6fa5d723/0631f559-7477-4844-aa99-1a6f6fa5d723.jsonl": {
+      "mtimeMs": 1773124323177,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/7e4237d7-7b8b-4f96-acf6-c54ff8fcb49b/7e4237d7-7b8b-4f96-acf6-c54ff8fcb49b.jsonl": {
+      "mtimeMs": 1772765930159,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/67674722-bea1-4627-a35d-ee2975f34551/67674722-bea1-4627-a35d-ee2975f34551.jsonl": {
+      "mtimeMs": 1773191149005,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/67674722-bea1-4627-a35d-ee2975f34551/subagents/372576b8-1485-4dd7-9563-6a11726c5a8f.jsonl": {
+      "mtimeMs": 1773189489025,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/a889bc7d-8bee-462e-8b2d-0a9e5e6c93f6/a889bc7d-8bee-462e-8b2d-0a9e5e6c93f6.jsonl": {
+      "mtimeMs": 1773188657588,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/19303680-889d-4fbe-8e23-289dca145be9/19303680-889d-4fbe-8e23-289dca145be9.jsonl": {
+      "mtimeMs": 1773104129912,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     },
     "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/f6a143c1-ee60-4f45-9ff6-ca2eeb609065/f6a143c1-ee60-4f45-9ff6-ca2eeb609065.jsonl": {
-      "mtimeMs": 1772769220000,
-      "lastProcessedAt": "2026-03-11T02:10:30.000Z"
+      "mtimeMs": 1772769220650,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/ea8fea8a-0579-4c95-bc02-28d72a754aff/ea8fea8a-0579-4c95-bc02-28d72a754aff.jsonl": {
+      "mtimeMs": 1773192455126,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/c1114d8f-48f8-4187-b769-bd7112c72fe7/c1114d8f-48f8-4187-b769-bd7112c72fe7.jsonl": {
+      "mtimeMs": 1773189024539,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/e5aa18cb-c72d-4cc6-8a84-0459243cd6d8/e5aa18cb-c72d-4cc6-8a84-0459243cd6d8.jsonl": {
+      "mtimeMs": 1773196171237,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/cf9f40ca-094d-4a3c-b4e7-6a2498ff3574/cf9f40ca-094d-4a3c-b4e7-6a2498ff3574.jsonl": {
+      "mtimeMs": 1773189349297,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
+    },
+    "/home/dale-rogers/.cursor/projects/home-dale-rogers-Projects-active-agents-remy/agent-transcripts/023b7ea0-da6b-40c8-9c47-dfaec3d17391/023b7ea0-da6b-40c8-9c47-dfaec3d17391.jsonl": {
+      "mtimeMs": 1772767311955,
+      "lastProcessedAt": "2026-03-11T04:16:52.000Z"
     }
   }
 }

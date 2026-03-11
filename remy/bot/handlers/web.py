@@ -35,13 +35,16 @@ async def run_research_flow(
     claude_client,
     thread_id: int | None = None,
     reply_markup: InlineKeyboardMarkup | None = None,
+    tool_registry=None,
 ) -> None:
     """
-    Run web search + Claude synthesis and send the result to the chat.
-    Used by /research command and by the Run again callback.
+    Run research and send the result to the chat via SDK deep-researcher.
+    Requires Claude Agent SDK (use_sdk_agent and tool_registry); otherwise
+    sends a message that the SDK is required.
     """
-    from ...web.search import web_search
     from ..working_message import WorkingMessage
+    from ...config import settings
+    from ...agents import sdk_subagents
 
     wm = WorkingMessage(bot, chat_id, thread_id)
     await wm.start()
@@ -63,41 +66,26 @@ async def run_research_flow(
 
     heartbeat_task = asyncio.create_task(_upload_action_heartbeat())
     try:
-        results = await web_search(topic, max_results=5)
-        if not results:
+        use_sdk = (
+            getattr(settings, "use_sdk_agent", True)
+            and sdk_subagents.is_sdk_available()
+            and tool_registry is not None
+        )
+        if not use_sdk:
             await wm.stop()
             await bot.send_message(
                 chat_id,
-                "❌ Web search unavailable. Install `duckduckgo-search` or try again later.",
+                "Research requires the Claude Agent SDK. "
+                "Install with: pip install claude-agent-sdk",
                 message_thread_id=thread_id,
             )
             return
-
-        snippets = "\n\n".join(
-            f"Source {i}: {r.get('title', '')}\nURL: {r.get('href', '')}\n{r.get('body', '')}"
-            for i, r in enumerate(results, 1)
+        msg = await sdk_subagents.run_deep_researcher(
+            topic, user_id, tool_registry
         )
-
-        synthesis = await claude_client.complete(
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Research topic: {topic}\n\n"
-                        f"Web search results:\n{snippets}\n\n"
-                        "Synthesise the key findings into a clear, useful summary. "
-                        "Cite source numbers. Be factual and concise."
-                    ),
-                }
-            ],
-            system="You are a research assistant. Synthesise web search results accurately.",
-            max_tokens=1024,
-        )
-
+        if not msg:
+            msg = "Research did not return a result."
         await wm.stop()
-        msg = f"📚 *Research: {topic}*\n\n{synthesis}"
-        if len(msg) > 4000:
-            msg = msg[:4000] + "…"
         send_kwargs: dict[str, Any] = {"parse_mode": "MarkdownV2"}
         if thread_id is not None:
             send_kwargs["message_thread_id"] = thread_id
@@ -126,13 +114,16 @@ async def run_research_flow(
 def make_web_handlers(
     *,
     claude_client=None,
+    tool_registry=None,
     fact_store: "FactStore | None" = None,
     knowledge_store: "KnowledgeStore | None" = None,
+    job_store=None,
 ):
     """
     Factory that returns web and shopping handlers.
 
     Returns a dict of command_name -> handler_function.
+    When job_store is provided, /research runs as a background task (US-subagents-next-plan milestone 2).
     """
 
     async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,7 +156,7 @@ def make_web_handlers(
         )
 
     async def research_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/research <topic> — web search + Claude synthesis of findings."""
+        """/research <topic> — web search + Claude synthesis (fire-and-forget via subagent runner)."""
         if update.message is None or update.effective_user is None:
             return
         if await reject_unauthorized(update):
@@ -173,9 +164,18 @@ def make_web_handlers(
         if not context.args:
             await update.message.reply_text("Usage: /research <topic>")
             return
-        if claude_client is None:
+        from ...config import settings
+        from ...agents import sdk_subagents
+
+        use_sdk = (
+            getattr(settings, "use_sdk_agent", True)
+            and sdk_subagents.is_sdk_available()
+            and tool_registry is not None
+        )
+        if not use_sdk:
             await update.message.reply_text(
-                "❌ Claude not available for research synthesis."
+                "Research requires the Claude Agent SDK. "
+                "Install with: pip install claude-agent-sdk"
             )
             return
 
@@ -187,6 +187,40 @@ def make_web_handlers(
         run_again_markup = make_run_again_keyboard(
             "research", {"topic": topic}, user_id
         )
+
+        if job_store is not None:
+            from ..working_message import WorkingMessage
+            from ...agents.background import BackgroundTaskRunner
+            from ...config import settings
+            from ...agents import sdk_subagents
+            from telegram.constants import ChatAction
+
+            wm = WorkingMessage(context.bot, chat_id, thread_id)
+            await wm.start()
+            job_id = await job_store.create(user_id, "research", topic)
+            runner = BackgroundTaskRunner(
+                context.bot,
+                chat_id,
+                job_store=job_store,
+                job_id=job_id,
+                working_message=wm,
+                thread_id=thread_id,
+                chat_action=ChatAction.UPLOAD_DOCUMENT,
+                run_again_markup=run_again_markup,
+            )
+            async def _research_coro() -> str:
+                result = await sdk_subagents.run_deep_researcher(
+                    topic, user_id, tool_registry
+                )
+                return result or "Research did not return a result."
+
+            asyncio.create_task(runner.run(_research_coro(), label="research"))
+            await update.message.reply_text(
+                "Started — I'll message you when done 🔄",
+                reply_to_message_id=update.message.message_id,
+            )
+            return
+
         await run_research_flow(
             bot=context.bot,
             chat_id=chat_id,
@@ -195,6 +229,7 @@ def make_web_handlers(
             claude_client=claude_client,
             thread_id=thread_id,
             reply_markup=run_again_markup,
+            tool_registry=tool_registry,
         )
 
     async def bookmarks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -344,7 +379,36 @@ def make_web_handlers(
     async def _run_research_flow_for_callback(
         bot, chat_id: int, user_id: int, topic: str, thread_id: int | None = None
     ) -> None:
-        """Bound run_research_flow for Run again callback (claude_client from closure)."""
+        """Run again callback: start research in background (detached) when job_store set, else inline."""
+        if job_store is not None:
+            from ..working_message import WorkingMessage
+            from ...agents.background import BackgroundTaskRunner
+            from ...agents import sdk_subagents
+            from telegram.constants import ChatAction
+
+            wm = WorkingMessage(bot, chat_id, thread_id)
+            await wm.start()
+            job_id = await job_store.create(user_id, "research", topic)
+            run_again_markup = make_run_again_keyboard("research", {"topic": topic}, user_id)
+            runner = BackgroundTaskRunner(
+                bot,
+                chat_id,
+                job_store=job_store,
+                job_id=job_id,
+                working_message=wm,
+                thread_id=thread_id,
+                chat_action=ChatAction.UPLOAD_DOCUMENT,
+                run_again_markup=run_again_markup,
+            )
+
+            async def _research_coro() -> str:
+                result = await sdk_subagents.run_deep_researcher(
+                    topic, user_id, tool_registry
+                )
+                return result or "Research did not return a result."
+
+            asyncio.create_task(runner.run(_research_coro(), label="research"))
+            return
         await run_research_flow(
             bot=bot,
             chat_id=chat_id,
@@ -353,6 +417,7 @@ def make_web_handlers(
             claude_client=claude_client,
             thread_id=thread_id,
             reply_markup=None,
+            tool_registry=tool_registry,
         )
 
     return {

@@ -336,6 +336,22 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_webhook_subs_event ON webhook_subscriptions(event);",
     # 021: US-para-memory — superseded_at for knowledge fact lifecycle
     "ALTER TABLE knowledge ADD COLUMN superseded_at TEXT;",
+    # 022: US-sms-ingestion — incoming SMS from Android webhook
+    """CREATE TABLE IF NOT EXISTS sms_messages (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender      TEXT NOT NULL,
+        body        TEXT NOT NULL,
+        received_at TEXT NOT NULL
+    );""",
+    # 023: US-google-wallet-monitoring — Wallet transaction notifications
+    """CREATE TABLE IF NOT EXISTS wallet_transactions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        merchant    TEXT,
+        amount      TEXT,
+        raw_title   TEXT,
+        raw_text    TEXT,
+        occurred_at TEXT NOT NULL
+    );""",
 ]
 
 # Triggers to keep FTS indices in sync with source tables

@@ -124,6 +124,14 @@ class ToolRegistry:
         return self._ctx.counter_store
 
     @property
+    def _sms_store(self):
+        return self._ctx.sms_store
+
+    @property
+    def _wallet_store(self):
+        return self._ctx.wallet_store
+
+    @property
     def schemas(self) -> list[dict]:
         """Return the list of Anthropic tool schemas."""
         return TOOL_SCHEMAS
@@ -435,6 +443,14 @@ class ToolRegistry:
                     from .analytics import exec_list_background_jobs
 
                     return await exec_list_background_jobs(self, tool_input, user_id)
+                case "get_sms_messages":
+                    from .sms_wallet import exec_get_sms_messages
+
+                    return await exec_get_sms_messages(self, tool_input, user_id)
+                case "get_wallet_transactions":
+                    from .sms_wallet import exec_get_wallet_transactions
+
+                    return await exec_get_wallet_transactions(self, tool_input, user_id)
                 case "get_costs":
                     from .analytics import exec_get_costs
 

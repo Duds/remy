@@ -917,7 +917,7 @@ def make_callback_handler(
                 await query.edit_message_reply_markup(reply_markup=None)
             except Exception as e:
                 logger.debug("Edit reply_markup for run_again failed: %s", e)
-            if flow == "board" and board_orchestrator and context.bot:
+            if flow == "board" and context.bot:
                 topic = (params.get("topic") or "").strip()
                 if not topic:
                     await query.answer("No topic stored.", show_alert=True)
@@ -925,12 +925,29 @@ def make_callback_handler(
                 from telegram.constants import ChatAction
                 from ..working_message import WorkingMessage
                 from ...agents.background import BackgroundTaskRunner
+                from ...agents import sdk_subagents
 
+                use_sdk = (
+                    getattr(settings, "use_sdk_agent", True)
+                    and sdk_subagents.is_sdk_available()
+                    and tool_registry is not None
+                )
+                if not use_sdk:
+                    await query.answer(
+                        "Board requires the Claude Agent SDK (pip install claude-agent-sdk).",
+                        show_alert=True,
+                    )
+                    return
                 wm = WorkingMessage(context.bot, chat_id, thread_id)
                 await wm.start()
                 job_id = (
                     await job_store.create(user_id, "board", topic)
                     if job_store
+                    else None
+                )
+                run_again_markup = (
+                    make_run_again_keyboard("board", {"topic": topic}, user_id)
+                    if tool_registry
                     else None
                 )
                 user_context = ""
@@ -954,18 +971,14 @@ def make_callback_handler(
                     working_message=wm,
                     thread_id=thread_id,
                     chat_action=ChatAction.UPLOAD_DOCUMENT,
+                    run_again_markup=run_again_markup,
                 )
 
                 async def _board_coro() -> str:
-                    chunks = [f"🏛 *Board of Directors: {topic}*\n\n"]
-                    async for chunk in board_orchestrator.run_board_streaming(
-                        topic,
-                        user_context,
-                        user_id=user_id,
-                        session_key=session_key,
-                    ):
-                        chunks.append(chunk)
-                    return "".join(chunks)
+                    result = await sdk_subagents.run_board_analyst(
+                        topic, user_context, user_id, session_key, tool_registry
+                    )
+                    return result or "Board analysis did not return a result."
 
                 try:
                     asyncio.create_task(

@@ -227,19 +227,22 @@ async def exec_get_facts(registry: ToolRegistry, inp: dict, user_id: int) -> str
 async def exec_run_board(registry: ToolRegistry, inp: dict, user_id: int) -> str:
     """Convene the Board of Directors for deep analysis.
 
-    Runs inline with full tool support. For background delivery, use the
-    /board command which invokes BackgroundTaskRunner.
+    SDK-only (US-claude-agent-sdk-migration). For background delivery use /board.
     """
     topic = inp.get("topic", "").strip()
     if not topic:
         return "Board: no topic provided."
 
-    # Inline execution via BoardOrchestrator
-    if registry._board_orchestrator is None:
-        return "Board of Directors not available."
+    from ...agents import sdk_subagents
+    from ...config import settings
 
-    report = await registry._board_orchestrator.run_board(topic)
-    return report
+    if not getattr(settings, "use_sdk_agent", True) or not sdk_subagents.is_sdk_available():
+        return "Board of Directors not available (install claude-agent-sdk)."
+
+    result = await sdk_subagents.run_board_analyst(
+        topic, "", user_id, "", registry
+    )
+    return result or "Board analysis did not return a result."
 
 
 async def exec_check_status(registry: ToolRegistry) -> str:
