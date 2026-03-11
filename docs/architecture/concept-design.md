@@ -154,6 +154,8 @@ graph TB
 
 **Data flow:** Telegram → Bot → session + memory injection → Claude (tools) → tool executions (Gmail, Calendar, etc.) → stream back to Telegram. Proactive: Scheduler runs heartbeat → if not HEARTBEAT_OK → Core runs with proactive prompt → message to user.
 
+**Agent runtime:** All agentic tool use (chat, Board, research, retrospective) runs through the **Claude Agent SDK**. The main chat stream and Creator-spawned sub-agents (Researcher, Coder, Ops, Analyst) use the same SDK path; sub-agents get a filtered tool set so they cannot call tools outside their spec. No hand-rolled tool loop; SDK is required (`pip install claude-agent-sdk`).
+
 **Third-party APIs:** Anthropic (primary), Google (Calendar, Gmail, People, Docs), DuckDuckGo (search). Optional: Ollama (local fallback).
 
 ---

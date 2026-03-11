@@ -17,3 +17,5 @@ Archived on 2026-03-10. **63** completed user stories (including context-aware r
 **Recently archived (2026-03-11):** US-sms-ingestion, US-google-wallet-monitoring (SMS/Wallet webhooks + tools implemented); US-claude-agent-sdk-subagents (partial — dependency + sdk_runner); US-subagents-next-plan (milestones 1–3 done).
 
 **Recently archived (2026-03-11):** US-claude-agent-sdk-migration — SDK single runtime; hand-rolled stream_with_tools removed; board/research/chat SDK-only; BoardOrchestrator no longer created in main.
+
+**Recently archived (2026-03-11):** US-background-task-runner, US-telegram-markdown-fix, US-improved-persistent-memory (done PBIs moved from active backlog).

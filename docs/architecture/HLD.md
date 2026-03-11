@@ -62,7 +62,7 @@ Remy is a **single-user personal AI assistant** that:
 ## 4. Data flow (simplified)
 
 1. **Inbound:** Telegram → bot → session lock → load conversation + inject memory → Claude with tools.
-2. **Tool loop:** Claude returns tool calls → registry dispatches to tool implementations → results back to Claude → stream reply.
+2. **Tool loop:** Claude Agent SDK runs the loop (stream_with_tools → run_quick_assistant_streaming); registry dispatches to tool implementations → results back to SDK → stream reply.
 3. **Outbound:** Stream to Telegram; optional crash-safe **outbound queue** for reliability.
 4. **Proactive:** Scheduler runs **evaluative heartbeat** (HEARTBEAT.md); if thresholds say “contact user”, runs agent loop and sends message.
 
@@ -70,7 +70,7 @@ Remy is a **single-user personal AI assistant** that:
 
 ## 5. Key interfaces
 
-- **Claude:** Single primary path via `ClaudeClient.stream_with_tools()` (see SAD §4.4).
+- **Claude:** Single primary path via `ClaudeClient.stream_with_tools()`, which delegates to the **Claude Agent SDK** (`run_quick_assistant_streaming`). Chat, Board, research, and retrospective all use the SDK; no hand-rolled tool loop. Sub-agents (Agent Creator) use the same path with a `FilteredToolRegistry` so each specialist only sees its allowed tools. See SAD §4.4.
 - **Memory:** `MemoryInjector` builds the `<memory>` block; `KnowledgeStore` (and legacy Fact/Goal stores during migration) back it.
 - **Tools:** `ToolRegistry` holds schemas and executors; one entry point for all tool execution.
 ---

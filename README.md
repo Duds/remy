@@ -4,7 +4,7 @@ A personal AI assistant running as a Telegram bot on a Mac Mini. Remy handles ta
 
 Built with Claude (Anthropic), Python, Docker, and Google Workspace APIs.
 
-**Features:** Chat and tools (goals, calendar, Gmail, bookmarks, web search, counters, automations); proactive briefings (morning, afternoon, evening) and evaluative heartbeat; **week-at-a-glance** image (Monday 07:15); **reminder deep links** (`t.me/YourBot?start=reminder_<id>`); **document/photo action buttons** (Summarise, Extract tasks, Save); **bookmarks with tags** (preferences, work, personal); **incoming webhooks** (POST `/incoming` for notify/remind/note); **dashboard** (GET `/dashboard` — Telegram Login Widget, stats); primary chat helper (`/setmychat`, `set_proactive_chat`); streaming overflow safety (splits at 4096 chars).
+**Features:** Chat and tools (goals, calendar, Gmail, bookmarks, web search, counters, automations) via the **Claude Agent SDK** (single agent runtime for chat, Board, research, retrospective); Agent Creator (hand-off to Researcher, Coder, Ops, Analyst); proactive briefings and evaluative heartbeat; **week-at-a-glance** image (Monday 07:15); **reminder deep links** (`t.me/YourBot?start=reminder_<id>`); **document/photo action buttons** (Summarise, Extract tasks, Save); **bookmarks with tags**; **incoming webhooks** (POST `/incoming`); **dashboard** (GET `/dashboard` — Telegram Login Widget, stats); optional **SMS and Wallet webhooks** (POST `/webhook/sms`, `/webhook/notification`); primary chat helper; streaming overflow safety (splits at 4096 chars).
 
 ---
 

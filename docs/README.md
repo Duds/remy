@@ -42,7 +42,7 @@ Current-state documentation for the Remy personal AI assistant. Australian Engli
 
 ## Backlog
 
-User stories and product backlog items live in [backlog/](backlog/). See [backlog/_TEMPLATE.md](backlog/_TEMPLATE.md) for the story format.
+User stories and product backlog items live in [backlog/](backlog/). Completed and obsolete PBIs are moved to [backlog/archive/](backlog/archive/). See [backlog/_TEMPLATE.md](backlog/_TEMPLATE.md) for the story format.
 
 ---
 
