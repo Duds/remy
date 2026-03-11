@@ -2,7 +2,7 @@
         deploy deploy-update deploy-logs deploy-delete health \
         remy-up install-launchd uninstall-launchd \
         tunnel-up tunnel-stop tunnel-logs telemetry logs ship-it-remote \
-        qmd-search qmd-query
+        qmd qmd-search qmd-query
 
 # ── Local development ─────────────────────────────────────────────────────────
 run:
@@ -27,14 +27,16 @@ lint:
 	python3 -m ruff check remy/ tests/
 	python3 -m mypy remy/ --ignore-missing-imports
 
-# ── qmd — quick memory search (paperclip-ideas §10) ─────────────────────────
-## Search remy's memory (facts, knowledge, goals) with BM25 keyword search.
-## Usage: make qmd-search Q="health habits"
+# ── qmd — quick memory search (Textual TUI) ───────────────────────────────────
+## Interactive Textual search. Usage: make qmd
+qmd:
+	python3 -m remy.cli.qmd
+
+## One-off search (shows results then exits). Usage: make qmd-search Q="health habits"
 qmd-search:
 	python3 -m remy.cli.qmd search "$(Q)"
 
-## Alias for qmd-search (semantic / keyword search).
-## Usage: make qmd-query Q="health habits"
+## Alias for qmd-search.
 qmd-query:
 	python3 -m remy.cli.qmd query "$(Q)"
 

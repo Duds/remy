@@ -1,5 +1,5 @@
 """
-Tests for remy/health.py — HTTP health endpoint.
+Tests for remy/health — HTTP health endpoint.
 
 Uses aiohttp's TestClient so no real TCP socket is needed.
 """
@@ -8,38 +8,22 @@ import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import remy.health as health_module
-from remy.health import (
-    run_health_server,
-    set_ready,
-    set_db,
-    _handle_health,
-    _handle_ready,
-    _handle_root,
-    _handle_logs,
-    _handle_telemetry,
-    _handle_files,
-    _handle_ship_it,
-    _check_token,
-)
-
-
-# --------------------------------------------------------------------------- #
-# Helpers                                                                      #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture(autouse=True)
-def reset_ready_flag():
-    """Ensure _READY is reset to False between tests."""
-    health_module._READY = False
-    yield
-    health_module._READY = False
+from remy.health import HealthContext, run_health_server, set_ready
+from remy.health.routes import commands, dashboard, diagnostics, files, incoming
+from remy.health.routes.core import handle_health, handle_ready, handle_root
+from remy.health.utils import check_token
 
 
 # --------------------------------------------------------------------------- #
 # Unit tests for handler functions (via aiohttp TestClient)                    #
 # --------------------------------------------------------------------------- #
+
+
+def _make_ready_handler(ctx: HealthContext):
+    """Return a handler that binds ctx for handle_ready."""
+    async def h(req):
+        return await handle_ready(req, ctx)
+    return h
 
 
 @pytest.mark.asyncio
@@ -51,10 +35,11 @@ async def test_health_endpoint_returns_200():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_get("/health", _handle_health)
-    app.router.add_get("/ready", _handle_ready)
-    app.router.add_get("/", _handle_root)
+    app.router.add_get("/health", handle_health)
+    app.router.add_get("/ready", _make_ready_handler(ctx))
+    app.router.add_get("/", handle_root)
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/health")
@@ -74,8 +59,9 @@ async def test_ready_returns_503_before_set_ready():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_get("/ready", _handle_ready)
+    app.router.add_get("/ready", _make_ready_handler(ctx))
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/ready")
@@ -93,10 +79,10 @@ async def test_ready_returns_200_after_set_ready():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    set_ready()
-
+    ctx = HealthContext()
+    ctx.set_ready()
     app = web.Application()
-    app.router.add_get("/ready", _handle_ready)
+    app.router.add_get("/ready", _make_ready_handler(ctx))
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/ready")
@@ -115,7 +101,7 @@ async def test_root_endpoint_returns_service_info():
         pytest.skip("aiohttp not installed")
 
     app = web.Application()
-    app.router.add_get("/", _handle_root)
+    app.router.add_get("/", handle_root)
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/")
@@ -135,7 +121,7 @@ async def test_health_uptime_is_non_negative():
         pytest.skip("aiohttp not installed")
 
     app = web.Application()
-    app.router.add_get("/health", _handle_health)
+    app.router.add_get("/health", handle_health)
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/health")
@@ -146,9 +132,10 @@ async def test_health_uptime_is_non_negative():
 @pytest.mark.asyncio
 async def test_set_ready_is_idempotent():
     """Calling set_ready() multiple times should not raise."""
-    set_ready()
-    set_ready()
-    assert health_module._READY is True
+    ctx = HealthContext()
+    ctx.set_ready()
+    ctx.set_ready()
+    assert ctx.is_ready() is True
 
 
 # --------------------------------------------------------------------------- #
@@ -167,7 +154,8 @@ async def test_run_health_server_starts_and_cancels():
         pytest.skip("aiohttp not installed")
 
     # Use a high port unlikely to conflict
-    task = asyncio.create_task(run_health_server(port=19876))
+    ctx = HealthContext()
+    task = asyncio.create_task(run_health_server(port=19876, ctx=ctx))
     # Give it a moment to start
     await asyncio.sleep(0.1)
     # Cancel it — should not raise
@@ -201,7 +189,7 @@ async def test_run_health_server_graceful_without_aiohttp():
 
 
 def test_check_token_passes_when_no_token_configured():
-    """_check_token returns True when HEALTH_API_TOKEN is not set."""
+    """check_token returns True when HEALTH_API_TOKEN is not set."""
     mock_request = MagicMock()
     with patch.dict("os.environ", {}, clear=False):
         os_env = os.environ.copy()
@@ -212,50 +200,56 @@ def test_check_token_passes_when_no_token_configured():
                 "" if k == "HEALTH_API_TOKEN" else os.environ.get(k, d)
             ),
         ):
-            assert _check_token(mock_request) is True
+            assert check_token(mock_request) is True
 
 
 def test_check_token_passes_with_correct_bearer_header():
-    """_check_token returns True when Authorization: Bearer header matches."""
+    """check_token returns True when Authorization: Bearer header matches."""
     mock_request = MagicMock()
     mock_request.headers.get.return_value = "Bearer secret123"
     mock_request.rel_url.query.get.return_value = ""
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
-        assert _check_token(mock_request) is True
+        assert check_token(mock_request) is True
 
 
 def test_check_token_passes_with_correct_query_param():
-    """_check_token returns True when ?token= query param matches."""
+    """check_token returns True when ?token= query param matches."""
     mock_request = MagicMock()
     mock_request.headers.get.return_value = ""
     mock_request.rel_url.query.get.side_effect = lambda k, d="": (
         "secret123" if k == "token" else d
     )
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
-        assert _check_token(mock_request) is True
+        assert check_token(mock_request) is True
 
 
 def test_check_token_fails_with_wrong_bearer():
-    """_check_token returns False when Bearer token is wrong."""
+    """check_token returns False when Bearer token is wrong."""
     mock_request = MagicMock()
     mock_request.headers.get.return_value = "Bearer wrongtoken"
     mock_request.rel_url.query.get.return_value = ""
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
-        assert _check_token(mock_request) is False
+        assert check_token(mock_request) is False
 
 
 def test_check_token_fails_with_no_credentials():
-    """_check_token returns False when token is required but not supplied."""
+    """check_token returns False when token is required but not supplied."""
     mock_request = MagicMock()
     mock_request.headers.get.return_value = ""
     mock_request.rel_url.query.get.return_value = ""
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
-        assert _check_token(mock_request) is False
+        assert check_token(mock_request) is False
 
 
 # --------------------------------------------------------------------------- #
 # /logs endpoint tests                                                         #
 # --------------------------------------------------------------------------- #
+
+
+def _make_logs_handler(ctx: HealthContext):
+    async def h(req):
+        return await diagnostics.handle_logs(req, ctx)
+    return h
 
 
 @pytest.mark.asyncio
@@ -267,8 +261,9 @@ async def test_logs_returns_401_when_token_required():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
+    ctx = HealthContext(data_dir="/tmp")
     app = web.Application()
-    app.router.add_get("/logs", _handle_logs)
+    app.router.add_get("/logs", _make_logs_handler(ctx))
 
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
         async with TestClient(TestServer(app)) as client:
@@ -285,14 +280,15 @@ async def test_logs_returns_200_with_no_token_required():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
+    ctx = HealthContext(data_dir="/tmp")
     app = web.Application()
-    app.router.add_get("/logs", _handle_logs)
+    app.router.add_get("/logs", _make_logs_handler(ctx))
 
     with patch.dict("os.environ", {}, clear=False):
         # Ensure token is absent
         env = {k: v for k, v in os.environ.items() if k != "HEALTH_API_TOKEN"}
         with patch.dict("os.environ", env, clear=True):
-            with patch("remy.health._check_token", return_value=True):
+            with patch("remy.health.utils.check_token", return_value=True):
                 with patch(
                     "remy.diagnostics.logs.get_recent_logs",
                     return_value="log line 1\nlog line 2",
@@ -317,8 +313,9 @@ async def test_logs_passes_with_correct_token_in_header():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
+    ctx = HealthContext(data_dir="/tmp")
     app = web.Application()
-    app.router.add_get("/logs", _handle_logs)
+    app.router.add_get("/logs", _make_logs_handler(ctx))
 
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "mytoken"}):
         with patch("remy.diagnostics.logs.get_recent_logs", return_value="some logs"):
@@ -335,6 +332,12 @@ async def test_logs_passes_with_correct_token_in_header():
 # --------------------------------------------------------------------------- #
 
 
+def _make_telemetry_handler(ctx: HealthContext):
+    async def h(req):
+        return await diagnostics.handle_telemetry(req, ctx)
+    return h
+
+
 @pytest.mark.asyncio
 async def test_telemetry_returns_503_when_db_not_set():
     """GET /telemetry returns 503 when DB has not been wired."""
@@ -344,13 +347,11 @@ async def test_telemetry_returns_503_when_db_not_set():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    # Ensure _DB is None
-    set_db(None)
-
+    ctx = HealthContext(db=None)
     app = web.Application()
-    app.router.add_get("/telemetry", _handle_telemetry)
+    app.router.add_get("/telemetry", _make_telemetry_handler(ctx))
 
-    with patch("remy.health._check_token", return_value=True):
+    with patch("remy.health.utils.check_token", return_value=True):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/telemetry")
             assert resp.status == 503
@@ -367,8 +368,9 @@ async def test_telemetry_returns_401_when_token_required():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_get("/telemetry", _handle_telemetry)
+    app.router.add_get("/telemetry", _make_telemetry_handler(ctx))
 
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret"}):
         async with TestClient(TestServer(app)) as client:
@@ -414,12 +416,11 @@ async def test_telemetry_returns_200_with_mock_db():
     mock_db = MagicMock()
     mock_db.get_connection = MagicMock(return_value=mock_ctx)
 
-    set_db(mock_db)
-
+    ctx = HealthContext(db=mock_db)
     app = web.Application()
-    app.router.add_get("/telemetry", _handle_telemetry)
+    app.router.add_get("/telemetry", _make_telemetry_handler(ctx))
 
-    with patch("remy.health._check_token", return_value=True):
+    with patch("remy.health.utils.check_token", return_value=True):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/telemetry")
             assert resp.status == 200
@@ -433,9 +434,6 @@ async def test_telemetry_returns_200_with_mock_db():
             assert "claude-sonnet-4-6" in data["by_model"]
             assert len(data["recent_calls"]) == 1
             assert data["recent_calls"][0]["model"] == "claude-sonnet-4-6"
-
-    # Clean up
-    set_db(None)
 
 
 @pytest.mark.asyncio
@@ -457,20 +455,17 @@ async def test_telemetry_window_parameter_accepted():
     mock_db = MagicMock()
     mock_db.get_connection = MagicMock(return_value=mock_ctx)
 
-    set_db(mock_db)
-
+    ctx = HealthContext(db=mock_db)
     app = web.Application()
-    app.router.add_get("/telemetry", _handle_telemetry)
+    app.router.add_get("/telemetry", _make_telemetry_handler(ctx))
 
-    with patch("remy.health._check_token", return_value=True):
+    with patch("remy.health.utils.check_token", return_value=True):
         async with TestClient(TestServer(app)) as client:
             for window in ("1h", "6h", "24h", "7d"):
                 resp = await client.get(f"/telemetry?window={window}")
                 assert resp.status == 200
                 data = await resp.json()
                 assert data["window"] == window
-
-    set_db(None)
 
 
 @pytest.mark.asyncio
@@ -492,12 +487,11 @@ async def test_telemetry_empty_db_returns_zero_stats():
     mock_db = MagicMock()
     mock_db.get_connection = MagicMock(return_value=mock_ctx)
 
-    set_db(mock_db)
-
+    ctx = HealthContext(db=mock_db)
     app = web.Application()
-    app.router.add_get("/telemetry", _handle_telemetry)
+    app.router.add_get("/telemetry", _make_telemetry_handler(ctx))
 
-    with patch("remy.health._check_token", return_value=True):
+    with patch("remy.health.utils.check_token", return_value=True):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/telemetry")
             assert resp.status == 200
@@ -508,8 +502,6 @@ async def test_telemetry_empty_db_returns_zero_stats():
             assert data["cache_hit_rate"] == 0.0
             assert data["recent_calls"] == []
             assert data["by_model"] == {}
-
-    set_db(None)
 
 
 # --------------------------------------------------------------------------- #
@@ -527,7 +519,7 @@ async def test_files_returns_400_when_missing_params():
         pytest.skip("aiohttp not installed")
 
     app = web.Application()
-    app.router.add_get("/files", _handle_files)
+    app.router.add_get("/files", files.handle_files)
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/files")
@@ -550,7 +542,7 @@ async def test_files_returns_401_when_token_invalid():
     from remy.file_link import encode_path_param
 
     app = web.Application()
-    app.router.add_get("/files", _handle_files)
+    app.router.add_get("/files", files.handle_files)
 
     path_encoded = encode_path_param("/tmp/somefile.txt")
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret"}):
@@ -574,7 +566,7 @@ async def test_ship_it_returns_405_for_get():
         pytest.skip("aiohttp not installed")
 
     app = web.Application()
-    app.router.add_post("/commands/ship-it", _handle_ship_it)
+    app.router.add_post("/commands/ship-it", commands.handle_ship_it)
 
     async with TestClient(TestServer(app)) as client:
         resp = await client.get("/commands/ship-it")
@@ -591,7 +583,7 @@ async def test_ship_it_returns_401_without_token():
         pytest.skip("aiohttp not installed")
 
     app = web.Application()
-    app.router.add_post("/commands/ship-it", _handle_ship_it)
+    app.router.add_post("/commands/ship-it", commands.handle_ship_it)
 
     with patch.dict("os.environ", {"HEALTH_API_TOKEN": "secret123"}):
         async with TestClient(TestServer(app)) as client:
@@ -609,7 +601,7 @@ async def test_ship_it_returns_503_when_workspace_root_unset():
         pytest.skip("aiohttp not installed")
 
     app = web.Application()
-    app.router.add_post("/commands/ship-it", _handle_ship_it)
+    app.router.add_post("/commands/ship-it", commands.handle_ship_it)
 
     with patch.dict(
         "os.environ", {"HEALTH_API_TOKEN": "secret123", "WORKSPACE_ROOT": ""}
@@ -629,6 +621,12 @@ async def test_ship_it_returns_503_when_workspace_root_unset():
 # --------------------------------------------------------------------------- #
 
 
+def _make_incoming_handler(ctx: HealthContext):
+    async def h(req):
+        return await incoming.handle_incoming_webhook(req, ctx)
+    return h
+
+
 @pytest.mark.asyncio
 async def test_incoming_returns_404_when_webhook_not_configured():
     """POST /incoming returns 404 when REMY_WEBHOOK_SECRET is not set."""
@@ -638,14 +636,13 @@ async def test_incoming_returns_404_when_webhook_not_configured():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_incoming_webhook
-
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_post("/incoming", _handle_incoming_webhook)
+    app.router.add_post("/incoming", _make_incoming_handler(ctx))
 
     mock_settings = MagicMock()
     mock_settings.remy_webhook_secret = ""
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.incoming.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.post(
                 "/incoming",
@@ -666,14 +663,13 @@ async def test_incoming_returns_401_when_secret_wrong():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_incoming_webhook
-
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_post("/incoming", _handle_incoming_webhook)
+    app.router.add_post("/incoming", _make_incoming_handler(ctx))
 
     mock_settings = MagicMock()
     mock_settings.remy_webhook_secret = "correct-secret"
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.incoming.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.post(
                 "/incoming",
@@ -694,14 +690,13 @@ async def test_incoming_returns_400_for_invalid_action():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_incoming_webhook
-
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_post("/incoming", _handle_incoming_webhook)
+    app.router.add_post("/incoming", _make_incoming_handler(ctx))
 
     mock_settings = MagicMock()
     mock_settings.remy_webhook_secret = "secret"
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.incoming.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.post(
                 "/incoming",
@@ -726,14 +721,13 @@ async def test_incoming_note_returns_ok_not_implemented():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_incoming_webhook
-
+    ctx = HealthContext()
     app = web.Application()
-    app.router.add_post("/incoming", _handle_incoming_webhook)
+    app.router.add_post("/incoming", _make_incoming_handler(ctx))
 
     mock_settings = MagicMock()
     mock_settings.remy_webhook_secret = "secret"
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.incoming.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.post(
                 "/incoming",
@@ -755,14 +749,12 @@ async def test_dashboard_returns_404_when_bot_username_unset():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_dashboard
-
     app = web.Application()
-    app.router.add_get("/dashboard", _handle_dashboard)
+    app.router.add_get("/dashboard", dashboard.handle_dashboard)
 
     mock_settings = MagicMock()
     mock_settings.telegram_bot_username = ""
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.dashboard.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/dashboard")
             assert resp.status == 404
@@ -779,14 +771,12 @@ async def test_dashboard_returns_html_when_configured():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_dashboard
-
     app = web.Application()
-    app.router.add_get("/dashboard", _handle_dashboard)
+    app.router.add_get("/dashboard", dashboard.handle_dashboard)
 
     mock_settings = MagicMock()
     mock_settings.telegram_bot_username = "RemyBot"
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.dashboard.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/dashboard")
             assert resp.status == 200
@@ -806,17 +796,15 @@ async def test_dashboard_auth_returns_401_when_hash_invalid():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_dashboard_auth
-
     app = web.Application()
-    app.router.add_get("/dashboard/auth", _handle_dashboard_auth)
+    app.router.add_get("/dashboard/auth", dashboard.handle_dashboard_auth)
 
     mock_settings = MagicMock()
     mock_settings.telegram_bot_token = "test-token"
     mock_settings.telegram_allowed_users = [12345]
     mock_settings.health_api_token = None
     mock_settings.remy_webhook_secret = None
-    with patch("remy.health.get_settings", return_value=mock_settings):
+    with patch("remy.health.routes.dashboard.get_settings", return_value=mock_settings):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/dashboard/auth?id=12345&hash=invalid&auth_date=0")
             assert resp.status == 401
@@ -836,12 +824,16 @@ async def test_dashboard_stats_redirects_without_cookie():
     except ImportError:
         pytest.skip("aiohttp not installed")
 
-    from remy.health import _handle_dashboard_stats
+    def _make_dashboard_stats_handler(ctx: HealthContext):
+        async def h(req):
+            return await dashboard.handle_dashboard_stats(req, ctx)
+        return h
 
+    ctx = HealthContext(db=None)
     app = web.Application()
-    app.router.add_get("/dashboard/stats", _handle_dashboard_stats)
+    app.router.add_get("/dashboard/stats", _make_dashboard_stats_handler(ctx))
 
-    with patch("remy.health.get_settings", return_value=MagicMock()):
+    with patch("remy.health.routes.dashboard.get_settings", return_value=MagicMock()):
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/dashboard/stats", allow_redirects=False)
             assert resp.status == 302

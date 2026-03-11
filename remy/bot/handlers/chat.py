@@ -31,7 +31,7 @@ from .base import (
     _pending_writes,
     _user_active_requests,
     _user_request_lock,
-    TASK_TIMEOUT_SECONDS,
+    get_task_timeout_seconds,
     _TOOL_TURN_PREFIX,
     _sanitize_messages_for_claude,
     apply_completion_reaction,
@@ -205,6 +205,49 @@ def make_chat_handlers(
         every few seconds so the user sees a document-upload indicator instead of
         only typing (Phase 8 Tier 2).
         """
+        # Request-scoped context for hand-off tools (spawn_and_hand_off)
+        if tool_registry is not None:
+            tool_registry._current_bot = bot
+            tool_registry._current_chat_id = chat_id
+            tool_registry._current_thread_id = thread_id
+        try:
+            await _stream_with_tools_path_impl(
+                user_id=user_id,
+                text=text,
+                messages=messages,
+                system_prompt=system_prompt,
+                session_key=session_key,
+                sent=sent,
+                chat_id=chat_id,
+                message_id=message_id,
+                thread_id=thread_id,
+                bot=bot,
+                timing=timing,
+                working_message=working_message,
+                attachment_token=attachment_token,
+            )
+        finally:
+            if tool_registry is not None:
+                tool_registry._current_bot = None
+                tool_registry._current_chat_id = None
+                tool_registry._current_thread_id = None
+
+    async def _stream_with_tools_path_impl(
+        user_id: int,
+        text: str,
+        messages: list[dict],
+        system_prompt: str,
+        session_key: str,
+        sent,
+        chat_id: int | None = None,
+        message_id: int | None = None,
+        thread_id: int | None = None,
+        bot=None,
+        timing: RequestTiming | None = None,
+        working_message=None,
+        attachment_token: str | None = None,
+    ) -> None:
+        """Inner implementation of tool-aware streaming (see _stream_with_tools_path)."""
         current_display: list[str] = []
         tool_turns: list[tuple[list[dict], list[dict]]] = []
         step_limit_reached = False
@@ -504,7 +547,7 @@ def make_chat_handlers(
                             suggested_actions = actions
                             break
 
-        # Detect APPROVAL_REQUIRED sentinel in tool result blocks (paperclip-ideas §4 bulk email gate)
+        # Detect APPROVAL_REQUIRED sentinel in tool result blocks (bulk email approval gate)
         approval_keyboard: InlineKeyboardMarkup | None = None
         for _, result_blocks in tool_turns:
             for block in result_blocks:
@@ -519,13 +562,21 @@ def make_chat_handlers(
                 if isinstance(content, str) and content.startswith(
                     "APPROVAL_REQUIRED|"
                 ):
-                    parts = content.split("|", 2)
+                    parts = content.split("|")
                     token_part = next((p for p in parts if p.startswith("token=")), "")
+                    type_part = next((p for p in parts if p.startswith("type=")), "")
                     token = token_part[len("token=") :] if token_part else ""
+                    approval_type = type_part[len("type=") :] if type_part else "bulk_email"
                     if token:
-                        from ..handlers.callbacks import make_bulk_email_keyboard
+                        from ..handlers.callbacks import (
+                            make_bulk_email_keyboard,
+                            make_file_write_keyboard,
+                        )
 
-                        approval_keyboard = make_bulk_email_keyboard(token)
+                        if approval_type == "file_write":
+                            approval_keyboard = make_file_write_keyboard(token)
+                        else:
+                            approval_keyboard = make_bulk_email_keyboard(token)
                         break
             if approval_keyboard is not None:
                 break
@@ -780,7 +831,7 @@ def make_chat_handlers(
 
         if user_id in _task_start_times:
             elapsed = time.time() - _task_start_times[user_id]
-            if elapsed > TASK_TIMEOUT_SECONDS:
+            if elapsed > get_task_timeout_seconds():
                 _task_start_times.pop(user_id, None)
                 session_manager.request_cancel(user_id)
                 await update.message.reply_text(
@@ -1035,7 +1086,7 @@ def make_chat_handlers(
 
         if user_id in _task_start_times:
             elapsed = time.time() - _task_start_times[user_id]
-            if elapsed > TASK_TIMEOUT_SECONDS:
+            if elapsed > get_task_timeout_seconds():
                 _task_start_times.pop(user_id, None)
                 session_manager.request_cancel(user_id)
                 await update.message.reply_text(
@@ -1177,7 +1228,7 @@ def make_chat_handlers(
 
         if user_id in _task_start_times:
             elapsed = time.time() - _task_start_times[user_id]
-            if elapsed > TASK_TIMEOUT_SECONDS:
+            if elapsed > get_task_timeout_seconds():
                 _task_start_times.pop(user_id, None)
                 session_manager.request_cancel(user_id)
                 await update.message.reply_text(

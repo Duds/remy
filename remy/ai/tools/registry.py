@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from .context import ToolContext
 from .schemas import TOOL_SCHEMAS
 
 if TYPE_CHECKING:
@@ -27,54 +28,100 @@ class ToolRegistry:
     access to the correct instances (db, goal_store, fact_store, etc.).
     """
 
-    def __init__(
-        self,
-        *,
-        logs_dir: str,
-        knowledge_store=None,
-        knowledge_extractor=None,
-        board_orchestrator=None,
-        claude_client=None,
-        ollama_base_url: str = "http://localhost:11434",
-        model_complex: str = "claude-sonnet-4-6",
-        calendar_client=None,
-        gmail_client=None,
-        contacts_client=None,
-        docs_client=None,
-        automation_store=None,
-        scheduler_ref: dict | None = None,
-        mistral_client=None,
-        moonshot_client=None,
-        conversation_analyzer=None,
-        job_store=None,
-        plan_store=None,
-        file_indexer=None,
-        fact_store=None,
-        goal_store=None,
-        counter_store=None,
-    ) -> None:
-        self._logs_dir = logs_dir
-        self._knowledge_store = knowledge_store
-        self._knowledge_extractor = knowledge_extractor
-        self._board_orchestrator = board_orchestrator
-        self._claude_client = claude_client
-        self._mistral_client = mistral_client
-        self._moonshot_client = moonshot_client
-        self._ollama_base_url = ollama_base_url
-        self._model_complex = model_complex
-        self._calendar = calendar_client
-        self._gmail = gmail_client
-        self._contacts = contacts_client
-        self._docs = docs_client
-        self._automation_store = automation_store
-        self._scheduler_ref = scheduler_ref or {}
-        self._conversation_analyzer = conversation_analyzer
-        self._job_store = job_store
-        self._plan_store = plan_store
-        self._file_indexer = file_indexer
-        self._fact_store = fact_store
-        self._goal_store = goal_store
-        self._counter_store = counter_store
+    def __init__(self, ctx: ToolContext) -> None:
+        self._ctx = ctx
+        # Request-scoped (set by chat handler before stream_with_tools) for hand-off tools
+        self._current_bot = None
+        self._current_chat_id: int | None = None
+        self._current_thread_id: int | None = None
+
+    @property
+    def _logs_dir(self) -> str:
+        return self._ctx.logs_dir
+
+    @property
+    def _knowledge_store(self):
+        return self._ctx.knowledge_store
+
+    @property
+    def _knowledge_extractor(self):
+        return self._ctx.knowledge_extractor
+
+    @property
+    def _board_orchestrator(self):
+        return self._ctx.board_orchestrator
+
+    @property
+    def _claude_client(self):
+        return self._ctx.claude_client
+
+    @property
+    def _mistral_client(self):
+        return self._ctx.mistral_client
+
+    @property
+    def _moonshot_client(self):
+        return self._ctx.moonshot_client
+
+    @property
+    def _ollama_base_url(self) -> str:
+        return self._ctx.ollama_base_url
+
+    @property
+    def _model_complex(self) -> str:
+        return self._ctx.model_complex
+
+    @property
+    def _calendar(self):
+        return self._ctx.calendar_client
+
+    @property
+    def _gmail(self):
+        return self._ctx.gmail_client
+
+    @property
+    def _contacts(self):
+        return self._ctx.contacts_client
+
+    @property
+    def _docs(self):
+        return self._ctx.docs_client
+
+    @property
+    def _automation_store(self):
+        return self._ctx.automation_store
+
+    @property
+    def _scheduler_ref(self) -> dict:
+        return self._ctx.scheduler_ref or {}
+
+    @property
+    def _conversation_analyzer(self):
+        return self._ctx.conversation_analyzer
+
+    @property
+    def _job_store(self):
+        return self._ctx.job_store
+
+    @property
+    def _plan_store(self):
+        return self._ctx.plan_store
+
+    @property
+    def _file_indexer(self):
+        return self._ctx.file_indexer
+
+    @property
+    def _fact_store(self):
+        return self._ctx.fact_store
+
+    @property
+    def _goal_store(self):
+        return self._ctx.goal_store
+
+    @property
+    def _counter_store(self):
+        return self._ctx.counter_store
 
     @property
     def schemas(self) -> list[dict]:
@@ -138,6 +185,10 @@ class ToolRegistry:
                     from .memory import exec_manage_memory
 
                     return await exec_manage_memory(self, tool_input, user_id)
+                case "para_write_note":
+                    from .memory import exec_para_write_note
+
+                    return await exec_para_write_note(self, tool_input)
                 case "manage_goal":
                     from .memory import exec_manage_goal
 
@@ -298,6 +349,14 @@ class ToolRegistry:
                     from .web import exec_web_search
 
                     return await exec_web_search(self, tool_input)
+                case "hand_off_to_researcher":
+                    from .web import exec_hand_off_to_researcher
+
+                    return await exec_hand_off_to_researcher(self, tool_input, user_id)
+                case "triage_inbox":
+                    from .email import exec_triage_inbox
+
+                    return await exec_triage_inbox(self, tool_input, user_id)
                 case "price_check":
                     from .web import exec_price_check
 
@@ -463,5 +522,9 @@ class ToolRegistry:
                     return f"Unknown tool: {tool_name}"
 
         except Exception as exc:
+            from ...exceptions import RemyError
+
+            if isinstance(exc, RemyError):
+                raise
             logger.error("Tool %s failed: %s", tool_name, exc, exc_info=True)
             return f"Tool {tool_name} encountered an error: {exc}"

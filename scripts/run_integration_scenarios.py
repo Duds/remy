@@ -8,7 +8,7 @@ workflow: run scenarios → on failure, log and fix → re-run until green.
 Levels:
   1 — Single-tool (main agent): stream yields events, one tool then reply.
   2 — Multi-tool (main agent): multiple tool calls in one turn.
-  3 — Hand-off: max_iterations yields HandOffToSubAgent.
+  3 — Step-limit: max_iterations yields StepLimitReached (no auto Board hand-off, Bug 47).
   4 — Sub-agent runs after hand-off: hand-off then sub-agent uses tools.
   5 — Leaves / tools in depth: run_board (or other leaf) completes.
 
@@ -56,15 +56,15 @@ PROGRESSIVE_SCENARIOS: list[Scenario] = [
     ),
     Scenario(
         3,
-        "hand_off_on_max_iterations",
+        "step_limit_on_max_iterations",
         "tests/test_tool_registry.py::test_stream_with_tools_hits_max_iterations_yields_truncation",
-        "Max iterations yields truncation and HandOffToSubAgent.",
+        "Max iterations yields step-limit message and StepLimitReached.",
     ),
     Scenario(
         4,
-        "hand_off_then_subagent_uses_tools",
-        "tests/integration/test_subagent_tools.py::test_hand_off_then_subagent_uses_tools",
-        "After hand-off, sub-agent runs and uses tools (get_current_time).",
+        "max_iterations_yields_step_limit",
+        "tests/integration/test_subagent_tools.py::test_max_iterations_yields_step_limit_not_board_handoff",
+        "Max iterations yields StepLimitReached (no Board hand-off, Bug 47).",
     ),
     Scenario(
         4,

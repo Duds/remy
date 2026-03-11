@@ -1,11 +1,11 @@
-# User Story: Idempotency Keys for Cron / Scheduled Jobs (Paperclip-inspired)
+# User Story: Idempotency Keys for Cron / Scheduled Jobs
 
 **Status:** ❌ Obsolete — 2026-03-10  
-**Reason:** Legacy briefing/check-in crons (morning_briefing, afternoon_checkin, evening_checkin) are deprecated; proactive messaging is now via the evaluative heartbeat only. This PBI targeted those legacy jobs, so it is a non-starter. Any future idempotency for heartbeat-driven “daily orientation” or “reflection” would be a separate story.
+**Reason:** Legacy briefing/check-in crons (morning_briefing, afternoon_checkin, evening_checkin) are deprecated; proactive messaging is now via the evaluative heartbeat only. This PBI targeted those legacy jobs, so it is a non-starter. Any future idempotency for heartbeat-driven "daily orientation" or "reflection" would be a separate story.
 
 **Priority:** ⭐⭐ Medium (was)  
 **Effort:** Low  
-**Source:** [docs/paperclip-ideas.md §9](../../paperclip-ideas.md)
+**Source:** [docs/ideas.md §9](../../ideas.md)
 
 ## Summary
 
@@ -18,8 +18,6 @@ As Dale, I want Remy's scheduled (cron) jobs to be idempotent — so that if APS
 Remy's proactive scheduler (`remy/scheduler/proactive.py`) uses APScheduler with `misfire_grace_time` to reconcile missed jobs on startup. In rare cases — process crash mid-job, Docker restart, or two overlapping containers — a daily job (morning briefing, evening check-in) can fire twice.
 
 The existing `background_jobs` table tracks long-running jobs by `job_type`, but not with a per-day idempotency key. Adding a key of the form `"{job_type}:{YYYY-MM-DD}"` would prevent double execution.
-
-Paperclip calls this pattern `idempotencyKey` on recurring task creation.
 
 ---
 

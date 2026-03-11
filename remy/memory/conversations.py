@@ -250,19 +250,20 @@ class ConversationStore:
         if not goal_titles:
             return set()
         turns = await self.get_today_messages(user_id)
-        mentioned: set[str] = set()
-        goal_lower = {t: t.lower() for t in goal_titles}
+        # Concatenate content once, single lower() call
+        parts = []
         for turn in turns:
             content = (turn.content or "").strip()
             if content.startswith("__TOOL_TURN__:") or content.startswith(
                 "[COMPACTED SUMMARY]"
             ):
                 continue
-            content_lower = content.lower()
-            for title in goal_titles:
-                if goal_lower[title] in content_lower:
-                    mentioned.add(title)
-        return mentioned
+            parts.append(content)
+        combined_lower = "\n".join(parts).lower()
+        return {
+            title for title in goal_titles
+            if title.lower() in combined_lower
+        }
 
     async def get_messages_since(
         self, user_id: int, since: datetime, thread_id: int | None = None

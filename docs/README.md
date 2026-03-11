@@ -10,7 +10,6 @@ Current-state documentation for the Remy personal AI assistant. Australian Engli
 |----------|---------|
 | [Concept Design](architecture/concept-design.md) | Vision, problem statement, personas, core features, scope, non-goals |
 | [High-Level Design (HLD)](architecture/HLD.md) | Component diagram, data flow, key interfaces |
-| [Relay removal (Mar 2026)](architecture/relay-removal.md) | Why and how the Relay feature was removed |
 | [Software Architecture Document (SAD)](architecture/remy-SAD.md) | Full technical architecture, stack, deployment, quality |
 | [SAD Design Decisions (v10)](architecture/remy-sad-v10.md) | Evaluative heartbeat, sub-agents, skills |
 | [Consolidation review (Mar 2026)](architecture/consolidation-review-2026-03.md) | Structural review, refactor roadmap |

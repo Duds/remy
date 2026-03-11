@@ -31,10 +31,10 @@ Cursor merges global and project MCP configs. When you open Remy in Cursor, you 
 
 | Hook | Script | Purpose |
 |------|--------|---------|
-| sessionStart | `session-reminder.sh` | Inject relay check-in reminder (reinforces CLAUDE.md) |
+| sessionStart | `session-reminder.sh` | Inject session reminder (reinforces CLAUDE.md) |
 | beforeReadFile | `protect-sensitive-files.sh` | Block reading `.env`, `data/*.db`, credentials, `*.pem`, `*.key` |
 | afterFileEdit | `format-after-edit.sh` | Run `ruff format` (or `black`) on Python files |
-| afterMCPExecution | `audit-mcp.sh` | Log relay tool usage to `.cursor/audit.log` |
+| afterMCPExecution | `audit-mcp.sh` | Log MCP tool usage to `.cursor/audit.log` |
 | subagentStop | `audit-subagent.sh` | Log subagent completion to `.cursor/audit.log` |
 
 ### Audit logs
@@ -62,10 +62,10 @@ Keep them in sync. Current skills:
 
 ## Best Practices Applied
 
-1. **MCP:** Project-level relay in `.cursor/mcp.json` so Cursor gets relay tools when working on Remy.
+1. **MCP:** Project-level MCP servers in `.cursor/mcp.json` so Cursor gets tools when working on Remy.
 2. **Hooks:** Safety (block destructive commands), file protection (secrets/DB), auto-format after edit.
 3. **Skills:** Gerund naming, clear descriptions, `name` + `description` in frontmatter.
-4. **CLAUDE.md:** Concise relay guide; session-start checklist for `relay_get_messages` and `relay_get_tasks`.
+4. **CLAUDE.md:** Session-start checklist and agent instructions.
 
 ---
 

@@ -1,13 +1,15 @@
-# User Story: Formal Heartbeat Protocol — 9-Step Work Procedure (Paperclip-inspired)
+# User Story: Formal Heartbeat Protocol — 9-Step Work Procedure
 
-**Status:** 📋 Backlog
+**Status:** ⏸️ Out of scope (relay removed) — archived 2026-03-11
 **Priority:** ⭐⭐⭐ High
 **Effort:** Medium
-**Source:** [docs/paperclip-ideas.md §3](../paperclip-ideas.md)
+**Source:** [docs/ideas.md §3](../../ideas.md)
+
+**Note:** This PBI assumes relay tasks (cowork ↔ Remy). Relay was explicitly removed from the solution. Revisit only if relay (or an equivalent task-assignment channel) is reintroduced.
 
 ## Summary
 
-As Dale, I want Remy's relay task handling to follow a formal, predictable 9-step protocol so that tasks are always claimed atomically, context is always read before acting, and results are always posted — reducing zombie tasks and silent failures.
+As Dale, I want Remy's task handling to follow a formal, predictable 9-step protocol so that tasks are always claimed atomically, context is always read before acting, and results are always posted — reducing zombie tasks and silent failures.
 
 ---
 
@@ -20,12 +22,12 @@ Remy's `CLAUDE.md` defines a task loop informally (check messages → claim → 
 - Delegation of subtasks lacks `parent_id` linking
 - No "always comment before exiting" enforcement
 
-Paperclip's 9-step heartbeat protocol addresses all of these with explicit rules:
+The 9-step heartbeat protocol addresses all of these with explicit rules:
 
 1. **Identity** — Verify agent identity
 2. **Approvals** — Handle any pending approval events first
 3. **Assignments** — Query `pending` + `in_progress` tasks
-4. **Pick Work** — Prioritise `in_progress`; skip blocked tasks where Remy's comment is the most recent (dedup — see `US-paperclip-blocked-task-dedup.md`)
+4. **Pick Work** — Prioritise `in_progress`; skip blocked tasks where Remy's comment is the most recent (dedup — see `US-blocked-task-dedup.md`)
 5. **Checkout** — Atomically claim; 409 conflict = skip, never retry
 6. **Context** — Read task detail + related messages + parent goal
 7. **Do Work** — Execute with tools
@@ -36,11 +38,11 @@ Paperclip's 9-step heartbeat protocol addresses all of these with explicit rules
 
 ## Acceptance Criteria
 
-1. **Atomic claim guard.** `relay_update_task(status="in_progress")` is the first action taken on any task. If the task is already `in_progress` (claimed by another session), Remy skips it and logs a warning.
+1. **Atomic claim guard.** Claiming a task (status="in_progress") is the first action taken on any task. If the task is already `in_progress` (claimed by another session), Remy skips it and logs a warning.
 2. **In-progress first.** When multiple tasks are pending, Remy resumes any previously claimed `in_progress` tasks before picking new `pending` ones.
-3. **Blocked dedup applied.** Blocked tasks where Remy's last message/note is the most recent entry are skipped without re-pinging (see `US-paperclip-blocked-task-dedup.md`).
-4. **Context loading.** Before doing work, Remy reads: (a) the full task description + notes, (b) any relay messages in the same thread, (c) linked goal description if `goal_id` is set.
-5. **Result always posted.** Every completed task results in a `relay_update_task(status="done", result=...)` call. Every blocked task results in `relay_update_task(status="needs_clarification", notes=...)` + a `relay_post_message` to cowork.
+3. **Blocked dedup applied.** Blocked tasks where Remy's last message/note is the most recent entry are skipped without re-pinging (see `US-blocked-task-dedup.md`).
+4. **Context loading.** Before doing work, Remy reads: (a) the full task description + notes, (b) any related messages in the same thread, (c) linked goal description if `goal_id` is set.
+5. **Result always posted.** Every completed task gets a result recorded. Every blocked task gets status set to needs_clarification with notes, plus a message to the requester.
 6. **Session date in result.** The `result` or `notes` field includes the ISO date (e.g. `"2026-03-08"`).
 7. **CLAUDE.md updated.** The session instructions document the formal 9-step loop.
 
@@ -52,26 +54,16 @@ Paperclip's 9-step heartbeat protocol addresses all of these with explicit rules
 
 Replace the informal task loop with a numbered 9-step checklist. Each step is a single sentence with the tool call or rule.
 
-### Relay client (`remy/relay/client.py`)
+### Task client
 
 Add `claim_task(task_id) -> bool` that:
 1. Fetches the task status before claiming
 2. If already `in_progress`, returns `False` (conflict guard)
 3. Otherwise updates to `in_progress` and returns `True`
 
-```python
-async def claim_task(self, task_id: str) -> bool:
-    task = await self.get_task(task_id)
-    if task and task["status"] == "in_progress":
-        logger.warning(f"Task {task_id} already in_progress — skipping (conflict guard)")
-        return False
-    await self.update_task(task_id, status="in_progress")
-    return True
-```
+### Task executor
 
-### Relay tool executor (`remy/ai/tools/relay.py`)
-
-Update the `relay_get_tasks` executor to:
+Update the task executor to:
 - Sort results: `in_progress` first, then `pending`
 - Filter out blocked tasks where Remy's last activity is the most recent comment
 
@@ -86,8 +78,8 @@ Document the 9-step protocol as the standard heartbeat loop. The model follows i
 | File | Change |
 |------|--------|
 | `CLAUDE.md` | Add formal 9-step heartbeat protocol |
-| `remy/relay/client.py` | Add `claim_task()` conflict guard |
-| `remy/ai/tools/relay.py` | Sort tasks (in_progress first); apply dedup filter |
+| Task client | Add `claim_task()` conflict guard |
+| Task executor | Sort tasks (in_progress first); apply dedup filter |
 
 ---
 
@@ -100,12 +92,12 @@ Document the 9-step protocol as the standard heartbeat loop. The model follows i
 | Multiple tasks: 1 in-progress, 2 pending | in_progress task handled first |
 | Blocked task, Remy's last message is most recent | Skipped (dedup); no re-ping |
 | Task with goal_id | Goal description loaded before work starts |
-| Work fails mid-task | Status set to `needs_clarification` + message sent to cowork |
+| Work fails mid-task | Status set to needs_clarification + message sent to requester |
 
 ---
 
 ## Out of Scope
 
 - Board-level escalation chain (separate US)
-- Delegation / subtask creation API (relay doesn't yet support `parent_id`)
-- Approval gate handling (see `US-paperclip-approval-gates.md`)
+- Delegation / subtask creation API (parent_id linking)
+- Approval gate handling (see `US-approval-gates.md`)

@@ -1,5 +1,6 @@
 python-telegram-bot[ext]>=22.0
 anthropic>=0.40
+orjson>=3.9
 pydantic>=2.0
 pydantic-settings>=2.0
 aiofiles>=23.0
@@ -19,8 +20,9 @@ google-auth-oauthlib>=1.1
 google-auth-httplib2>=0.2
 # Prometheus metrics (telemetry)
 prometheus-client>=0.20.0
-# Relay MCP (make relay-run — shared backend for Cursor/Claude Desktop)
 mcp[cli]>=1.6.0
+# PARA memory (US-para-memory) — YAML entity items
+PyYAML>=6.0
 # RAG PDF/DOCX indexing (US-rag-pdf-docx)
 pypdf>=5.0
 python-docx>=1.0

@@ -9,7 +9,6 @@ config/skills/*.local.md
 
 # Runtime data (personal / generated)
 data/
-relay_mcp/relay.db
 MagicMock/
 
 # Python

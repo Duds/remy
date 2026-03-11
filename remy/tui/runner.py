@@ -6,34 +6,19 @@ and runs one chat turn via stream_with_tools + persistence (US-terminal-ui).
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
-from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from ..memory.injector import MemoryInjector
 
-from ..ai.claude_client import (
-    ClaudeClient,
-    StreamEvent,
-    TextChunk,
-    ToolStatusChunk,
-    ToolTurnComplete,
-)
-from ..bot.handlers.base import (
-    _build_message_from_turn,
-    _sanitize_messages_for_claude,
-    _trim_messages_to_budget,
-)
+from ..ai.claude_client import ClaudeClient, StreamEvent
 from ..bot.session import SessionManager
 from ..config import settings
 from ..memory.conversations import ConversationStore
-from ..models import ConversationTurn
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +63,7 @@ async def build_tui_deps() -> TUIDeps:
     from ..analytics.analyzer import ConversationAnalyzer
     from ..agents.orchestrator import BoardOrchestrator
     from ..ai.tools import ToolRegistry
+    from ..ai.tools.context import ToolContext
     from ..memory.injector import MemoryInjector
     from ..ai.tone import ToneDetector
     from ..delivery import OutboundQueue
@@ -140,7 +126,7 @@ async def build_tui_deps() -> TUIDeps:
     mistral_client = MistralClient()
     moonshot_client = MoonshotClient()
 
-    tool_registry = ToolRegistry(
+    tool_ctx = ToolContext(
         logs_dir=settings.logs_dir,
         knowledge_store=knowledge_store,
         knowledge_extractor=knowledge_extractor,
@@ -164,6 +150,7 @@ async def build_tui_deps() -> TUIDeps:
         goal_store=goal_store,
         counter_store=counter_store,
     )
+    tool_registry = ToolRegistry(tool_ctx)
 
     return TUIDeps(
         conv_store=conv_store,
@@ -183,109 +170,19 @@ async def run_chat_turn(
     on_event: Callable[[StreamEvent], Awaitable[None]],
 ) -> None:
     """
-    Run one chat turn: load history, build prompt, stream_with_tools, persist.
+    Run one chat turn via MessageProcessingService.
     Calls on_event for each stream event (TextChunk, ToolStatusChunk, etc.).
     """
-    from ..ai.input_validator import sanitize_memory_injection
+    from ..bot.chat_service import MessageProcessingDeps, MessageProcessingService
 
-    conv_store = deps.conv_store
-    session_manager = deps.session_manager
-    claude_client = deps.claude_client
-    tool_registry = deps.tool_registry
-    memory_injector = deps.memory_injector
-    limit = settings.compaction_keep_recent_messages
-
-    # Append user turn
-    user_turn = ConversationTurn(role="user", content=text)
-    await conv_store.append_turn(user_id, session_key, user_turn)
-
-    # Load history (including the turn we just appended)
-    recent = await conv_store.get_recent_turns(user_id, session_key, limit=limit)
-    messages = [_build_message_from_turn(t) for t in recent]
-    # Drop leading assistant-only so we start with a user message
-    while messages:
-        first = messages[0]
-        if first.get("role") == "user" and isinstance(first.get("content"), str):
-            break
-        messages.pop(0)
-    messages = _trim_messages_to_budget(messages)
-    safe_messages = _sanitize_messages_for_claude(messages)
-
-    # System prompt
-    system_prompt = settings.soul_md
-    if memory_injector is not None:
-        try:
-            tz = ZoneInfo(settings.scheduler_timezone)
-            local_hour = datetime.now(tz).hour
-        except Exception:
-            local_hour = None
-        try:
-            system_prompt = await memory_injector.build_system_prompt(
-                user_id, text, settings.soul_md, local_hour=local_hour
-            )
-            system_prompt = sanitize_memory_injection(system_prompt)
-        except Exception as e:
-            logger.error("Memory injection failed, using base prompt: %s", e)
-
-    current_display: list[str] = []
-    tool_turns: list[tuple[list[dict], list[dict]]] = []
-    in_tool_turn = False
-
-    async def handle_event(ev: StreamEvent) -> None:
-        nonlocal in_tool_turn
-        await on_event(ev)
-        if isinstance(ev, TextChunk):
-            if not in_tool_turn:
-                current_display.append(ev.text)
-        elif isinstance(ev, ToolStatusChunk):
-            in_tool_turn = True
-        elif isinstance(ev, ToolTurnComplete):
-            in_tool_turn = False
-            tool_turns.append((ev.assistant_blocks, ev.tool_result_blocks))
-
-    session_manager.clear_cancel(user_id)
-    try:
-        async for event in claude_client.stream_with_tools(
-            messages=safe_messages,
-            tool_registry=tool_registry,
-            user_id=user_id,
-            system=system_prompt,
-        ):
-            if session_manager.is_cancelled(user_id):
-                break
-            await handle_event(event)
-            await asyncio.sleep(0)
-    except Exception as exc:
-        logger.exception("TUI stream_with_tools error: %s", exc)
-        raise
-
-    # Persist tool turns and final text (same as chat handler)
-    from ..constants import TOOL_TURN_PREFIX
-
-    for assistant_blocks, result_blocks in tool_turns:
-        asst_serialised = TOOL_TURN_PREFIX + json.dumps(assistant_blocks)
-        await conv_store.append_turn(
-            user_id,
-            session_key,
-            ConversationTurn(
-                role="assistant",
-                content=asst_serialised,
-                model_used=f"anthropic:{settings.model_complex}",
-            ),
+    service = MessageProcessingService(
+        MessageProcessingDeps(
+            conv_store=deps.conv_store,
+            claude_client=deps.claude_client,
+            tool_registry=deps.tool_registry,
+            memory_injector=deps.memory_injector,
+            session_manager=deps.session_manager,
+            settings=deps.settings,
         )
-        usr_serialised = TOOL_TURN_PREFIX + json.dumps(result_blocks)
-        await conv_store.append_turn(
-            user_id, session_key, ConversationTurn(role="user", content=usr_serialised)
-        )
-
-    final_text = "".join(current_display).strip()
-    if final_text:
-        await conv_store.append_turn(
-            user_id,
-            session_key,
-            ConversationTurn(
-                role="assistant",
-                content=final_text,
-                model_used=f"anthropic:{settings.model_complex}",
-            ),
-        )
+    )
+    await service.process_text(user_id, text, session_key, on_event)

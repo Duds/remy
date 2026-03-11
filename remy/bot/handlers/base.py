@@ -15,6 +15,17 @@ from typing import TYPE_CHECKING
 from telegram import Update
 
 from ...ai.input_validator import RateLimiter
+
+# Use orjson when available for faster message serialisation in token estimation
+try:
+    import orjson
+
+    def _msg_to_json(m: dict) -> str:
+        return orjson.dumps(m).decode("utf-8")
+except ImportError:
+
+    def _msg_to_json(m: dict) -> str:
+        return json.dumps(m, ensure_ascii=False)
 from ...config import settings
 from ...constants import TOOL_TURN_PREFIX
 from ...utils.tokens import estimate_tokens
@@ -45,9 +56,13 @@ _TOOL_TURN_PREFIX = TOOL_TURN_PREFIX
 # Rate limiter: max 10 messages per minute per user
 _rate_limiter = RateLimiter(max_messages_per_minute=10)
 
-# Track task start times for 2-hour timeout enforcement
+# Track task start times for timeout enforcement
 _task_start_times: dict[int, float] = {}
-TASK_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours
+
+
+def get_task_timeout_seconds() -> int:
+    """Per-task timeout before cancel (from config)."""
+    return settings.task_timeout_seconds
 
 # Pending two-step write state: user_id -> sanitized path
 _pending_writes: dict[int, str] = {}
@@ -76,8 +91,11 @@ def _build_message_from_turn(turn: "ConversationTurn") -> dict:
 
 
 def _get_history_token_budget() -> int:
-    """Calculate history token budget from settings (70% of max input tokens)."""
-    return int(settings.max_input_tokens_per_request * 0.7)
+    """Calculate history token budget from settings."""
+    return int(
+        settings.max_input_tokens_per_request
+        * settings.history_token_budget_ratio
+    )
 
 
 def _join_content_parts(parts: list[str]) -> str:
@@ -164,13 +182,14 @@ def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
     Enforces a hard ceiling from settings.max_input_tokens_per_request to
     prevent runaway costs.
     """
-    if len(messages) <= 4:
+    min_preserved = settings.min_preserved_messages
+    if len(messages) <= min_preserved:
         return messages
 
     history_budget = _get_history_token_budget()
     hard_ceiling = settings.max_input_tokens_per_request
 
-    msg_tokens = [estimate_tokens(json.dumps(m, ensure_ascii=False)) for m in messages]
+    msg_tokens = [estimate_tokens(_msg_to_json(m)) for m in messages]
     total_tokens = sum(msg_tokens)
 
     if total_tokens > hard_ceiling * 0.9:
@@ -181,11 +200,16 @@ def _trim_messages_to_budget(messages: list[dict]) -> list[dict]:
         )
 
     start_idx = 0
-    while len(messages) - start_idx > 4 and total_tokens > history_budget:
+    while (
+        len(messages) - start_idx > min_preserved and total_tokens > history_budget
+    ):
         total_tokens -= msg_tokens[start_idx] + msg_tokens[start_idx + 1]
         start_idx += 2
 
-    while len(messages) - start_idx > 2 and total_tokens > hard_ceiling:
+    while (
+        len(messages) - start_idx > max(2, min_preserved - 2)
+        and total_tokens > hard_ceiling
+    ):
         total_tokens -= msg_tokens[start_idx] + msg_tokens[start_idx + 1]
         start_idx += 2
         logger.warning("Hard ceiling exceeded, dropping additional messages")

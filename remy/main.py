@@ -22,16 +22,7 @@ from .bot.heartbeat_handler import HeartbeatHandler
 from .bot.session import SessionManager
 from .bot.telegram_bot import TelegramBot
 from .config import get_settings, settings
-from .health import (
-    run_health_server,
-    set_data_dir,
-    set_db,
-    set_diagnostics_runner,
-    set_hook_manager,
-    set_incoming_webhook_deps,
-    set_outbound_queue,
-    set_ready,
-)
+from .health import HealthContext, run_health_server
 from .logging_config import setup_logging
 from .memory.automations import AutomationStore
 from .memory.background_jobs import BackgroundJobStore
@@ -216,7 +207,9 @@ def main() -> None:
 
     # Tool registry — all tools wired in for natural language invocation.
     # Google Workspace clients may be None if not configured; tools degrade gracefully.
-    tool_registry = ToolRegistry(
+    from .ai.tools.context import ToolContext
+
+    tool_ctx = ToolContext(
         logs_dir=settings.logs_dir,
         knowledge_store=knowledge_store,
         knowledge_extractor=knowledge_extractor,
@@ -226,26 +219,21 @@ def main() -> None:
         moonshot_client=moonshot_client,
         ollama_base_url=settings.ollama_base_url,
         model_complex=settings.model_complex,
-        # Google Workspace (None if not configured)
         calendar_client=google_calendar,
         gmail_client=google_gmail,
         contacts_client=google_contacts,
         docs_client=google_docs,
-        # Phase 5: automations
         automation_store=automation_store,
         scheduler_ref=startup_ctx,  # type: ignore[arg-type]
-        # Phase 6: analytics
         conversation_analyzer=conv_analyzer,
-        # Phase 7 Step 2: persistent job tracking
         job_store=job_store,
-        # Plan tracking
         plan_store=plan_store,
-        # Home directory RAG
         file_indexer=file_indexer,
         fact_store=fact_store,
         goal_store=goal_store,
         counter_store=counter_store,
     )
+    tool_registry = ToolRegistry(tool_ctx)
 
     # Diagnostics runner — comprehensive health checks
     # Scheduler is late-bound via startup_ctx
@@ -264,16 +252,17 @@ def main() -> None:
     )
     startup_ctx["diagnostics_runner"] = diagnostics_runner
 
-    # Wire diagnostics runner and queue to health server for /diagnostics endpoint
-    set_diagnostics_runner(diagnostics_runner)
-    set_outbound_queue(outbound_queue)
-    # Wire db and data_dir for /logs and /telemetry endpoints
-    set_db(db)
-    set_data_dir(settings.data_dir)
-    # Hook manager is wired after import to avoid circular dependency
+    # Build HealthContext for health server (injectable deps, no globals)
     from .hooks import hook_manager
 
-    set_hook_manager(hook_manager)
+    health_ctx = HealthContext(
+        diagnostics_runner=diagnostics_runner,
+        outbound_queue=outbound_queue,
+        db=db,
+        data_dir=settings.data_dir,
+        hook_manager=hook_manager,
+        incoming_webhook_rate_limit=settings.incoming_webhook_rate_limit,
+    )
 
     async def _briefing_proxy(update, context):
         """Late-bound /briefing handler — delegates to scheduler once available."""
@@ -353,7 +342,7 @@ def main() -> None:
         # Start health HTTP server immediately so the container is reachable
         # during the /ready 503 "starting" phase
         health_port = int(os.environ.get("HEALTH_PORT", "8080"))
-        task = asyncio.create_task(run_health_server(port=health_port))
+        task = asyncio.create_task(run_health_server(port=health_port, ctx=health_ctx))
         _health_task.append(task)
 
         # Initialise database schema
@@ -454,12 +443,10 @@ def main() -> None:
         webhook_user_id = None
         if getattr(settings, "telegram_allowed_users", None):
             webhook_user_id = settings.telegram_allowed_users[0]
-        set_incoming_webhook_deps(
-            bot=app.bot,
-            get_primary_chat_id=_get_primary_chat_id,
-            automation_store=automation_store,
-            webhook_user_id=webhook_user_id,
-        )
+        health_ctx.incoming_bot = app.bot
+        health_ctx.incoming_get_chat_id = _get_primary_chat_id
+        health_ctx.incoming_automation_store = automation_store
+        health_ctx.incoming_webhook_user_id = webhook_user_id
 
         # Pre-warm embedding model to avoid cold-start timeout in diagnostics.
         # Model load can take 15-30s; doing it here ensures /diagnostics won't time out.
@@ -471,7 +458,7 @@ def main() -> None:
             logger.warning("Embedding model pre-warm failed: %s", e)
 
         # Signal readiness — /ready now returns 200
-        set_ready()
+        health_ctx.set_ready()
 
     bot.application.post_init = _on_post_init
 

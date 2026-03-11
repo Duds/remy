@@ -71,7 +71,13 @@ If HEARTBEAT.md is missing, the heartbeat runs using this template.
 
 ## Date-sensitive memory
 
-Before surfacing any date-specific memory fact (e.g. anniversaries, one-off dates), verify current date. Surface only when today is that date or within an explicit lead-up window (e.g. 1–3 days before); otherwise do not mention it. Do not surface facts whose date is far in the future or past in the current context.
+**Critical:** Before surfacing any date-specific fact (anniversaries, death dates, birthdays, one-off dates), verify today's date in the Current state block.
+
+- **today is that date** → surface normally
+- **1–3 days before** → may surface with explicit framing ("coming up in N days")
+- **>3 days away** → do NOT surface; let the scheduled reminder handle it when due
+
+The reminders list passed to you is already filtered: one-time reminders more than 3 days in the future are excluded. Do not mention them. Do not repeat a date-sensitive or wellbeing message you have already sent today (check already_surfaced_today).
 
 ---
 

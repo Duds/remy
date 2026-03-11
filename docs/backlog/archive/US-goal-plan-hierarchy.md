@@ -87,5 +87,5 @@ Add a short "Goal vs plan" note to [CLAUDE.md](CLAUDE.md) or an agent-facing doc
 ## Out of Scope
 
 - Multiple goals per plan; DAG of goals; automatic creation of goals from plans.
-- Changing relay/task system (those are inter-agent tasks, not user goal/plan steps).
+- Changing inter-agent task system (not user goal/plan steps).
 - Ad-hoc tasks that exist without a plan (steps remain always under a plan).

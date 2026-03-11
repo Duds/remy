@@ -54,7 +54,10 @@ def make_registry(**kwargs) -> ToolRegistry:
         model_complex="claude-sonnet-4-6",
     )
     defaults.update(kwargs)
-    return ToolRegistry(**defaults)
+    from remy.ai.tools.context import ToolContext
+
+    ctx = ToolContext(**defaults)
+    return ToolRegistry(ctx)
 
 
 USER_ID = 42

@@ -1,14 +1,13 @@
-# Paperclip → Remy Ideas
+# Agent Patterns for Remy
 
-> Researched from https://github.com/paperclipai/paperclip on 2026-03-08.
-> Paperclip is a Node.js agent orchestration platform ("If an agent is an employee, Paperclip is the company").
+> Researched patterns from agent orchestration platforms (e.g. heartbeat protocol, PARA memory, approval gates).
 > Below are features worth porting or adapting into Remy, ordered by estimated impact.
 
 ---
 
 ## 1. PARA Memory Files (High Impact)
 
-**What paperclip does:**
+**Pattern:**
 Three-layer persistent memory using Tiago Forte's PARA method:
 
 - **Layer 1 — Knowledge Graph** (`$AGENT_HOME/life/`): Entity folders (projects, areas/people, areas/companies, resources, archives), each with:
@@ -39,7 +38,7 @@ superseded_by: "updated fact content here"
 
 ## 2. `qmd` — Semantic Memory Search CLI (Medium Impact)
 
-**What paperclip does:**
+**Pattern:**
 Uses a `qmd` command-line tool for searching the PARA memory store:
 ```sh
 qmd query "question"    # semantic search with reranking
@@ -54,7 +53,7 @@ qmd index $AGENT_HOME   # index personal folder
 
 ## 3. Formal Heartbeat Protocol — 9-Step Work Procedure (High Impact)
 
-**What paperclip does:**
+**Pattern:**
 Every agent heartbeat follows a structured 9-step loop:
 
 1. **Identity** — Fetch own metadata (verify you're the right agent)
@@ -79,7 +78,7 @@ Every agent heartbeat follows a structured 9-step loop:
 
 ## 4. Blocked-Task Deduplication (Medium Impact)
 
-**What paperclip does:**
+**Pattern:**
 When scanning assigned tasks, skip a blocked task entirely if **your own prior comment was the last update**. This prevents the agent from re-commenting "still blocked" on every heartbeat, which wastes budget and creates noise.
 
 **For Remy:** Relay tasks can get stuck in `needs_clarification`. Remy should track whether it already posted a message about a blocked task and skip re-pinging cowork until cowork responds.
@@ -88,7 +87,7 @@ When scanning assigned tasks, skip a blocked task entirely if **your own prior c
 
 ## 5. Budget Enforcement / Cost Control (High Impact)
 
-**What paperclip does:**
+**Pattern:**
 - Per-agent monthly budget cap
 - Auto-pause at 100% utilisation
 - At >80%, focus only on critical/high-priority tasks, defer lower-priority work
@@ -99,7 +98,7 @@ When scanning assigned tasks, skip a blocked task entirely if **your own prior c
 
 ## 6. Approval Gates (Medium Impact)
 
-**What paperclip does:**
+**Pattern:**
 Before certain high-stakes actions, an agent must POST an approval request and wait for a board member to approve or reject. The heartbeat is re-triggered with the approval result as context.
 
 **For Remy:** Remy currently handles Gmail deletes and label operations without confirmation. An approval gate — asking Dale via Telegram inline button before executing a bulk delete — would prevent accidents. This maps naturally to Remy's existing inline callback system.
@@ -108,7 +107,7 @@ Before certain high-stakes actions, an agent must POST an approval request and w
 
 ## 7. Goal Ancestry Chains (Medium Impact)
 
-**What paperclip does:**
+**Pattern:**
 Every task carries a `goalId` pointing to its parent goal. Subtasks carry both `parentId` (immediate parent issue) and `goalId` (top-level objective). This means agents always know *why* they're doing a task, not just *what*.
 
 **For Remy:** Remy has `plans` linked to `goals` (one-to-one). Extending this to support deep chains — plan step → plan → goal → higher-order goal — would allow Remy to explain decisions ("I'm labelling these emails as 4-Personal because it supports your goal 'reduce inbox cognitive load', which supports 'better focus during work hours'").
@@ -117,7 +116,7 @@ Every task carries a `goalId` pointing to its parent goal. Subtasks carry both `
 
 ## 8. Outgoing Webhooks for Agent Events (Lower Impact)
 
-**What paperclip does (PR #303):**
+**Pattern (PR #303):**
 Adds outgoing webhooks fired on agent events (task status changes, new comments, approvals). External systems can subscribe.
 
 **For Remy:** Remy has a health server on port 8080. Adding webhook dispatch when relay tasks complete (or when a plan step finishes) would let cowork poll or subscribe rather than relying only on relay messages. Lower priority but clean integration point.
@@ -126,7 +125,7 @@ Adds outgoing webhooks fired on agent events (task status changes, new comments,
 
 ## 9. Idempotency Keys for Recurring Task Creation (Medium Impact)
 
-**What paperclip does (PR #282):**
+**Pattern (PR #282):**
 Prevents duplicate issues when a recurring trigger fires twice (e.g. cron overlap). Each recurring issue creation includes an `idempotencyKey`; the backend deduplicates.
 
 **For Remy:** Remy's automation cron jobs run inside APScheduler, which is generally safe, but startup reconciliation (running missed daily jobs) can occasionally fire a job twice if the process crashes at the wrong moment. Adding an idempotency key to background_jobs (e.g. `date + job_type`) would prevent double-execution.
@@ -135,7 +134,7 @@ Prevents duplicate issues when a recurring trigger fires twice (e.g. cron overla
 
 ## 10. Auto-Requeue on Failure (Medium Impact)
 
-**What paperclip does (PR #278):**
+**Pattern (PR #278):**
 If an agent's heartbeat crashes mid-task, the task is automatically re-queued rather than left in a zombie `in_progress` state. A configurable retry count + backoff.
 
 **For Remy:** Relay tasks that Remy claims (`in_progress`) but fails to complete (e.g. Gmail API error) stay stuck. Adding a timeout + auto-revert to `pending` after N minutes would allow cowork to reassign them.
@@ -144,7 +143,7 @@ If an agent's heartbeat crashes mid-task, the task is automatically re-queued ra
 
 ## 11. Portable Company Templates / "ClipMart" (Lower Impact)
 
-**What paperclip does (planned):**
+**Pattern (planned):**
 Export an entire agent configuration (goals, plans, agent roles, skill assignments) as a template. Import into a new instance with secrets scrubbed.
 
 **For Remy:** Not directly applicable since Remy is single-user, but the concept of exportable SOUL.md + config templates (without secrets) is useful for sharing Remy setups across Dale's machines or for open-sourcing personality configs.
@@ -153,7 +152,7 @@ Export an entire agent configuration (goals, plans, agent roles, skill assignmen
 
 ## 12. Permission System — `canCreateTasks` (Lower Impact)
 
-**What paperclip does (PR #301):**
+**Pattern (PR #301):**
 Agents have explicit permissions. `canCreateTasks` controls whether an agent can spawn new subtasks or only work on assigned ones.
 
 **For Remy:** If Remy gains the ability to spawn cowork subtasks via relay, adding a permission flag in config (`RELAY_CAN_CREATE_TASKS=true/false`) would prevent runaway task creation.
@@ -180,13 +179,13 @@ Agents have explicit permissions. `canCreateTasks` controls whether an agent can
 
 ---
 
-## Addendum: Additional Patterns from Paperclip Docs
+## Addendum: Additional Patterns
 
-*(Sourced from `docs/guides/agent-developer/` — found during deeper crawl)*
+*(Sourced from agent platform docs — routing, audit, discipline)*
 
 ### Skill Files per Task Type
 
-Paperclip skills use YAML frontmatter as routing metadata:
+Agent skills use YAML frontmatter as routing metadata:
 ```yaml
 ---
 name: gmail-labeling
@@ -199,31 +198,15 @@ The agent reads skill metadata first, then decides whether to load full instruct
 
 ### Session-End Audit Note
 
-Post a `relay_post_note` at the end of every session summarizing what was done:
-```python
-relay_post_note(
-    from_agent="remy",
-    content="Session 2026-03-08: labelled 47 emails (4-Personal), trashed 12 LinkedIn. 1 task needs_clarification (label missing).",
-    tags=["session-log", "2026-03-08", "gmail"]
-)
-```
-Creates a searchable audit trail across sessions. **Already possible with Remy's relay tools — just needs to be added to CLAUDE.md as a closing step.**
+At the end of every session, summarize what was done in a session log. Creates a searchable audit trail across sessions.
 
 ### Decision Documentation
 
-When Remy makes a non-obvious call (e.g. skipping a missing label instead of creating it), post a note:
-```python
-relay_post_note(
-    from_agent="remy",
-    content="Decision: skipped label '5-Hobbies' — not found, didn't create to avoid polluting label list.",
-    tags=["decision", "gmail", "2026-03-08"]
-)
-```
-Builds a record of judgment calls cowork can review.
+When Remy makes a non-obvious call (e.g. skipping a missing label instead of creating it), document the decision in notes. Builds a record of judgment calls for later review.
 
-### @-Mention Discipline
+### Task Discipline
 
-Paperclip enforces: **messages = FYIs / clarifications; tasks = authoritative work units.** Don't use `relay_post_message` to create assignments — use `relay_update_task`. Each message to cowork costs budget and triggers a heartbeat. Reserve messages for genuine blockers or handoffs.
+Enforces: **messages = FYIs / clarifications; tasks = authoritative work units.** Reserve messages for genuine blockers or handoffs.
 
 ### "Never Silent on Blocked Work"
 
@@ -233,11 +216,3 @@ Before setting a task to `needs_clarification`, always:
 3. Never just leave a task in `in_progress` without a comment
 
 This prevents zombie tasks and gives cowork enough context to unblock without back-and-forth.
-
-### Sources (Paperclip docs)
-
-- [heartbeat-protocol.md](https://github.com/paperclipai/paperclip/blob/master/docs/guides/agent-developer/heartbeat-protocol.md)
-- [task-workflow.md](https://github.com/paperclipai/paperclip/blob/master/docs/guides/agent-developer/task-workflow.md)
-- [comments-and-communication.md](https://github.com/paperclipai/paperclip/blob/master/docs/guides/agent-developer/comments-and-communication.md)
-- [writing-a-skill.md](https://github.com/paperclipai/paperclip/blob/master/docs/guides/agent-developer/writing-a-skill.md)
-- [adapters/overview.md](https://github.com/paperclipai/paperclip/blob/master/docs/adapters/overview.md)

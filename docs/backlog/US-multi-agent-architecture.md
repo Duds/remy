@@ -1,6 +1,6 @@
 # US: Multi-Agent Architecture (Leaf + Sub-Agent Pattern)
 
-**Status:** Backlog
+**Status:** 🔄 In progress (Researcher sub-agent + hand_off_to_researcher; PBI-1,2,5 partial)
 **Phase:** 7 (Step 3 — Claude Agent SDK Subagents)
 **Priority:** S (Should Have)
 

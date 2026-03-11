@@ -375,6 +375,41 @@ class ProactiveScheduler:
                 e,
             )
 
+        # PARA weekly summary rewrite (US-para-memory) — Sunday 03:00
+        try:
+            from ..memory.para import PARAStore, PARA_ENTITY_TYPES
+
+            async def _para_weekly_summary() -> None:
+                store = PARAStore()
+                for type_key in PARA_ENTITY_TYPES:
+                    for entity_id in store.list_entity_ids(type_key):
+                        try:
+                            store.rewrite_summary(type_key, entity_id)
+                        except Exception as e:
+                            logger.warning(
+                                "PARA weekly summary failed %s/%s: %s",
+                                type_key,
+                                entity_id,
+                                e,
+                            )
+
+            self._scheduler.add_job(
+                _para_weekly_summary,
+                trigger=CronTrigger(
+                    minute=0,
+                    hour=3,
+                    day_of_week="sun",
+                    timezone=settings.scheduler_timezone,
+                ),
+                id="para_weekly_summary",
+                replace_existing=True,
+                misfire_grace_time=7200,
+                coalesce=True,
+            )
+            logger.info("PARA weekly summary job scheduled (Sun 03:00)")
+        except Exception as e:
+            logger.debug("PARA weekly summary job not scheduled: %s", e)
+
         # Counter daily auto-increment (00:01 user TZ) — e.g. sobriety_streak +1 each day
         if self._counter_store is not None:
             from zoneinfo import ZoneInfo

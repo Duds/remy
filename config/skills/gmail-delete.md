@@ -2,7 +2,7 @@
 
 ## When to use this skill
 
-Apply this skill when executing a `gmail_delete` relay task.  The task `params` will contain:
+Apply this skill when executing a `gmail_delete` task.  The task `params` will contain:
 - `query` — Gmail search query identifying emails to trash
 
 Trashing is irreversible in practice (Gmail empties trash after 30 days).
@@ -49,12 +49,9 @@ Emails matching these patterns are almost always safe to trash:
 
 ## Result format
 
+Report the result to the user:
 ```
-relay_update_task(
-    task_id="...",
-    status="done",
-    result="Trashed 87 emails matching query 'from:notifications@linkedin.com older_than:14d'. 0 errors."
-)
+Trashed 87 emails matching query 'from:notifications@linkedin.com older_than:14d'. 0 errors.
 ```
 
 ---

@@ -1,11 +1,11 @@
 """
-Integration test: spawn a sub-agent that is required to use tools.
+Integration test: max_iterations yields step-limit (Bug 47 — no auto Board hand-off).
 
 Proves the full path:
-  1. Main agent hits max_iterations → HandOffToSubAgent(topic) is yielded.
-  2. We run a "sub-agent" coroutine (simulating what the handler does).
-  3. The sub-agent uses the tool registry (e.g. get_current_time) and returns a result.
-  4. We assert hand-off was received, sub-agent ran, tool was dispatched, result is valid.
+  1. Main agent hits max_iterations → StepLimitReached is yielded (not HandOffToSubAgent).
+  2. Step-limit message text is present (Continue / Break down / Stop).
+  3. Sub-agent simulation: when we have a topic, we can run a coroutine that uses tools
+     (tests the pattern; Board hand-off is explicit user opt-in only).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from remy.ai.claude_client import ClaudeClient, HandOffToSubAgent
+from remy.ai.claude_client import ClaudeClient, StepLimitReached, TextChunk
 from remy.ai.tools import ToolRegistry
 
 
@@ -61,24 +61,24 @@ def _make_tool_use_stream(
 
 
 @pytest.mark.asyncio
-async def test_hand_off_then_subagent_uses_tools(tmp_path):
+async def test_max_iterations_yields_step_limit_not_board_handoff(tmp_path):
     """
-    When main agent hits max_iterations we get HandOffToSubAgent; we then run
-    a sub-agent coroutine that dispatches a tool and returns its result.
+    When main agent hits max_iterations we get StepLimitReached (Bug 47: no auto Board hand-off).
+    Board = explicit user opt-in only; step-limit UI (Continue / Break down / Stop) is shown.
     """
-    # 1. Mock stream to hit max_iterations (e.g. 2): two tool_use iterations, then we exit and yield hand-off
     stream1 = _make_tool_use_stream("get_current_time", "toolu_1")
-    stream2 = _make_tool_use_stream("get_goals", "toolu_2")  # second iteration
+    stream2 = _make_tool_use_stream("get_goals", "toolu_2")
 
     client = ClaudeClient.__new__(ClaudeClient)
     client._client = MagicMock()
     client._client.messages.stream = MagicMock(side_effect=[stream1, stream2])
 
-    registry = ToolRegistry(logs_dir=str(tmp_path))
-    dispatch_calls: list[tuple[str, dict]] = []
+    from remy.ai.tools.context import ToolContext
+
+    ctx = ToolContext(logs_dir=str(tmp_path))
+    registry = ToolRegistry(ctx)
 
     async def record_dispatch(name, inp, uid, chat_id=None, message_id=None):
-        dispatch_calls.append((name, inp))
         if name == "get_current_time":
             from remy.ai.tools.time import exec_get_current_time
 
@@ -101,28 +101,12 @@ async def test_hand_off_then_subagent_uses_tools(tmp_path):
         ):
             events.append(event)
 
-    hand_offs = [e for e in events if isinstance(e, HandOffToSubAgent)]
-    assert len(hand_offs) == 1, "Expected one HandOffToSubAgent after max_iterations"
-    topic = hand_offs[0].topic
-    assert topic, "Hand-off topic must be non-empty"
-
-    # 2. Simulate handler: run a sub-agent that uses tools (same registry)
-    async def run_subagent(reg: ToolRegistry, hand_off_topic: str, user_id: int) -> str:
-        """Sub-agent that must use a tool to answer (e.g. get current time for context)."""
-        time_result = await reg.dispatch("get_current_time", {}, user_id, None, None)
-        return f"Sub-agent received topic: {hand_off_topic[:50]}. Current time: {time_result[:80]}."
-
-    subagent_result = await run_subagent(registry, topic, USER_ID)
-
-    # 3. Assert sub-agent ran and used tools
-    assert "Sub-agent received topic" in subagent_result
-    assert "Current time" in subagent_result
-    assert "Australia" in subagent_result or "Canberra" in subagent_result, (
-        "get_current_time should return AU time"
-    )
-    # Main stream already dispatched get_current_time and get_goals (2 iterations); sub-agent dispatched get_current_time again
-    assert any(c[0] == "get_current_time" for c in dispatch_calls)
-    assert len(dispatch_calls) >= 1
+    step_limits = [e for e in events if isinstance(e, StepLimitReached)]
+    assert len(step_limits) == 1, "Expected StepLimitReached after max_iterations (Bug 47)"
+    step_text = [
+        e.text for e in events if isinstance(e, TextChunk) and "step limit" in (e.text or "").lower()
+    ]
+    assert step_text, "Expected step-limit message text"
 
 
 @pytest.mark.asyncio
@@ -130,7 +114,10 @@ async def test_subagent_tool_sequence_recorded(tmp_path):
     """
     Sub-agent runs multiple tool calls in sequence; we record and assert the order.
     """
-    registry = ToolRegistry(logs_dir=str(tmp_path))
+    from remy.ai.tools.context import ToolContext
+
+    ctx = ToolContext(logs_dir=str(tmp_path))
+    registry = ToolRegistry(ctx)
     sequence: list[str] = []
 
     async def record_dispatch(name, inp, uid, chat_id=None, message_id=None):

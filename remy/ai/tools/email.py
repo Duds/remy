@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -12,6 +13,55 @@ if TYPE_CHECKING:
     from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+async def exec_triage_inbox(registry: ToolRegistry, inp: dict, user_id: int) -> str:
+    """Start background email triage job (US-email-triage-subagent)."""
+    if registry._gmail is None:
+        return "Gmail not configured. Run scripts/setup_google_auth.py to set it up."
+    job_store = getattr(registry, "_job_store", None)
+    bot = getattr(registry, "_current_bot", None)
+    chat_id = getattr(registry, "_current_chat_id", None)
+    thread_id = getattr(registry, "_current_thread_id", None)
+    if not job_store or not bot or chat_id is None:
+        return (
+            "I can't start triage from here. Try again from a chat so I can message you when done."
+        )
+    # Database needed to load taxonomy from knowledge table
+    knowledge_store = getattr(registry, "_knowledge_store", None)
+    db = getattr(knowledge_store, "_db", None) if knowledge_store else None
+    if db is None:
+        return "Triage unavailable: database not configured for this session."
+
+    from ...agents.background import BackgroundTaskRunner
+    from ...agents.email_triage_agent import run_email_triage
+    from telegram.constants import ChatAction
+
+    job_id = await job_store.create(user_id, "email_triage", "")
+    async def _coro() -> str:
+        return await run_email_triage(
+            user_id,
+            registry._gmail,
+            db,
+            registry._claude_client,
+        )
+    try:
+        from ...bot.working_message import WorkingMessage
+        working_message = WorkingMessage(bot, chat_id, thread_id=thread_id)
+        await working_message.start()
+    except Exception:
+        working_message = None
+    runner = BackgroundTaskRunner(
+        bot,
+        chat_id,
+        job_store=job_store,
+        job_id=job_id,
+        working_message=working_message,
+        thread_id=thread_id,
+        chat_action=ChatAction.UPLOAD_DOCUMENT,
+    )
+    asyncio.create_task(runner.run(_coro(), label="email triage"))
+    return "Triage started. I'll message you when done."
 
 
 def _scope_to_label_ids_and_description(
@@ -170,15 +220,17 @@ async def exec_label_emails(registry: ToolRegistry, inp: dict) -> str:
     if not add_labels and not remove_labels:
         return "Please provide add_labels or remove_labels (or both)."
 
-    # Approval gate: bulk label/trash operations require confirmation (paperclip-ideas §4).
+    # Approval gate: bulk delete >5, bulk label >10 (US-approval-gates)
     from ..bot.handlers.callbacks import (
-        BULK_EMAIL_APPROVAL_THRESHOLD,
+        _gmail_delete_threshold,
+        _gmail_label_threshold,
         store_bulk_email_approval,
     )
 
     is_trash = "TRASH" in [lbl.upper() for lbl in add_labels]
     action_label = "trash" if is_trash else "label"
-    if len(message_ids) > BULK_EMAIL_APPROVAL_THRESHOLD:
+    threshold = _gmail_delete_threshold() if is_trash else _gmail_label_threshold()
+    if len(message_ids) > threshold:
         user_id: int = getattr(registry, "_current_user_id", 0)
         token = store_bulk_email_approval(
             user_id=user_id,

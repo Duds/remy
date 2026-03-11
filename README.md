@@ -123,7 +123,6 @@ So: **build** and **run** both use `.env`; set `HF_TOKEN` there (get a read toke
 | Service | Port | Description |
 |---|---|---|
 | `remy` | 8080 | Main bot + health server |
-| `relay` | 8765 (localhost only) | Relay MCP — inter-agent communication (Claude Code) |
 | `ollama` | 11434 | Local LLM fallback |
 | `cloudflared` | — | Cloudflare Tunnel (optional — `--profile tunnel`) |
 
@@ -132,53 +131,6 @@ So: **build** and **run** both use `.env`; set `HF_TOKEN` there (get a read toke
 The `remy` image includes Node.js and the **Claude Code CLI** (`@anthropic-ai/claude-code`) so the `run_claude_code` sub-agent tool works in Docker without extra setup.
 
 **Indexing Google Drive in Docker (RAG, including PDF/DOCX and OCR):** Mount your Drive into the container and point Remy at it. In `.env`: set `GDRIVE_MOUNT_PATH` to your **host** path (e.g. `$HOME/Library/CloudStorage/GoogleDrive-<your-email>/My Drive`) and `GDRIVE_MOUNT_PATHS=/home/remy/GoogleDrive` so Remy inside the container indexes the mounted files. The image includes Tesseract for PDF OCR; PDF and DOCX parsing use the same RAG pipeline as local files.
-
----
-
-## Claude Desktop & Cursor (relay MCP)
-
-Remy and cowork (Claude Desktop) share one relay backend so messages and tasks flow both ways. **Use a single relay process** (e.g. `make remy-up` or `make relay-run`) and point both Cursor and Claude Desktop at it.
-
-**Cursor:** The Remy project includes `.cursor/mcp.json` with the relay — it uses the shared HTTP endpoint `http://127.0.0.1:8765/mcp` (no per-session stdio). Restart Cursor after pulling.
-
-**Full setup:** See [docs/relay-setup.md](docs/relay-setup.md) for the shared backend and [docs/agent-tooling-setup.md](docs/agent-tooling-setup.md) for MCP, hooks, and skills.
-
-### Requirements
-
-1. **Relay server running** — Start before using Claude Desktop:
-   ```bash
-   make remy-up       # Docker (remy + relay + ollama)
-   # or
-   make relay-run     # Local Python (relay only)
-   ```
-   Verify: `make relay-check`
-
-2. **uv** (for mcp-proxy) — Claude Desktop uses stdio; the relay uses HTTP. `mcp-proxy` bridges them:
-   ```bash
-   brew install uv
-   # or: pip install uv
-   ```
-
-3. **Config** — `~/Library/Application Support/Claude/claude_desktop_config.json` should include:
-   ```json
-   "relay": {
-     "command": "uvx",
-     "args": ["mcp-proxy", "--transport", "streamablehttp", "http://127.0.0.1:8765/mcp"]
-   }
-   ```
-
-4. **Restart Claude Desktop** — Fully quit and reopen after editing config.
-
-### Start at login (macOS)
-
-To have remy + relay + ollama start automatically when you log in:
-
-```bash
-make install-launchd   # Install LaunchAgent (runs at login)
-make uninstall-launchd # Remove LaunchAgent
-```
-
-Requires Docker Desktop (set to "Open at login" in Docker preferences).
 
 ---
 
@@ -194,13 +146,10 @@ make test-cov       # Run tests with coverage report
 make lint           # ruff + mypy
 ```
 
-### Relay (Claude Desktop)
+### Remy stack
 
 ```bash
-make remy-up            # Start remy + relay + ollama (Docker)
-make relay-run          # Run relay server locally (no Docker)
-make relay-check        # Verify relay is reachable on port 8765
-make relay-setup-check  # Verify relay + uv (full Claude Desktop setup)
+make remy-up           # Start remy + ollama (Docker)
 ```
 
 ### Start at login (macOS)
@@ -229,7 +178,7 @@ make db             # Open Datasette browser at http://localhost:8001
 ### Cloudflare Tunnel
 
 ```bash
-make tunnel-up      # Start remy + relay + ollama + cloudflared
+make tunnel-up      # Start remy + ollama + cloudflared
 make tunnel-stop    # Stop all including tunnel
 make tunnel-logs    # Follow cloudflared logs
 ```
@@ -240,7 +189,7 @@ make tunnel-logs    # Follow cloudflared logs
 
 - **[docs/README.md](docs/README.md)** — Documentation index (architecture, setup, backlog).
 - **Current-state:** [Concept Design](docs/architecture/concept-design.md), [HLD](docs/architecture/HLD.md), [SAD](docs/architecture/remy-SAD.md), [SAD design decisions](docs/architecture/remy-sad-v10.md).
-- **Setup:** [Server setup](docs/SERVER-SETUP.md), [Relay setup](docs/relay-setup.md), [Agent tooling](docs/agent-tooling-setup.md).
+- **Setup:** [Server setup](docs/SERVER-SETUP.md), [Agent tooling](docs/agent-tooling-setup.md).
 
 ---
 
@@ -257,7 +206,6 @@ remy/
 │   ├── google/         # Gmail, Calendar, Contacts clients
 │   ├── hooks/          # Lifecycle hooks (before/after compaction, etc.)
 │   ├── memory/         # SQLite stores: goals, plans, facts, conversations
-│   ├── relay/          # Relay MCP client (inter-agent communication)
 │   ├── scheduler/      # Morning briefing, evening check-in, proactive jobs
 │   ├── health.py       # HTTP health server (aiohttp) — /health, /metrics, /logs, /telemetry
 │   └── web/            # DuckDuckGo search, price check
@@ -270,7 +218,6 @@ remy/
 │   ├── init_db.py             # Initialise database schema
 │   └── uat.py                 # User acceptance test runner
 ├── tests/              # pytest suite
-├── relay_mcp/          # Relay MCP server (inter-agent communication)
 ├── docker-compose.yml
 ├── Makefile
 └── .env.example
@@ -348,7 +295,6 @@ All persistent data lives in `./data/` (mounted into the container):
 - `data/remy.db` — SQLite database (users, goals, plans, facts, API call log)
 - `data/sessions/` — Conversation transcripts as JSONL files (`user_{id}_{YYYYMMDD}.jsonl`)
 - `data/google_token.json` — Google OAuth tokens
-- `data/relay.db` — Relay MCP message queue
 
 The `data/` directory is gitignored. Back it up before wiping containers.
 

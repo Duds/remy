@@ -1,9 +1,9 @@
-# User Story: Budget Enforcement / Monthly Cost Cap (Paperclip-inspired)
+# User Story: Budget Enforcement / Monthly Cost Cap
 
 **Status:** ✅ Done
 **Priority:** ⭐⭐⭐ High
 **Effort:** Low
-**Source:** [docs/paperclip-ideas.md §5](../../paperclip-ideas.md)
+**Source:** [docs/ideas.md §5](../../ideas.md)
 
 ## Summary
 
@@ -20,7 +20,7 @@ Remy already logs API costs per model call in the `api_calls` table (via `remy/a
 - No blocking of low-priority calls when over budget
 - Budget status not surfaced in the morning briefing
 
-Paperclip implements this as: per-agent monthly budget → auto-pause at 100% → deprioritise non-critical work at >80%.
+A typical pattern: per-agent monthly budget → auto-pause at 100% → deprioritise non-critical work at >80%.
 
 ---
 
@@ -29,7 +29,7 @@ Paperclip implements this as: per-agent monthly budget → auto-pause at 100% �
 1. **Config variable.** `MONTHLY_BUDGET_USD` in `.env` (default: `None` = unlimited). When set, enforces the cap.
 2. **Usage query.** `analytics/costs.py` exposes `get_month_spend() -> float` returning total USD spent in the current calendar month.
 3. **80% warning.** When month spend crosses 80% of budget, Remy sends Dale a Telegram notification once per day: "⚠️ You've used $X of your $Y monthly budget (Z%)."
-4. **100% block.** When month spend reaches 100%, non-critical Claude API calls are refused with a message: "Monthly budget exhausted. Only high-priority tasks will proceed." Critical tasks (goal/plan creation, relay task handling, heartbeat) are exempt.
+4. **100% block.** When month spend reaches 100%, non-critical Claude API calls are refused with a message: "Monthly budget exhausted. Only high-priority tasks will proceed." Critical tasks (goal/plan creation, heartbeat) are exempt.
 5. **Morning briefing integration.** If `MONTHLY_BUDGET_USD` is set, the morning briefing includes a one-liner: "API budget: $X / $Y used (Z%)."
 6. **No regression.** Calls continue normally when `MONTHLY_BUDGET_USD` is unset.
 

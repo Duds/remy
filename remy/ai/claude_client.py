@@ -254,6 +254,7 @@ class ClaudeClient:
         usage_out: TokenUsage | None = None,
         chat_id: int | None = None,
         message_id: int | None = None,
+        max_iterations: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """
         Agentic tool-use loop: stream Claude's response, handle tool calls,
@@ -290,7 +291,11 @@ class ClaudeClient:
             message_preview=hand_off_topic or "",
         )
 
-        max_iterations = settings.anthropic_max_tool_iterations
+        max_iterations = (
+            max_iterations
+            if max_iterations is not None
+            else settings.anthropic_max_tool_iterations
+        )
         for iteration in range(max_iterations):
             logger.debug(
                 "stream_with_tools iteration %d/%d, messages=%d",
@@ -638,23 +643,25 @@ class ClaudeClient:
             "max_iterations_reached",
             extra={"user_id": user_id, "iterations": max_iterations},
         )
-        # Hand off to sub-agent (Board) instead of step-limit message (consolidation)
-        handoff_text = "\n\n_Handing off to the Board to continue._"
-        handoff_ev = TextChunk(text=handoff_text)
-        yield handoff_ev
+        # Bug 47: Do NOT auto-hand-off to Board. Board = explicit user opt-in only.
+        # Show step-limit UI (Continue / Break down / Stop) instead.
+        step_limit_text = (
+            "\n\n_I've hit my step limit for this turn. "
+            "Tap Continue to keep going, Break down for smaller steps, or Stop._"
+        )
+        step_text_ev = TextChunk(text=step_limit_text)
+        yield step_text_ev
         chunk_logger.log_stream_event(
-            handoff_ev,
+            step_text_ev,
             user_id=user_id,
             chat_id=chat_id,
             message_id=message_id,
             iteration=max_iterations - 1,
         )
-        handoff_sub = HandOffToSubAgent(
-            topic=hand_off_topic or "Continue from previous turn"
-        )
-        yield handoff_sub
+        step_ev = StepLimitReached()
+        yield step_ev
         chunk_logger.log_stream_event(
-            handoff_sub,
+            step_ev,
             user_id=user_id,
             chat_id=chat_id,
             message_id=message_id,

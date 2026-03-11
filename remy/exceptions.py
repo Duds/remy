@@ -16,11 +16,6 @@ class StorageError(RemyError):
     pass
 
 
-# Backwards compatibility alias (deprecated: use StorageError instead)
-# Note: This shadows the builtin MemoryError, which was the reason for renaming.
-MemoryError = StorageError
-
-
 class SessionError(RemyError):
     """Raised when session state is corrupted or missing."""
     pass
@@ -28,4 +23,19 @@ class SessionError(RemyError):
 
 class CancelledError(RemyError):
     """Raised when an operation is explicitly cancelled by the user."""
+    pass
+
+
+class ToolExecutionError(RemyError):
+    """Raised when a tool executor fails (e.g. API error, validation)."""
+    pass
+
+
+class RateLimitError(RemyError):
+    """Raised when rate limit is exceeded."""
+    pass
+
+
+class ValidationError(RemyError):
+    """Raised when input validation fails."""
     pass

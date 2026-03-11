@@ -1,4 +1,4 @@
-"""Outgoing webhook system (paperclip-ideas §L).
+"""Outgoing webhook system (docs/ideas.md §8).
 
 Supports subscribing external URLs to internal events and firing them
 with retries when those events occur.

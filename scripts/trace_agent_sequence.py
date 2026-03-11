@@ -51,7 +51,10 @@ async def main() -> None:
         sys.exit(1)
 
     # Minimal registry (goal_store etc. None). get_current_time works; get_goals may return an error string.
-    registry = ToolRegistry(logs_dir=str(_repo / "logs"))
+    from remy.ai.tools.context import ToolContext
+
+    ctx = ToolContext(logs_dir=str(_repo / "logs"))
+    registry = ToolRegistry(ctx)
 
     client = ClaudeClient()
     prompt = (

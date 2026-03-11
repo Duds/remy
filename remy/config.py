@@ -117,6 +117,8 @@ class Settings(BaseSettings):
     fact_merge_threshold: float = (
         0.15  # ANN cosine distance below which facts are merged
     )
+    # PARA memory hierarchy (US-para-memory): projects, areas, resources, archives
+    para_home_path: str = ""  # Empty = data_dir/para
 
     # Token budget controls (cost and latency safeguards)
     max_input_tokens_per_request: int = 50_000  # Hard ceiling for input context
@@ -148,6 +150,10 @@ class Settings(BaseSettings):
     # ── Rate limiting ───────────────────────────────────────────────────────────
     rate_limit_per_minute: int = 10
     max_concurrent_per_user: int = 2
+    task_timeout_seconds: int = 7200  # 2 hours — per-task timeout before cancel
+    incoming_webhook_rate_limit: int = 60  # requests per minute per IP
+    history_token_budget_ratio: float = 0.7  # 70% of max_input_tokens for history
+    min_preserved_messages: int = 4  # Minimum message pairs to keep when trimming
     max_message_length: int = 10_000
     max_command_length: int = 500
 
@@ -205,6 +211,14 @@ class Settings(BaseSettings):
         10  # Smaller window for tool-heavy flows (future use)
     )
 
+    # ── Approval gates (US-approval-gates) ─────────────────────────────────────
+    # Gmail bulk delete: require confirmation above this many emails (default 5)
+    approval_gmail_delete_threshold: int = 5
+    # Gmail bulk label: require confirmation above this many emails (default 10)
+    approval_gmail_label_threshold: int = 10
+    # File write: require confirmation above this many bytes (default 10 KB)
+    approval_file_write_threshold_bytes: int = 10 * 1024
+
     # ── File indexing ───────────────────────────────────────────────────────────
     file_index_chunk_chars: int = 1500
     file_index_overlap_chars: int = 200
@@ -240,7 +254,7 @@ class Settings(BaseSettings):
     subagent_synth_model: str = "claude-sonnet-4-20250514"  # Tier 2 — synthesis
     task_md_path: str = "config/TASK.md"  # Orchestrator behaviour config
 
-    # ── Monthly budget enforcement (paperclip-ideas §5) ─────────────────────
+    # ── Monthly budget enforcement (docs/ideas.md §5) ─────────────────────
     # Set to 0 to disable. Costs computed from api_calls table (Anthropic only).
     monthly_budget_aud: float = Field(
         default=80.0, description="Monthly LLM spend cap in AUD (0 = disabled)"

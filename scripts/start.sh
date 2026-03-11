@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # remy startup script — run by launchd LaunchAgent at login
-# Ensures Docker Desktop is running then starts remy + relay + ollama via docker compose.
+# Ensures Docker Desktop is running then starts remy + ollama via docker compose.
 # Uses detached mode (-d) so the script exits and containers run as daemons.
 set -e
 
@@ -23,6 +23,6 @@ until docker info >/dev/null 2>&1; do
     fi
 done
 
-# Start remy + relay + ollama in detached mode (daemon)
+# Start remy + ollama in detached mode (daemon)
 # Containers persist under Docker; script exits so launchd job completes
-docker compose --project-directory "$PROJECT_DIR" up -d remy relay ollama
+docker compose --project-directory "$PROJECT_DIR" up -d remy ollama

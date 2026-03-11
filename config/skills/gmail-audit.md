@@ -2,7 +2,7 @@
 
 ## When to use this skill
 
-Apply this skill when executing a `gmail_audit` relay task.  These tasks ask you to research, count, or summarise emails — no destructive action is taken.
+Apply this skill when executing a `gmail_audit` task.  These tasks ask you to research, count, or summarise emails — no destructive action is taken.
 
 ---
 
@@ -17,7 +17,7 @@ Apply this skill when executing a `gmail_audit` relay task.  These tasks ask you
 
 ## Report structure
 
-Your `result` in `relay_update_task` should follow this format:
+Your report should follow this format:
 
 ```
 Query: <exact query used>
@@ -58,10 +58,4 @@ Recommendation: Trash — all automated GitHub notifications, no action required
 
 ## Result format
 
-```
-relay_update_task(
-    task_id="...",
-    status="done",
-    result="<structured report above>"
-)
-```
+Present the structured report above to the user.

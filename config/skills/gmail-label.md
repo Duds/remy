@@ -2,7 +2,7 @@
 
 ## When to use this skill
 
-Apply this skill when executing a `gmail_label` relay task.  The task `params` will contain:
+Apply this skill when executing a `gmail_label` task.  The task `params` will contain:
 - `query` — Gmail search query identifying the emails to label
 - `label` — The label to apply (must already exist in Gmail unless creation is approved)
 
@@ -50,12 +50,9 @@ When the task specifies a label by description (e.g. "personal emails"), map it 
 
 ## Result format
 
+Report the result to the user in this format:
 ```
-relay_update_task(
-    task_id="...",
-    status="done",
-    result="Applied label '4-Personal & Family' to 32 emails matching query 'from:family.com'. 0 errors."
-)
+Applied label '4-Personal & Family' to 32 emails matching query 'from:family.com'. 0 errors.
 ```
 
 If any emails failed to label, report the count and a sample subject line.

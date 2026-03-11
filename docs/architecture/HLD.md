@@ -16,7 +16,7 @@ Remy is a **single-user personal AI assistant** that:
 - Uses **Claude** (Anthropic) as the primary model with **native tool use**.
 - Persists **memory** (goals, plans, facts, conversations) in SQLite and uses **sqlite-vec** for semantic search.
 - Runs **proactive behaviour** via an **evaluative heartbeat** (HEARTBEAT.md): only contacts the user when thresholds warrant it.
-- Handoff to Cursor/Claude Desktop is manual (relay feature removed; see [relay-removal.md](relay-removal.md)).
+- Handoff to Cursor/Claude Desktop is manual.
 
 ---
 

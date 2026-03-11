@@ -26,7 +26,7 @@ This ensures users never need to remember slash commands — Claude detects inte
 
 ## 🏗️ Architecture Principle: Remy as UI Layer, Subagents for Heavy Work
 
-**Remy should stay a thin UI and routing layer.** Telegram, relay, simple task routing, and quick replies live in Remy. Heavy or long-running work (Board of Directors, deep research, retrospective, reindex, consolidation) should be delegated to **parallel subagents** with their own models and tools, not run as fat coroutines inside Remy’s process. Today we use `BackgroundTaskRunner` for fire-and-forget; the target is **Phase 7 Step 3** (Claude Agent SDK subagents) so that board, research, etc. are true subagents and Remy just receives results and delivers them. New features that add heavy logic should be designed as subagent tasks, not as more code in the main handler path.
+**Remy should stay a thin UI and routing layer.** Telegram, simple task routing, and quick replies live in Remy. Heavy or long-running work (Board of Directors, deep research, retrospective, reindex, consolidation) should be delegated to **parallel subagents** with their own models and tools, not run as fat coroutines inside Remy’s process. Today we use `BackgroundTaskRunner` for fire-and-forget; the target is **Phase 7 Step 3** (Claude Agent SDK subagents) so that board, research, etc. are true subagents and Remy just receives results and delivers them. New features that add heavy logic should be designed as subagent tasks, not as more code in the main handler path.
 
 ---
 
@@ -382,7 +382,7 @@ Combines Telegram Bot API (inline keyboards, callbacks, chat actions) with Claud
 
 - [x] **Conversational briefing via Remy** (`US-conversational-briefing-via-remy`) — Morning briefing composed by Remy from structured data; Australian dates; natural voice. See `docs/backlog/US-conversational-briefing-via-remy.md`.
 - [x] **Calendar quick add** (`US-calendar-quick-add`) — [Add to calendar] on event mentions in briefings/summaries.
-- [x] **Send to cowork** (`US-send-to-cowork`) — [Send to cowork] on notes/summaries for one-tap relay handoff.
+- [x] **Send to cowork** (`US-send-to-cowork`) — archived; feature removed.
 - [x] **Chat actions for long tasks** — `upload_document` / `upload_photo` when research/board runs (instead of only `typing`).
 - [x] **Run again / different params** — [Run again] [New topic] on tool-heavy flows (research, board, web_search).
 - [ ] **Document/photo action buttons** — [Summarise] [Extract tasks] [Save] on attachments.
@@ -475,7 +475,7 @@ These were in my-agent and caused bloat. **Do not implement.**
 | **C**    | Conversational briefing via Remy (morning)                           | US-conversational-briefing-via-remy | ✅ Done                      |
 | **C**    | Calendar quick add from inline suggestions                           | US-calendar-quick-add               | ✅ Done                      |
 | **C**    | Send to cowork with one tap                                          | US-send-to-cowork                   | ✅ Done                      |
-| **S**    | Two-way Claude Desktop ↔ Remy relay (tools, /relay, briefing hook)   | US-claude-desktop-relay             | ✅ Done                      |
+| **S**    | Claude Desktop integration (archived; feature removed)               | US-claude-desktop-relay             | ✅ Done                      |
 | **S**    | Fix save_bookmark KnowledgeStore AttributeError                     | US-fix-save-bookmark-knowledge-store | ✅ Done                      |
 | **S**    | Cap tool iterations per turn (reduce latency)                         | US-cap-tool-iterations-per-turn    | ✅ Done                      |
 | **S**    | Step-limit message inline buttons (Continue / Break down / Stop)      | US-step-limit-buttons              | ✅ Done                      |

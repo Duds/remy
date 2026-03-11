@@ -948,25 +948,6 @@ Each agent receives the full thread of prior analyses, enabling iterative refine
 
 ---
 
-## Appendix C: Relay MCP Server
-
-The `relay_mcp` server enables inter-agent communication:
-
-```mermaid
-graph LR
-    Cowork[Cowork Agent] -->|relay_post_message| Relay[Relay MCP Server]
-    Relay -->|relay_get_messages| Remy[Remy Agent]
-    Remy -->|relay_update_task| Relay
-    Relay -->|relay_get_tasks| Cowork
-```
-
-**Tables:**
-- `messages` — Agent-to-agent messages with read status
-- `tasks` — Delegated tasks with status tracking
-- `shared_notes` — Shared observations with tags
-
-**Task Statuses:** pending, in_progress, done, failed, needs_clarification
-
 ---
 
 *Document generated: 01/03/2026*

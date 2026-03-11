@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timedelta
+
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -26,6 +28,43 @@ if TYPE_CHECKING:
     from telegram import Bot
 
 logger = logging.getLogger(__name__)
+
+# One-time reminders more than this many days in the future are excluded from heartbeat
+# context to avoid surfacing date-specific content (e.g. anniversaries) on the wrong day.
+_HEARTBEAT_REMINDER_LEAD_DAYS = 3
+
+
+def _filter_reminders_for_heartbeat(
+    rows: list[dict],
+    today_iso: str,
+) -> list[dict]:
+    """Exclude one-time reminders whose fire_at is more than 3 days in the future.
+
+    Prevents the model from surfacing anniversary/date-specific reminders on the wrong day
+    (Bug 46, BUG-heartbeat-premature-date-anniversary-reminder).
+    Recurring reminders (cron) are always included.
+    """
+    try:
+        today = datetime.strptime(today_iso, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return rows
+    cutoff = today + timedelta(days=_HEARTBEAT_REMINDER_LEAD_DAYS)
+    filtered = []
+    for r in rows:
+        fire_at = r.get("fire_at")
+        if not fire_at:
+            # Recurring (cron) — include
+            filtered.append(r)
+            continue
+        try:
+            # fire_at is ISO 8601 e.g. "2026-03-26T09:00:00" or "2026-03-26T09:00:00+11:00"
+            fire_date_str = fire_at[:10]
+            fire_date = datetime.strptime(fire_date_str, "%Y-%m-%d").date()
+            if fire_date <= cutoff:
+                filtered.append(r)
+        except (ValueError, TypeError, IndexError):
+            filtered.append(r)  # Include on parse error
+    return filtered
 
 
 @dataclass
@@ -82,8 +121,16 @@ class HeartbeatHandler:
         items_checked: dict[str, str] = {}
         config = config_text or load_heartbeat_config()
 
+        # Extract today's date for reminder filtering and date-sensitivity
+        today_iso = ""
         if current_local_time:
             items_checked["current_time"] = current_local_time
+            today_iso = current_local_time[:10]  # "YYYY-MM-DD"
+        if today_iso:
+            items_checked["today_date"] = (
+                f"TODAY'S DATE: {today_iso} — do not mention date-specific facts "
+                "(anniversaries, birthdays, death dates) unless today is that date or within 3 days of it."
+            )
         if already_surfaced_today:
             items_checked["already_surfaced_today"] = already_surfaced_today
 
@@ -133,10 +180,12 @@ class HeartbeatHandler:
         else:
             items_checked["email"] = "Gmail not available."
 
-        # Reminders
+        # Reminders (filter out one-time reminders >3 days in future — Bug 46)
         if self._automation_store:
             try:
                 rows = await self._automation_store.get_all(user_id)
+                if today_iso:
+                    rows = _filter_reminders_for_heartbeat(rows, today_iso)
                 if rows:
                     lines = [
                         f"• [{r.get('id')}] {r.get('label', '')}" for r in rows[:15]
@@ -193,7 +242,8 @@ class HeartbeatHandler:
         prompt = (
             f"{config}\n\n---\n\n## Current state\n\n{context_block}\n\n"
             "Evaluate the above. If nothing warrants contacting the user, respond with exactly: HEARTBEAT_OK\n"
-            "Otherwise, respond with a single brief message to send (no HEARTBEAT_OK)."
+            "Otherwise, respond with a single brief message to send (no HEARTBEAT_OK).\n"
+            "Do not repeat a date-sensitive or wellbeing message you have already sent today (check already_surfaced_today)."
         )
 
         outcome = HEARTBEAT_OK_RESPONSE

@@ -12,8 +12,10 @@ import base64
 import io
 import logging
 import secrets
+import shutil
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -132,9 +134,15 @@ def make_archive_keyboard(token: str) -> InlineKeyboardMarkup:
     )
 
 
-# ── Bulk email approval gate (paperclip-ideas §4) ─────────────────────────────
-# Threshold: require confirmation before labelling or trashing more than this many emails.
-BULK_EMAIL_APPROVAL_THRESHOLD = 10
+# ── Bulk email approval gate (US-approval-gates) ─────────────────────────────────
+# Thresholds from config (defaults: delete 5, label 10)
+def _gmail_delete_threshold() -> int:
+    from ...config import settings
+    return settings.approval_gmail_delete_threshold
+
+def _gmail_label_threshold() -> int:
+    from ...config import settings
+    return settings.approval_gmail_label_threshold
 
 # Pending bulk email actions: token -> {user_id, action, message_ids, label_ids, created_at}
 _pending_bulk_email: dict[str, dict] = {}
@@ -182,6 +190,54 @@ def make_bulk_email_keyboard(token: str) -> InlineKeyboardMarkup:
                 ),
                 InlineKeyboardButton(
                     "❌ Cancel", callback_data=f"bulk_email_cancel_{token}"
+                ),
+            ],
+        ]
+    )
+
+
+# ── File write approval gate (US-approval-gates) ────────────────────────────────
+_pending_file_writes: dict[str, dict] = {}
+
+
+def _clean_stale_file_writes() -> None:
+    now = time.time()
+    stale = [
+        t
+        for t, v in _pending_file_writes.items()
+        if now - v["created_at"] > _PENDING_TTL_SECONDS
+    ]
+    for t in stale:
+        del _pending_file_writes[t]
+
+
+def store_pending_file_write(
+    user_id: int,
+    path: str,
+    content: str,
+) -> str:
+    """Store a pending file write for approval. Returns token for callback_data."""
+    _clean_stale_file_writes()
+    token = secrets.token_hex(8)
+    _pending_file_writes[token] = {
+        "user_id": user_id,
+        "path": path,
+        "content": content,
+        "created_at": time.time(),
+    }
+    return token
+
+
+def make_file_write_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Build [✅ Confirm] [❌ Cancel] inline keyboard for large file write approval."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ Confirm", callback_data=f"file_write_confirm_{token}"
+                ),
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"file_write_cancel_{token}"
                 ),
             ],
         ]
@@ -624,6 +680,55 @@ def make_callback_handler(
             _pending_bulk_email.pop(token, None)
             try:
                 await query.edit_message_text("❌ Bulk email action cancelled.")
+            except Exception as e:
+                logger.debug("Edit message failed: %s", e)
+
+        elif data.startswith("file_write_confirm_"):
+            token = data[len("file_write_confirm_") :]
+            pending = _pending_file_writes.pop(token, None)
+            if pending is None or pending.get("user_id") != user_id:
+                await query.answer(
+                    "Confirmation expired or not found.", show_alert=True
+                )
+            else:
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+                await query.answer("Processing…")
+                path = pending.get("path", "")
+                content = pending.get("content", "")
+                msg = query.message
+                try:
+                    from ...ai.input_validator import sanitize_file_path
+
+                    safe_path, err = sanitize_file_path(
+                        path, settings.allowed_base_dirs
+                    )
+                    if err or safe_path is None:
+                        if msg:
+                            await msg.reply_text(f"❌ File write cancelled: {err}")
+                        return
+                    p = Path(safe_path)
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    if p.exists():
+                        shutil.copy2(str(p), str(p) + ".bak")
+                    p.write_text(content, encoding="utf-8")
+                    size_kb = len(content.encode("utf-8")) / 1024
+                    if msg:
+                        await msg.reply_text(
+                            f"✅ Written {size_kb:.1f} KB to `{safe_path}`"
+                        )
+                except Exception as e:
+                    logger.warning("File write confirm failed: %s", e)
+                    if msg:
+                        await msg.reply_text(f"❌ File write failed: {e}")
+
+        elif data.startswith("file_write_cancel_"):
+            token = data[len("file_write_cancel_") :]
+            _pending_file_writes.pop(token, None)
+            try:
+                await query.edit_message_text("❌ File write cancelled.")
             except Exception as e:
                 logger.debug("Edit message failed: %s", e)
 

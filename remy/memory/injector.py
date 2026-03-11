@@ -11,13 +11,16 @@ Retrieves:
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from .database import DatabaseManager
 from .embeddings import EmbeddingStore
 from .fts import FTSSearch
 from .knowledge import KnowledgeStore
+from ..config import settings
 from ..models import EmotionalTone, KnowledgeItem
 
 if TYPE_CHECKING:
@@ -111,6 +114,21 @@ class MemoryInjector:
 
         parts = ["<memory>"]
 
+        # PARA entity summaries when mentioned in the message (US-para-memory)
+        para_ctx = ""
+        try:
+            from .para import PARAStore
+            para_store = PARAStore()
+            para_ctx = await asyncio.to_thread(
+                para_store.get_mentioned_summaries, current_message, 1500
+            )
+        except Exception as e:
+            logger.debug("PARA context injection failed: %s", e)
+        if para_ctx:
+            parts.append("  <para_context>")
+            parts.append(para_ctx)
+            parts.append("  </para_context>")
+
         if facts or project_ctx:
             parts.append("  <facts>")
             for f in facts:
@@ -174,6 +192,26 @@ class MemoryInjector:
                     parts.append(f"      <stressor>{s}</stressor>")
                 parts.append("    </recent_stressors>")
             parts.append("  </emotional_context>")
+
+        # Date-sensitivity: do not proactively mention anniversaries/death dates (Bug 46)
+        if facts:
+            try:
+                tz_name = getattr(settings, "scheduler_timezone", "Australia/Sydney")
+                tz = ZoneInfo(tz_name)
+            except Exception:
+                tz = None
+            today_str = (
+                datetime.now(tz).strftime("%Y-%m-%d")
+                if tz
+                else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            )
+            parts.append(
+                "  <date_sensitivity>"
+                f"Current date: {today_str}. Do not proactively mention anniversaries, "
+                "death dates, birthdays, or similar date-specific facts unless the user "
+                "explicitly asks, or today is that date (or within 3 days before it)."
+                "</date_sensitivity>"
+            )
 
         parts.append("</memory>")
         return "\n".join(parts)
@@ -333,35 +371,42 @@ class MemoryInjector:
         if not project_paths:
             return []
 
-        results = []
+        # Filter to valid paths (absolute, no oversized components)
+        def _read_readme(path_str: str) -> dict[str, Any] | None:
+            readme = Path(path_str) / "README.md"
+            if not readme.exists():
+                return None
+            content = readme.read_text(encoding="utf-8")[:1500]
+            return {
+                "category": "project_context",
+                "content": f"[{path_str}] {content}",
+            }
+
+        valid_paths = []
         for path_str in project_paths[:3]:
-            # Skip non-absolute paths — these are descriptive facts, not filesystem paths
             if not path_str.startswith("/"):
                 logger.debug("Skipping non-path project fact: %.80s", path_str)
                 continue
-            # Skip paths with any component exceeding the OS filename limit (255 bytes).
-            # A long project description stored as a single path component triggers
-            # OSError [Errno 36] File name too long on .exists() / stat().
             if any(len(part.encode()) > 255 for part in Path(path_str).parts):
                 logger.debug(
                     "Skipping project path with oversized component: %.80s", path_str
                 )
                 continue
-            try:
-                readme = Path(path_str) / "README.md"
-                if readme.exists():
-                    content = await asyncio.to_thread(
-                        lambda p: p.read_text(encoding="utf-8"), readme
-                    )
-                    content = content[:1500]
-                    results.append(
-                        {
-                            "category": "project_context",
-                            "content": f"[{path_str}] {content}",
-                        }
-                    )
-            except Exception as e:
-                logger.debug("Failed to read project context file %s: %s", path_str, e)
+            valid_paths.append(path_str)
+
+        # Read READMEs in parallel
+        tasks = [
+            asyncio.to_thread(_read_readme, path_str) for path_str in valid_paths
+        ]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = []
+        for path_str, raw in zip(valid_paths, raw_results):
+            if isinstance(raw, Exception):
+                logger.debug(
+                    "Failed to read project context file %s: %s", path_str, raw
+                )
+            elif raw is not None:
+                results.append(raw)
         return results
 
     async def build_system_prompt(

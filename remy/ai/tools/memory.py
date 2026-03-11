@@ -13,6 +13,35 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def exec_para_write_note(registry: ToolRegistry, inp: dict) -> str:
+    """Write a note to PARA memory: entity items or daily notes (US-para-memory)."""
+    from ...memory.para import PARAStore
+
+    where = (inp.get("where") or "").strip().lower()
+    content = (inp.get("content") or "").strip()
+    if not content:
+        return "Please provide content for the note."
+    if where not in ("entity", "daily"):
+        return "where must be 'entity' or 'daily'."
+
+    store = PARAStore()
+    if where == "daily":
+        store.append_daily_note(content)
+        return "Appended to today's daily notes."
+    entity_type = (inp.get("entity_type") or "").strip()
+    entity_id = (inp.get("entity_id") or "").strip()
+    if not entity_type or not entity_id:
+        return "For entity notes, provide entity_type and entity_id (e.g. areas_people, john-smith)."
+    if entity_type not in ("projects", "areas_people", "areas_companies", "resources", "archives"):
+        return f"Unknown entity_type: {entity_type}. Use projects, areas_people, areas_companies, resources, or archives."
+    try:
+        store.add_fact(entity_type, entity_id, content)
+        return f"Added note to {entity_type}/{entity_id}."
+    except Exception as e:
+        logger.exception("para_write_note failed: %s", e)
+        return f"Failed to write PARA note: {e}"
+
+
 async def exec_get_logs(registry: ToolRegistry, inp: dict) -> str:
     """Read remy's log file for diagnostics."""
     from ...diagnostics import (

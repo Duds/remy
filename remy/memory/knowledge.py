@@ -154,15 +154,18 @@ class KnowledgeStore:
         if not items:
             return
 
+        # Batch fetch existing (entity_type, content) for fast exact-match skip
+        async with self._db.get_connection() as conn:
+            rows = await conn.execute_fetchall(
+                "SELECT entity_type, content FROM knowledge WHERE user_id=?",
+                (user_id,),
+            )
+        existing_keys = {(r["entity_type"].lower(), r["content"].lower()) for r in rows}
+
         for item in items:
-            # Fast path: exact string match
-            async with self._db.get_connection() as conn:
-                existing = await conn.execute_fetchall(
-                    "SELECT id FROM knowledge WHERE user_id=? AND entity_type=? AND LOWER(content)=LOWER(?)",
-                    (user_id, item.entity_type, item.content),
-                )
-                if existing:
-                    continue
+            key = (item.entity_type.lower(), item.content.lower())
+            if key in existing_keys:
+                continue
 
             # Semantic deduplication for facts only
             if item.entity_type == "fact":
@@ -173,52 +176,55 @@ class KnowledgeStore:
                     user_id, item.content, source_type=source_type, limit=5
                 )
 
-                # Filter to same category and check threshold
+                # Collect match_ids under threshold, batch-fetch metadata
+                candidates = [
+                    m for m in similar
+                    if m.get("source_id") and m.get("distance", 1.0) < settings.fact_merge_threshold
+                ]
+                if not candidates:
+                    item_id = await self._insert(user_id, item, session_key=session_key)
+                    existing_keys.add(key)
+                    continue
+
+                match_ids = [m["source_id"] for m in candidates]
+                placeholders = ",".join("?" * len(match_ids))
+
+                async with self._db.get_connection() as conn:
+                    rows = await conn.execute_fetchall(
+                        f"SELECT id, metadata FROM knowledge WHERE user_id=? AND id IN ({placeholders})",
+                        (user_id, *match_ids),
+                    )
+
                 merged = False
-                for match in similar:
-                    if match.get("distance", 1.0) >= settings.fact_merge_threshold:
+                id_to_match = {m["source_id"]: m for m in candidates}
+                for row in rows:
+                    match_meta = json.loads(row["metadata"])
+                    match_category = match_meta.get("category", "other")
+                    if match_category != category:
                         continue
-
-                    # Fetch the matched item to check category
-                    match_id = match.get("source_id")
-                    if not match_id:
+                    match_id = row["id"]
+                    match = id_to_match.get(match_id)
+                    if not match:
                         continue
-
-                    async with self._db.get_connection() as conn:
-                        rows = list(
-                            await conn.execute_fetchall(
-                                "SELECT id, metadata FROM knowledge WHERE id=? AND user_id=?",
-                                (match_id, user_id),
-                            )
-                        )
-                        if not rows:
-                            continue
-                        row = rows[0]
-                        match_meta = json.loads(row["metadata"])
-                        match_category = match_meta.get("category", "other")
-
-                        # Only merge within same category
-                        if match_category != category:
-                            continue
-
-                        # Supersede: update the existing fact
-                        old_content = match.get("content_text", "")
-                        await self._supersede(
-                            user_id, match_id, item.content, item.metadata, session_key
-                        )
-                        logger.debug(
-                            "Merged fact (d=%.3f): %r → %r",
-                            match["distance"],
-                            old_content,
-                            item.content,
-                        )
-                        merged = True
-                        break
+                    old_content = match.get("content_text", "")
+                    await self._supersede(
+                        user_id, match_id, item.content, item.metadata, session_key
+                    )
+                    logger.debug(
+                        "Merged fact (d=%.3f): %r → %r",
+                        match["distance"],
+                        old_content,
+                        item.content,
+                    )
+                    merged = True
+                    existing_keys.add(key)
+                    break
 
                 if merged:
                     continue
 
             await self._insert(user_id, item, session_key=session_key)
+            existing_keys.add(key)
 
     async def _supersede(
         self,
@@ -362,76 +368,53 @@ class KnowledgeStore:
             potentially_stale (facts not referenced in 90+ days)
         """
         async with self._db.get_connection() as conn:
-            # Total counts
-            fact_count = list(
-                await conn.execute_fetchall(
-                    "SELECT COUNT(*) as cnt FROM knowledge WHERE user_id=? AND entity_type='fact'",
-                    (user_id,),
-                )
+            # Single aggregation query for counts
+            agg_cursor = await conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN entity_type='fact' THEN 1 ELSE 0 END) as total_facts,
+                    SUM(CASE WHEN entity_type='goal' THEN 1 ELSE 0 END) as total_goals,
+                    SUM(CASE WHEN entity_type='fact' AND created_at >= datetime('now','-7 days')
+                        THEN 1 ELSE 0 END) as recent_facts_7d,
+                    SUM(CASE WHEN entity_type='fact' AND (last_referenced_at IS NULL
+                        OR last_referenced_at < datetime('now','-90 days')) THEN 1 ELSE 0 END) as potentially_stale
+                FROM knowledge WHERE user_id=?
+                """,
+                (user_id,),
             )
-            goal_count = list(
-                await conn.execute_fetchall(
-                    "SELECT COUNT(*) as cnt FROM knowledge WHERE user_id=? AND entity_type='goal'",
-                    (user_id,),
-                )
-            )
+            agg_row = await agg_cursor.fetchone()
 
-            # Recent facts (last 7 days)
-            recent = list(
-                await conn.execute_fetchall(
-                    """SELECT COUNT(*) as cnt FROM knowledge 
-                   WHERE user_id=? AND entity_type='fact' 
-                   AND created_at >= datetime('now', '-7 days')""",
-                    (user_id,),
-                )
-            )
-
-            # Category breakdown
-            cat_rows = list(
-                await conn.execute_fetchall(
-                    """SELECT json_extract(metadata, '$.category') as cat, COUNT(*) as cnt
+            # Category breakdown + oldest fact (2 queries; categories need GROUP BY)
+            cat_rows = await conn.execute_fetchall(
+                """SELECT json_extract(metadata, '$.category') as cat, COUNT(*) as cnt
                    FROM knowledge WHERE user_id=? AND entity_type='fact'
                    GROUP BY cat ORDER BY cnt DESC""",
-                    (user_id,),
-                )
+                (user_id,),
             )
             categories = {
                 str(row["cat"] or "other"): int(row["cnt"]) for row in cat_rows
             }
 
-            # Oldest fact
-            oldest = list(
-                await conn.execute_fetchall(
-                    """SELECT content, created_at FROM knowledge 
+            oldest_cursor = await conn.execute(
+                """SELECT content, created_at FROM knowledge
                    WHERE user_id=? AND entity_type='fact'
                    ORDER BY created_at ASC LIMIT 1""",
-                    (user_id,),
-                )
+                (user_id,),
             )
-
-            # Potentially stale (not referenced in 90+ days)
-            stale = list(
-                await conn.execute_fetchall(
-                    """SELECT COUNT(*) as cnt FROM knowledge 
-                   WHERE user_id=? AND entity_type='fact'
-                   AND (last_referenced_at IS NULL 
-                        OR last_referenced_at < datetime('now', '-90 days'))""",
-                    (user_id,),
-                )
-            )
+            oldest_row = await oldest_cursor.fetchone()
 
         return {
-            "total_facts": int(fact_count[0]["cnt"]) if fact_count else 0,
-            "total_goals": int(goal_count[0]["cnt"]) if goal_count else 0,
-            "recent_facts_7d": int(recent[0]["cnt"]) if recent else 0,
+            "total_facts": int(agg_row[0] or 0) if agg_row else 0,
+            "total_goals": int(agg_row[1] or 0) if agg_row else 0,
+            "recent_facts_7d": int(agg_row[2] or 0) if agg_row else 0,
             "categories": categories,
             "oldest_fact": {
-                "content": oldest[0]["content"],
-                "created_at": oldest[0]["created_at"],
+                "content": oldest_row[0],
+                "created_at": oldest_row[1],
             }
-            if oldest
+            if oldest_row
             else None,
-            "potentially_stale": int(stale[0]["cnt"]) if stale else 0,
+            "potentially_stale": int(agg_row[3] or 0) if agg_row else 0,
         }
 
     async def update_last_referenced(self, user_id: int, item_ids: list[int]) -> None:
@@ -550,62 +533,60 @@ class KnowledgeStore:
         stats = {"facts": 0, "goals": 0, "groceries": 0}
 
         async with self._db.get_connection() as conn:
-            # 1. Migrate Facts
+            # 1. Migrate Facts (batch)
             fact_rows = await conn.execute_fetchall(
                 "SELECT category, content, confidence FROM facts WHERE user_id=?",
                 (user_id,),
             )
-            for row in fact_rows:
-                await self.upsert(
-                    user_id,
-                    [
-                        KnowledgeItem(
-                            entity_type="fact",
-                            content=row["content"],
-                            metadata={"category": row["category"]},
-                            confidence=row["confidence"],
-                        )
-                    ],
-                )
-                stats["facts"] += 1
+            if fact_rows:
+                fact_items = [
+                    KnowledgeItem(
+                        entity_type="fact",
+                        content=row["content"],
+                        metadata={"category": row["category"]},
+                        confidence=row["confidence"],
+                    )
+                    for row in fact_rows
+                ]
+                await self.upsert(user_id, fact_items)
+                stats["facts"] = len(fact_items)
 
-            # 2. Migrate Goals
+            # 2. Migrate Goals (batch)
             goal_rows = await conn.execute_fetchall(
                 "SELECT title, description, status FROM goals WHERE user_id=?",
                 (user_id,),
             )
-            for row in goal_rows:
-                await self.upsert(
-                    user_id,
-                    [
-                        KnowledgeItem(
-                            entity_type="goal",
-                            content=row["title"],
-                            metadata={
-                                "description": row["description"],
-                                "status": row["status"],
-                            },
-                        )
-                    ],
-                )
-                stats["goals"] += 1
+            if goal_rows:
+                goal_items = [
+                    KnowledgeItem(
+                        entity_type="goal",
+                        content=row["title"],
+                        metadata={
+                            "description": row["description"],
+                            "status": row["status"],
+                        },
+                    )
+                    for row in goal_rows
+                ]
+                await self.upsert(user_id, goal_items)
+                stats["goals"] = len(goal_items)
 
-        # 3. Migrate Groceries
+        # 3. Migrate Groceries (batch)
         if grocery_file and os.path.exists(grocery_file):
             try:
+                grocery_items = []
                 with open(grocery_file, encoding="utf-8") as f:
                     for line in f:
                         item = line.strip().strip("- ").strip()
                         if item:
-                            await self.upsert(
-                                user_id,
-                                [
-                                    KnowledgeItem(
-                                        entity_type="shopping_item", content=item
-                                    )
-                                ],
+                            grocery_items.append(
+                                KnowledgeItem(
+                                    entity_type="shopping_item", content=item
+                                )
                             )
-                            stats["groceries"] += 1
+                if grocery_items:
+                    await self.upsert(user_id, grocery_items)
+                    stats["groceries"] = len(grocery_items)
             except Exception as e:
                 logger.warning("Could not migrate grocery file: %s", e)
 

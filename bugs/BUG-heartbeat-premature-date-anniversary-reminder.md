@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-09  
 **Severity:** High — caused emotional distress; surfaced Jane's father's death anniversary on wrong day (twice)  
-**Status:** Open
+**Status:** Fixed (2026-03-11) — see Bug 46 in BUGS.md
 
 ---
 

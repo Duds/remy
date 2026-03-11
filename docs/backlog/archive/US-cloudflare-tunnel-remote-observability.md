@@ -200,7 +200,7 @@ make logs HOST=remy.dalerogers.com.au TOKEN=$HEALTH_API_TOKEN LINES=200
 | `curl https://remy.<domain>/telemetry` (correct Bearer token) | `200` JSON with aggregate stats |
 | `curl https://remy.<domain>/logs?lines=50` (correct Bearer token) | `200` plain text log lines |
 | `make tunnel-up` with `CLOUDFLARE_TUNNEL_TOKEN` set | `cloudflared` container starts, tunnel connects |
-| `docker compose up` (no `--profile tunnel`) | Only `remy`, `relay`, `ollama` start — no `cloudflared` |
+| `docker compose up` (no `--profile tunnel`) | Only `remy`, `ollama` start — no `cloudflared` |
 | remy container restarts | `cloudflared` reconnects automatically |
 | `CLOUDFLARE_TUNNEL_TOKEN` not set | `cloudflared` exits immediately; other services unaffected |
 
@@ -208,7 +208,7 @@ make logs HOST=remy.dalerogers.com.au TOKEN=$HEALTH_API_TOKEN LINES=200
 
 ## Out of Scope
 
-- Exposing other ports (relay MCP on 8765 stays localhost-only — never expose this)
+- Exposing other internal service ports
 - Cloudflare Access policies (Zero Trust application-level auth) — bearer token is sufficient
 - Dynamic DNS or router port forwarding — tunnel replaces both
 - Metrics scraping by an external Prometheus — use `/telemetry` pull instead

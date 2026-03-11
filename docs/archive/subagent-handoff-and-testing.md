@@ -8,7 +8,7 @@
 
 ## 1. What actually happened (conversation summary)
 
-Remy was doing plan cleanup (abandon duplicates) via relay/Paperclip tools:
+Remy was doing plan cleanup (abandon duplicates) via relay tools:
 
 - **First attempt:** `list_plans` → `get_plan` (×2) → `update_plan_status` (×4). Hit **max tool iterations** (6) and was cut off; only 4 of 5 abandons completed.
 - **After user said "yes" and Remy restarted:** `list_plans` again → `update_plan_status` (×5). All five went through in one turn.
@@ -219,11 +219,11 @@ The [OpenClaw architecture](OpenClaw_architecture.mmd) describes Depth 0 (main a
 
 ---
 
-## 8. Paperclip best practices — what’s implemented
+## 8. Researched patterns — what’s implemented
 
-From [paperclip-ideas.md](../paperclip-ideas.md). Below is what exists in code and config.
+From [docs/ideas.md](../ideas.md). Below is what exists in code and config.
 
-| Paperclip idea | Implementation |
+| Idea | Implementation |
 |----------------|-----------------|
 | **§5 Budget enforcement** | `remy/scheduler/heartbeat.py`: `check_budget()` uses `api_calls` to compute month-to-date spend vs `monthly_budget_aud` (config). Sets `budget_exhausted` at 100%; `budget_warning_pct` (default 80%) triggers a once-per-day warning via `enqueue_message`. |
 | **§7 Auto-requeue stuck relay tasks** | `requeue_stuck_relay_tasks(db)`: selects relay `tasks` where `to_agent='remy'`, `status='in_progress'`, `updated_at` &gt; 30 min; updates to `status='pending'` with a note. Called at the start of each heartbeat run. |

@@ -151,6 +151,8 @@ async def exec_list_directory(registry: ToolRegistry, inp: dict) -> str:
 
 async def exec_write_file(registry: ToolRegistry, inp: dict) -> str:
     """Write (create or overwrite) a text file."""
+    from ...config import settings
+
     raw = inp.get("path", "").strip()
     content = inp.get("content", "")
     if not raw:
@@ -159,6 +161,19 @@ async def exec_write_file(registry: ToolRegistry, inp: dict) -> str:
     safe_path, err = _sanitize_path(raw)
     if err or safe_path is None:
         return f"Cannot write file: {err}"
+
+    # Approval gate: large file writes require confirmation (US-approval-gates)
+    threshold = settings.approval_file_write_threshold_bytes
+    if len(content.encode("utf-8")) > threshold:
+        from ..bot.handlers.callbacks import store_pending_file_write
+
+        user_id: int = getattr(registry, "_current_user_id", 0)
+        token = store_pending_file_write(user_id=user_id, path=safe_path, content=content)
+        size_kb = len(content.encode("utf-8")) / 1024
+        return (
+            f"APPROVAL_REQUIRED|type=file_write|token={token}|"
+            f"About to write {size_kb:.1f} KB to {safe_path}. Confirm to proceed."
+        )
 
     def _write():
         p = Path(safe_path)

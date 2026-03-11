@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from remy.ai.tools import ToolRegistry, TOOL_SCHEMAS
+from remy.ai.tools.context import ToolContext
 from remy.ai.claude_client import (
     ClaudeClient,
     TextChunk,
@@ -42,7 +43,8 @@ def make_registry(**kwargs) -> ToolRegistry:
         model_complex="claude-sonnet-4-6",
     )
     defaults.update(kwargs)
-    return ToolRegistry(**defaults)
+    ctx = ToolContext(**defaults)
+    return ToolRegistry(ctx)
 
 
 # --------------------------------------------------------------------------- #
@@ -568,17 +570,16 @@ async def test_stream_with_tools_hits_max_iterations_yields_truncation():
         ):
             events.append(event)
 
-    # Consolidation: max_iterations yields hand-off message + HandOffToSubAgent
-    from remy.ai.claude_client import HandOffToSubAgent
+    # Bug 47: max_iterations yields step-limit message + StepLimitReached (no auto Board hand-off)
+    from remy.ai.claude_client import StepLimitReached
 
-    truncation = [
-        e for e in events if isinstance(e, TextChunk) and "Handing off" in e.text
+    step_texts = [
+        e for e in events if isinstance(e, TextChunk) and "step limit" in (e.text or "").lower()
     ]
-    hand_offs = [e for e in events if isinstance(e, HandOffToSubAgent)]
-    assert len(truncation) == 1
-    assert "Handing off" in truncation[0].text
-    assert len(hand_offs) == 1
-    assert hand_offs[0].topic
+    step_limits = [e for e in events if isinstance(e, StepLimitReached)]
+    assert len(step_texts) >= 1
+    assert "step limit" in (step_texts[0].text or "").lower()
+    assert len(step_limits) == 1
 
 
 @pytest.mark.asyncio

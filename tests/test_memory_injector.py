@@ -111,6 +111,22 @@ async def test_build_context_xml_structure(db, components):
 
 
 @pytest.mark.asyncio
+async def test_build_context_includes_date_sensitivity_when_facts_present(db, components):
+    """When facts are present, date_sensitivity hint is added (Bug 46)."""
+    knowledge_store = components["knowledge_store"]
+    injector = components["injector"]
+
+    await knowledge_store.upsert(
+        1, [KnowledgeItem(entity_type="fact", content="Anniversary 26 March", metadata={"category": "other"})]
+    )
+
+    result = await injector.build_context(1, "Hello")
+    assert "<date_sensitivity>" in result
+    assert "Current date:" in result
+    assert "anniversaries" in result or "death dates" in result
+
+
+@pytest.mark.asyncio
 async def test_build_context_goal_with_description(db, components):
     knowledge_store = components["knowledge_store"]
     injector = components["injector"]

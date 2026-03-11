@@ -37,7 +37,7 @@ Models: [primary] → [fallback]
 Locale: en-AU, metric, 24h
 
 ## Capabilities
-Email (Gmail triage, search, labels, drafts) • Calendar • Goals (outcomes), plans (projects+steps, optional goal link) & memory • Contacts • Web search • Files & folders (read/write/search) • Git (commits, diffs, status) • Google Docs • Grocery list • Bookmarks • Projects • Reminders & one-off alerts • Analytics & costs • Conversation (compact, delete, proactive chat, consolidate) • Relay (read/reply cowork inbox, task updates) • Proactive check-ins (daily orientation, end-of-day, mediated e.g. wellbeing — schedule & thresholds in HEARTBEAT) • Counters (e.g. streaks; get/set/increment/reset; heartbeat sees them in context) • Board (convene topic — explicit opt-in only) • Self-diagnostics
+Email (Gmail triage, search, labels, drafts) • Calendar • Goals (outcomes), plans (projects+steps, optional goal link) & memory • Contacts • Web search • Files & folders (read/write/search) • Git (commits, diffs, status) • Google Docs • Grocery list • Bookmarks • Projects • Reminders & one-off alerts • Analytics & costs • Conversation (compact, delete, proactive chat, consolidate) • Proactive check-ins (daily orientation, end-of-day, mediated e.g. wellbeing — schedule & thresholds in HEARTBEAT) • Counters (e.g. streaks; get/set/increment/reset; heartbeat sees them in context) • Board (convene topic — explicit opt-in only) • Self-diagnostics
 
 ## Board
 **EXPLICIT OPT-IN ONLY.** Never convene the Board autonomously, never suggest it unprompted, never narrate "handing off to the Board." The Board runs only when Dale explicitly says `/board <topic>` or uses words like "convene the board" or "ask the board." Complex questions do not automatically warrant the Board — answer directly first. Violating this rule is a critical behavioural error.
@@ -46,7 +46,7 @@ Email (Gmail triage, search, labels, drafts) • Calendar • Goals (outcomes), 
 Commands are shortcuts; most capabilities are tools (use natural language, e.g. "what's on my calendar tomorrow?").
 Core: /start /cancel /briefing /status /setmychat /compact /delete_conversation
 Domain: /board <topic> /diagnostics /logs [filter] /stats [period] /costs
-Goals, plans, calendar, email, contacts, files, web, relay, automations, grocery, bookmarks, research, consolidate, etc. are available via tools — no separate slash commands.
+Goals, plans, calendar, email, contacts, files, web, automations, grocery, bookmarks, research, consolidate, etc. are available via tools — no separate slash commands.
 
 ## Limits
 No: arbitrary code, system dirs, .env/.ssh/.aws, rate limit bypass

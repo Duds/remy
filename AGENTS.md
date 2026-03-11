@@ -10,6 +10,7 @@
 
 ## Learned Workspace Facts
 
-- Relay feature has been removed; avoid adding relay-related code or references
 - Completed PBIs live in docs/backlog/archive/; active backlog in docs/backlog/
 - Plan files are stored in .cursor/plans/
+- Relay and cowork were explicitly removed from the solution; do not add or reference relay/cowork features
+- Do not mention Paperclip in the codebase or documentation

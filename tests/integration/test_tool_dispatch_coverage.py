@@ -78,6 +78,8 @@ def _minimal_input_for_tool(tool_name: str) -> dict:
 
 def make_registry(**kwargs) -> ToolRegistry:
     """ToolRegistry with minimal defaults for integration tests."""
+    from remy.ai.tools.context import ToolContext
+
     defaults = dict(
         logs_dir="/tmp/test_logs",
         goal_store=None,
@@ -89,7 +91,8 @@ def make_registry(**kwargs) -> ToolRegistry:
         model_complex="claude-sonnet-4-6",
     )
     defaults.update(kwargs)
-    return ToolRegistry(**defaults)
+    ctx = ToolContext(**defaults)
+    return ToolRegistry(ctx)
 
 
 @pytest.mark.parametrize("tool_name", _all_tool_names())

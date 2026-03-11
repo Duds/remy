@@ -347,44 +347,24 @@ class OutboundQueue:
     async def get_stats(self) -> QueueStats:
         """Get queue statistics for diagnostics."""
         async with aiosqlite.connect(self.db_path) as db:
-            stats = QueueStats()
-
-            # Pending count
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM outbound_queue WHERE status = ?",
-                (QueueStatus.PENDING.value,),
-            )
-            row = await cursor.fetchone()
-            stats.pending = row[0] if row else 0
-
-            # Sending count
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM outbound_queue WHERE status = ?",
-                (QueueStatus.SENDING.value,),
-            )
-            row = await cursor.fetchone()
-            stats.sending = row[0] if row else 0
-
-            # Failed count
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM outbound_queue WHERE status = ?",
-                (QueueStatus.FAILED.value,),
-            )
-            row = await cursor.fetchone()
-            stats.failed = row[0] if row else 0
-
-            # Sent in last 24 hours
             cursor = await db.execute(
                 """
-                SELECT COUNT(*) FROM outbound_queue
-                WHERE status = ? AND sent_at > datetime('now', '-1 day')
-                """,
-                (QueueStatus.SENT.value,),
+                SELECT
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = 'sending' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = 'sent' AND sent_at > datetime('now', '-1 day')
+                        THEN 1 ELSE 0 END)
+                FROM outbound_queue
+                """
             )
             row = await cursor.fetchone()
-            stats.sent_24h = row[0] if row else 0
-
-            return stats
+            return QueueStats(
+                pending=int(row[0] or 0),
+                sending=int(row[1] or 0),
+                failed=int(row[2] or 0),
+                sent_24h=int(row[3] or 0),
+            )
 
     async def cleanup_old_messages(self, days: int = 7) -> int:
         """Remove sent/failed messages older than specified days.

@@ -31,7 +31,6 @@ def sample_handlers():
         "compact": AsyncMock(),
         "setmychat": AsyncMock(),
         "briefing": AsyncMock(),
-        "relay": AsyncMock(),
         "goals": AsyncMock(),
         "delete_conversation": AsyncMock(),
         "consolidate": AsyncMock(),

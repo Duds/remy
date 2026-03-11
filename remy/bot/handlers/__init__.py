@@ -34,7 +34,7 @@ from .base import (
     _rate_limiter,
     _task_start_times,
     _pending_writes,
-    TASK_TIMEOUT_SECONDS,
+    get_task_timeout_seconds,
 )
 from .core import make_core_handlers
 from .files import make_file_handlers
@@ -228,5 +228,5 @@ __all__ = [
     "_rate_limiter",
     "_task_start_times",
     "_pending_writes",
-    "TASK_TIMEOUT_SECONDS",
+    "get_task_timeout_seconds",
 ]

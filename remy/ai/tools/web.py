@@ -24,6 +24,24 @@ async def exec_web_search(registry: ToolRegistry, inp: dict) -> str:
     return f"Search results for '{query}':\n\n" + format_results(results)
 
 
+async def exec_hand_off_to_researcher(
+    registry: ToolRegistry, inp: dict, user_id: int
+) -> str:
+    """Hand off a research task to the Researcher sub-agent (US-agent-creator)."""
+    from ...agents.creator import AgentCreator, SubAgentType
+
+    topic = inp.get("topic", "").strip()
+    if not topic:
+        return "No research topic provided."
+
+    creator = AgentCreator(
+        claude_client=registry._claude_client,
+        tool_registry=registry,
+    )
+    spec = creator.build_spec(SubAgentType.RESEARCH, topic)
+    return await creator.spawn_and_hand_off(spec, topic, user_id)
+
+
 async def exec_price_check(registry: ToolRegistry, inp: dict) -> str:
     """Search for current prices of a product or service."""
     from ...web.search import web_search, format_results

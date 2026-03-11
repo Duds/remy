@@ -34,8 +34,7 @@ Concise concept design: vision, problem, users, features, UI, architecture, scop
 | **O1** | User can complete calendar, email, and goal queries via natural language in Telegram | 100% of supported query types handled by tools |
 | **O2** | Proactive contact only when HEARTBEAT thresholds say so | HEARTBEAT_OK rate &gt; ~80% of heartbeat runs (no message sent) |
 | **O3** | Conversation and memory persist across sessions | Session JSONL + SQLite knowledge; no manual “remember this” for facts/goals |
-| **O4** | Handoff to Cursor/Claude Desktop when user continues work elsewhere | Out of scope (relay feature removed); copy-paste or other workflows |
-| **O5** | Single-user deployment runs reliably on a Mac Mini (or similar) | Docker Compose; health endpoint; optional Cloudflare Tunnel |
+| **O4** | Single-user deployment runs reliably on a Mac Mini (or similar) | Docker Compose; health endpoint; optional Cloudflare Tunnel |
 
 ---
 

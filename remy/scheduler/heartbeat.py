@@ -3,9 +3,8 @@
 SAD v7: single job runs every 30 min (configurable), skips quiet hours,
 emits HEARTBEAT_START/END, runs HeartbeatHandler, writes heartbeat_log.
 
-Paperclip additions:
+Additions:
 - Budget enforcement: warns at budget_warning_pct, pauses non-critical LLM calls at monthly_budget_aud.
-- Auto-requeue: relay tasks stuck in_progress for >30 min are reverted to pending.
 """
 
 from __future__ import annotations
@@ -205,7 +204,7 @@ async def run_heartbeat_job(
         logger.debug("Heartbeat skipped — no primary chat or user")
         return
 
-    # Budget enforcement (paperclip §5): check spend and surface warnings
+    # Budget enforcement: check spend and surface warnings
     await check_budget(db, enqueue_message=enqueue_message)
 
     await hook_manager.emit(

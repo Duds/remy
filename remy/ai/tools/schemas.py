@@ -237,9 +237,11 @@ TOOL_SCHEMAS: list[dict] = [
         "name": "run_board",
         "description": (
             "Convene the Board of Directors — five specialised sub-agents (Strategy, Content, "
-            "Finance, Researcher, Critic) — to analyse a topic in depth. "
-            "Use this when the user wants strategic advice, deep analysis, or multi-perspective thinking. "
-            "This takes 30-60 seconds."
+            "Finance, Researcher, Critic) — for strategic, multi-perspective analysis of a major decision. "
+            "ONLY use when the user explicitly asks for Board/convene/strategic analysis "
+            "(e.g. 'run the board on X', 'should I take this job?', 'analyse this decision'). "
+            "Do NOT use for: web search, code, file/email ops, data analysis — use web_search, "
+            "run_python, search_gmail, read_file, etc. instead. Takes 30-60 seconds."
         ),
         "input_schema": {
             "type": "object",
@@ -604,6 +606,39 @@ TOOL_SCHEMAS: list[dict] = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "hand_off_to_researcher",
+        "description": (
+            "Hand off a research task to the Researcher sub-agent. "
+            "Use when the user wants deep web research, a synthesised report on a topic, "
+            "or to look up and summarise findings. The Researcher runs web search + synthesis. "
+            "Do NOT use for Board/convene/strategic analysis — use run_board for that. "
+            "Prefer web_search for quick lookups; use this when a full research report is needed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "The research topic or question.",
+                },
+            },
+            "required": ["topic"],
+        },
+    },
+    {
+        "name": "triage_inbox",
+        "description": (
+            "Start background email triage: classify unlabelled emails using the user's "
+            "label taxonomy (from memory) and apply labels. Use when the user says "
+            "'triage the inbox', 'triage my emails', or similar. Runs in the background; "
+            "user gets a summary when done. Idempotent — already-labelled emails are skipped."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
         },
     },
     {
@@ -1106,6 +1141,42 @@ TOOL_SCHEMAS: list[dict] = [
                 },
             },
             "required": ["action"],
+        },
+    },
+    {
+        "name": "para_write_note",
+        "description": (
+            "Write a note to the PARA memory system: either to an entity's items (person, "
+            "company, project) or to today's daily notes. Use for structured knowledge that "
+            "should survive long-term (projects, areas, resources). Entity must already exist "
+            "as a folder; use entity_type (e.g. areas_people, projects) and entity_id (folder slug). "
+            "For daily notes use where='daily' and content only."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "where": {
+                    "type": "string",
+                    "enum": ["entity", "daily"],
+                    "description": "entity = append to an entity's items.yaml; daily = append to today's daily notes file.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The note or fact content to store.",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "description": (
+                        "PARA entity type: projects, areas_people, areas_companies, resources, archives. "
+                        "Required when where='entity'."
+                    ),
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "Entity folder slug (e.g. john-smith, acme-corp). Required when where='entity'.",
+                },
+            },
+            "required": ["where", "content"],
         },
     },
     {

@@ -48,7 +48,7 @@ Reindex/consolidate can stay as in-process background tasks initially unless we 
 
 ## 5. What stays in Remy (unchanged)
 
-- All Telegram handling, relay, session, memory injection (for context passed to subagents).
+- All Telegram handling, session, memory injection (for context passed to subagents).
 - Job store (create job, set_running, set_done/set_failed); WorkingMessage and chat action (upload_document) while waiting.
 - Delivery of subagent result to the user (and topic-aware messaging).
 - Interactive path: still uses `stream_with_tools` for the default conversational flow until/unless the SDK supports streaming and we migrate that too.
