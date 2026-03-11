@@ -792,12 +792,24 @@ class ProactiveScheduler:
                     e,
                 )
 
-        # Fallback: raw string send with snooze/done buttons
+        # Fallback: raw string send with snooze/done buttons.
+        # If label contains [count], substitute with sobriety_streak counter value.
+        display_label = label
+        if "[count]" in display_label and self._counter_store is not None:
+            try:
+                row = await self._counter_store.get(user_id, "sobriety_streak")
+                value = row["value"] if row else 0
+                display_label = display_label.replace("[count]", str(value))
+            except Exception as e:
+                logger.warning(
+                    "Could not resolve [count] for reminder label, using 0: %s", e
+                )
+                display_label = display_label.replace("[count]", "0")
         user_ids = settings.telegram_allowed_users
         uid = user_ids[0] if user_ids else user_id
         await self._send_reminder(
             chat_id=chat_id,
-            text=f"⏰ *Reminder:* {label}",
+            text=f"⏰ *Reminder:* {display_label}",
             user_id=uid,
             label=label,
             automation_id=automation_id if not one_time else 0,

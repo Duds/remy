@@ -29,6 +29,7 @@ def make_core_handlers(
     proactive_scheduler: "ProactiveScheduler | None" = None,
     scheduler_ref: dict | None = None,
     automation_store=None,
+    counter_store=None,
 ):
     """
     Factory that returns core command handlers.
@@ -63,6 +64,25 @@ def make_core_handlers(
                                 store_reminder_payload,
                             )
                             label = automation.get("label") or "Reminder"
+                            # Substitute [count] with sobriety_streak for reminder deep links
+                            display_label = label
+                            if "[count]" in display_label and counter_store is not None:
+                                try:
+                                    row = await counter_store.get(
+                                        user_id, "sobriety_streak"
+                                    )
+                                    value = row["value"] if row else 0
+                                    display_label = display_label.replace(
+                                        "[count]", str(value)
+                                    )
+                                except Exception as e:
+                                    logger.debug(
+                                        "Could not resolve [count] for deep link: %s",
+                                        e,
+                                    )
+                                    display_label = display_label.replace(
+                                        "[count]", "0"
+                                    )
                             fire_at = automation.get("fire_at")
                             one_time = bool(fire_at)
                             if fire_at:
@@ -77,7 +97,7 @@ def make_core_handlers(
                                 one_time=one_time,
                             )
                             keyboard = make_reminder_keyboard(token)
-                            msg = f"🔔 *{label}*\n\nNext: {next_line}\n\nTap below to snooze or mark done."
+                            msg = f"🔔 *{display_label}*\n\nNext: {next_line}\n\nTap below to snooze or mark done."
                             try:
                                 await update.message.reply_text(
                                     msg,
@@ -87,7 +107,7 @@ def make_core_handlers(
                             except Exception as e:
                                 logger.debug("Reminder deep link reply failed: %s", e)
                                 await update.message.reply_text(
-                                    f"🔔 {label}\n\nNext: {next_line}",
+                                    f"🔔 {display_label}\n\nNext: {next_line}",
                                     reply_markup=keyboard,
                                 )
                             return

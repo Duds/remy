@@ -300,6 +300,7 @@ def main() -> None:
         proactive_scheduler=None,  # /briefing via proxy
         scheduler_ref=startup_ctx,  # type: ignore[arg-type]
         automation_store=automation_store,
+        counter_store=counter_store,
         job_store=job_store,
         agent_task_store=agent_task_store,
     )

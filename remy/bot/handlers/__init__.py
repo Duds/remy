@@ -89,6 +89,7 @@ def make_handlers(
             proactive_scheduler=sched.proactive_scheduler,
             scheduler_ref=sched.scheduler_ref,  # type: ignore[arg-type]
             automation_store=sched.automation_store,
+            counter_store=sched.counter_store,
         )
     )
 
