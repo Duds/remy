@@ -173,9 +173,13 @@ class Settings(BaseSettings):
     # Secret for X-Secret header on POST /webhook/sms and /webhook/notification. Empty = disabled.
     sms_webhook_secret: str = ""
     # Comma-separated E.164 numbers; empty = allow all senders (env: SMS_ALLOWED_SENDERS).
-    sms_allowed_senders_raw: str = Field(default="", validation_alias="SMS_ALLOWED_SENDERS")
+    sms_allowed_senders_raw: str = Field(
+        default="", validation_alias="SMS_ALLOWED_SENDERS"
+    )
     # Comma-separated keywords; if set, only SMS containing any keyword trigger alert (env: SMS_KEYWORD_FILTER).
-    sms_keyword_filter_raw: str = Field(default="", validation_alias="SMS_KEYWORD_FILTER")
+    sms_keyword_filter_raw: str = Field(
+        default="", validation_alias="SMS_KEYWORD_FILTER"
+    )
 
     # ── File download links (US-mac-file-links-secure-download) ───────────────────
     # Public base URL for GET /files links (e.g. https://remy.dalerogers.com.au). Empty = disabled.
@@ -206,6 +210,10 @@ class Settings(BaseSettings):
     )
     web_search_max_per_turn: int = (
         3  # Cap web_search per turn (US-web-search-optimisation)
+    )
+    web_search_timeout_seconds: float = 25.0  # Timeout for DuckDuckGo — avoids getting stuck (REMY_WEB_SEARCH_TIMEOUT_SECONDS)
+    search_files_timeout_seconds: float = (
+        30.0  # Timeout for search_files tool — avoids hanging on large indexes
     )
     anthropic_overload_fallback_model: str = ""  # e.g. claude-haiku-4-5-20251001; empty = disabled (US-anthropic-overload-fallback)
     anthropic_overload_max_retries: int = 2  # Retries before fallback or user message

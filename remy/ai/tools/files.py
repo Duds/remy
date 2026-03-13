@@ -532,6 +532,8 @@ async def exec_clean_directory(registry: ToolRegistry, inp: dict) -> str:
 
 async def exec_search_files(registry: ToolRegistry, inp: dict) -> str:
     """Search indexed files for content matching a query."""
+    from ...config import get_settings
+
     if registry._file_indexer is None:
         return (
             "File indexing not available. "
@@ -550,9 +552,24 @@ async def exec_search_files(registry: ToolRegistry, inp: dict) -> str:
     limit = min(int(inp.get("limit", 5)), 10)
     path_filter = inp.get("path_filter", "").strip() or None
 
+    settings = get_settings()
+    timeout_s = settings.search_files_timeout_seconds
+
     try:
-        results = await registry._file_indexer.search(
-            query, limit=limit, path_filter=path_filter
+        results = await asyncio.wait_for(
+            registry._file_indexer.search(query, limit=limit, path_filter=path_filter),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        try:
+            from ...analytics.metrics import record_error
+
+            record_error("search_files_timeout")
+        except Exception:
+            pass
+        return (
+            f"File search timed out after {timeout_s:.0f}s. "
+            "Try a more specific query or smaller path_filter."
         )
     except Exception as e:
         return f"Search failed: {e}"

@@ -159,6 +159,11 @@ class ToolRegistry:
             chat_id: Optional Telegram chat ID (for tools that need chat context)
             message_id: Optional Telegram message ID (for react_to_message)
         """
+        logger.info(
+            "tool_dispatch: tool=%s user_id=%d",
+            tool_name,
+            user_id,
+        )
         try:
             match tool_name:
                 # Time

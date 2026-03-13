@@ -6,6 +6,8 @@ No API key required — uses the ddgs package (formerly duckduckgo-search).
 import asyncio
 import logging
 
+from ..config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # primp (used internally by ddgs) emits a spurious WARNING on every request when
@@ -20,10 +22,26 @@ async def web_search(query: str, max_results: int = 5) -> list[dict]:
     Each result dict has: title, href, body.
     Returns [] on error (search unavailable, rate-limited, etc.)
     """
+
+    settings = get_settings()
+    timeout_s = settings.web_search_timeout_seconds
+
     def _sync() -> list[dict]:
         try:
             from ddgs import DDGS  # type: ignore[import]
-            with DDGS() as ddgs:
+
+            # DDGS(timeout=...) when supported — second layer of defence
+            ddgs_kwargs: dict = {}
+            try:
+                import inspect
+
+                sig = inspect.signature(DDGS.__init__)
+                if "timeout" in sig.parameters:
+                    ddgs_kwargs["timeout"] = min(20, int(timeout_s))
+            except Exception:
+                pass
+
+            with DDGS(**ddgs_kwargs) as ddgs:
                 return list(ddgs.text(query, max_results=max_results))
         except ImportError:
             logger.warning("ddgs not installed — web search unavailable")
@@ -32,7 +50,24 @@ async def web_search(query: str, max_results: int = 5) -> list[dict]:
             logger.warning("DuckDuckGo search failed for %r: %s", query, e)
             return []
 
-    return await asyncio.to_thread(_sync)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_sync),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        try:
+            from ..analytics.metrics import record_error
+
+            record_error("web_search_timeout")
+        except Exception:
+            pass
+        logger.warning(
+            "DuckDuckGo search timed out after %.0fs for %r",
+            timeout_s,
+            query,
+        )
+        return []
 
 
 def format_results(results: list[dict], max_body: int = 200) -> str:

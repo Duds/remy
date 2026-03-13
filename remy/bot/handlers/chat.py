@@ -416,6 +416,12 @@ def make_chat_handlers(
                         elif isinstance(event, ToolStatusChunk):
                             in_tool_turn = True
                             tool_exec_start = time.monotonic()
+                            logger.info(
+                                "tool_status: user=%d tool=%s tool_use_id=%s",
+                                user_id,
+                                event.tool_name,
+                                event.tool_use_id,
+                            )
                             if (
                                 bot is not None
                                 and chat_id is not None
@@ -449,6 +455,13 @@ def make_chat_handlers(
                         elif isinstance(event, ToolTurnComplete):
                             in_tool_turn = False
                             tool_duration_ms = 0
+                            logger.info(
+                                "tool_turn_complete: user=%d duration_ms=%d",
+                                user_id,
+                                int((time.monotonic() - tool_exec_start) * 1000)
+                                if tool_exec_start is not None
+                                else 0,
+                            )
                             if tool_exec_start is not None:
                                 tool_duration_ms = int(
                                     (time.monotonic() - tool_exec_start) * 1000

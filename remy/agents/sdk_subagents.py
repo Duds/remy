@@ -96,6 +96,7 @@ def is_sdk_available() -> bool:
     """Return True if claude-agent-sdk is installed and usable."""
     try:
         import claude_agent_sdk  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -116,7 +117,9 @@ def _mcp_server_from_registry(
     except ImportError:
         return None
 
-    schema_by_name = {s["name"]: s for s in TOOL_SCHEMAS if s["name"] in allowed_tool_names}
+    schema_by_name = {
+        s["name"]: s for s in TOOL_SCHEMAS if s["name"] in allowed_tool_names
+    }
     tools: list[Any] = []
 
     for name in allowed_tool_names:
@@ -132,7 +135,9 @@ def _mcp_server_from_registry(
             _cid: int | None = chat_id,
             _mid: int | None = message_id,
         ) -> dict:
+            logger.info("mcp_handler_invoke: tool=%s user_id=%d", _name, _uid)
             result = await _reg.dispatch(_name, args, _uid, _cid, _mid)
+            logger.info("mcp_handler_return: tool=%s user_id=%d", _name, _uid)
             return {"content": [{"type": "text", "text": result}]}
 
         tools.append(
@@ -183,7 +188,11 @@ async def run_board_analyst(
         prompt += f"User context (goals/facts):\n{user_context}\n\n"
     prompt += "Provide the full Board of Directors analysis as specified in your instructions."
 
-    model = model or getattr(settings, "model_board_analyst", None) or settings.model_complex
+    model = (
+        model
+        or getattr(settings, "model_board_analyst", None)
+        or settings.model_complex
+    )
     options = ClaudeAgentOptions(
         system_prompt=BOARD_SYSTEM_PROMPT,
         model=model,
@@ -245,7 +254,11 @@ async def run_deep_researcher(
         f"Research the following topic and synthesise key findings into a clear, "
         f"concise summary. Cite sources. Topic: {topic}"
     )
-    model = model or getattr(settings, "model_deep_researcher", None) or settings.model_complex
+    model = (
+        model
+        or getattr(settings, "model_deep_researcher", None)
+        or settings.model_complex
+    )
     options = ClaudeAgentOptions(
         system_prompt=RESEARCH_SYSTEM_PROMPT,
         model=model,
@@ -276,7 +289,9 @@ async def run_deep_researcher(
     return f"📚 *Research: {topic}*\n\n{result}"
 
 
-def _format_messages_for_prompt(messages: list[dict], max_turns: int = 10) -> tuple[str, str]:
+def _format_messages_for_prompt(
+    messages: list[dict], max_turns: int = 10
+) -> tuple[str, str]:
     """Convert message list to (context_string, last_user_prompt). Last message must be user."""
     if not messages:
         return "", ""
@@ -339,9 +354,7 @@ async def run_quick_assistant_streaming(
     tool_names = [s["name"] for s in registry.schemas]
     if not tool_names:
         return
-    mcp = _mcp_server_from_registry(
-        registry, tool_names, user_id, chat_id, message_id
-    )
+    mcp = _mcp_server_from_registry(registry, tool_names, user_id, chat_id, message_id)
     if mcp is None:
         return
 
@@ -394,12 +407,14 @@ async def run_quick_assistant_streaming(
                         tool_use_id=current_tool_use_id,
                         tool_input=current_tool_input,
                     )
-                    assistant_blocks.append({
-                        "type": "tool_use",
-                        "id": current_tool_use_id,
-                        "name": current_tool_name,
-                        "input": current_tool_input,
-                    })
+                    assistant_blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": current_tool_use_id,
+                            "name": current_tool_name,
+                            "input": current_tool_input,
+                        }
+                    )
             elif ev_type == "content_block_stop":
                 pass
         elif getattr(message, "content", None) is not None:
@@ -408,17 +423,23 @@ async def run_quick_assistant_streaming(
             if isinstance(content, list):
                 for block in content:
                     if getattr(block, "type", None) == "tool_result":
-                        tool_use_id = getattr(block, "tool_use_id", "") or current_tool_use_id
+                        tool_use_id = (
+                            getattr(block, "tool_use_id", "") or current_tool_use_id
+                        )
                         result_text = ""
                         if getattr(block, "content", None):
-                            for c in block.content if isinstance(block.content, list) else []:
+                            for c in (
+                                block.content if isinstance(block.content, list) else []
+                            ):
                                 if getattr(c, "text", None):
                                     result_text += c.text
-                        tool_result_blocks.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": result_text,
-                        })
+                        tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": result_text,
+                            }
+                        )
                         if current_tool_name:
                             yield ToolResultChunk(
                                 tool_name=current_tool_name,
@@ -470,12 +491,12 @@ async def run_retrospective_via_sdk(
     start, _end = _parse_period(period)
     stats = await conversation_analyzer.get_stats(user_id, period)
     active_goals = await conversation_analyzer.get_active_goals_with_age(user_id)
-    completed_goals = await conversation_analyzer.get_completed_goals_since(user_id, start)
+    completed_goals = await conversation_analyzer.get_completed_goals_since(
+        user_id, start
+    )
 
     month_name = (
-        start.strftime("%B %Y")
-        if period in ("month", "30d")
-        else stats["period_label"]
+        start.strftime("%B %Y") if period in ("month", "30d") else stats["period_label"]
     )
 
     stats_block = (
@@ -546,4 +567,6 @@ async def run_retrospective_via_sdk(
 
     body = "".join(chunks).strip()
     header = f"📅 *Monthly Retrospective — {month_name}*\n\n"
-    return header + (body if body else conversation_analyzer.format_stats_message(stats))
+    return header + (
+        body if body else conversation_analyzer.format_stats_message(stats)
+    )
